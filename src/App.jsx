@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import Workspace from "./Workspace.jsx";
 import { SAMPLE_SPEC } from "./samplePaper.js";
-import { analyzePaper, getApiKey, setApiKey } from "./api.js";
+import { analyzePaper, getApiKey, setApiKey, MODEL_TIERS, getModelTier, setModelTier } from "./api.js";
 import { fileToBase64, renderPdfPages } from "./pdf.js";
 import { compileSpec, buildHelpers, defaultsFromSpec, runSpec } from "./engine.js";
 
@@ -81,9 +81,51 @@ function SettingsModal({ open, onClose }) {
   );
 }
 
+/* ---------------- analysis model tier picker ---------------- */
+
+function TierPicker({ tier, onTier, disabled }) {
+  return (
+    <div className="mt-4 w-full max-w-2xl rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="mb-2 flex items-baseline justify-between">
+        <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+          Analysis level
+        </span>
+        <span className="text-[11px] text-slate-400">
+          used when analyzing a new paper · billed to your key
+        </span>
+      </div>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4" role="radiogroup" aria-label="Analysis model level">
+        {MODEL_TIERS.map((t) => {
+          const selected = t.id === tier.id;
+          return (
+            <button
+              key={t.id}
+              role="radio"
+              aria-checked={selected}
+              disabled={disabled}
+              onClick={() => onTier(t)}
+              title={t.model}
+              className={`rounded-xl border-2 px-3 py-2 text-left transition disabled:opacity-50 ${
+                selected
+                  ? "border-blue-500 bg-blue-50"
+                  : "border-slate-200 bg-white hover:border-blue-300"
+              }`}
+            >
+              <div className={`text-xs font-semibold ${selected ? "text-blue-700" : "text-slate-700"}`}>
+                {t.label}
+              </div>
+              <div className="mt-0.5 text-[10px] leading-snug text-slate-500">{t.blurb}</div>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 /* ---------------- landing page ---------------- */
 
-function Landing({ onSample, onUpload, onSettings, busy, progress, error }) {
+function Landing({ onSample, onUpload, onSettings, busy, progress, error, tier, onTier }) {
   const fileRef = useRef(null);
 
   return (
@@ -139,8 +181,8 @@ function Landing({ onSample, onUpload, onSettings, busy, progress, error }) {
             <span className="text-sm font-semibold text-slate-800">Analyze a new paper (PDF)</span>
             <span className="text-xs leading-relaxed text-slate-500">
               Pick a PDF from your local drive — synced OneDrive / Google Drive folders work too.
-              Claude (Opus 4.8) extracts the methodology into an interactive pipeline. Requires
-              your API key (top right).
+              Claude ({tier.label} · {tier.model}) extracts the methodology into an interactive
+              pipeline. Requires your API key (top right).
             </span>
           </button>
           <input
@@ -155,6 +197,8 @@ function Landing({ onSample, onUpload, onSettings, busy, progress, error }) {
             }}
           />
         </div>
+
+        <TierPicker tier={tier} onTier={onTier} disabled={busy} />
 
         {busy && (
           <div className="mt-6 flex w-full max-w-2xl items-center gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
@@ -204,6 +248,12 @@ export default function App() {
   const [progress, setProgress] = useState("");
   const [error, setError] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [tier, setTier] = useState(getModelTier);
+
+  const handleTier = useCallback((t) => {
+    setTier(t);
+    setModelTier(t.id);
+  }, []);
 
   const handleUpload = useCallback(async (file) => {
     setError("");
@@ -224,7 +274,7 @@ export default function App() {
       const arrayBuffer = await file.arrayBuffer();
       const base64 = await fileToBase64(file);
 
-      const newSpec = await analyzePaper(base64, setProgress);
+      const newSpec = await analyzePaper(base64, setProgress, tier);
 
       setProgress("Rendering concept figures…");
       try {
@@ -251,7 +301,7 @@ export default function App() {
       setBusy(false);
       setProgress("");
     }
-  }, []);
+  }, [tier]);
 
   if (spec) {
     return <Workspace spec={spec} onBack={() => setSpec(null)} />;
@@ -266,6 +316,8 @@ export default function App() {
         busy={busy}
         progress={progress}
         error={error}
+        tier={tier}
+        onTier={handleTier}
       />
       <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </>

@@ -10,7 +10,10 @@ baseline-vs-modified plots. Inspired by Wolfram Mathematica's slider-driven modu
 
 1. **Landing page** — load the bundled sample paper (no key needed), or upload a PDF.
 2. **Analysis** — the PDF is sent from *your browser* directly to the Anthropic API
-   (`claude-opus-4-8`). Claude reads the text and figures and returns a structured
+   at the analysis level you pick on the landing page:
+   **Advanced** `claude-opus-4-8` · **Standard** `claude-sonnet-5` ·
+   **Basic** `claude-sonnet-4-6` · **Fast** `claude-haiku-4-5` (~100-page limit).
+   Claude reads the text and figures and returns a structured
    `PaperSpec`: metadata, references, concept figures (with plain-language explanations),
    and 3–6 sequential methodology blocks, each with its governing equation, slider
    coefficients (defaults = the paper's reported values), a Python/NumPy snippet, and a

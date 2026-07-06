@@ -14,6 +14,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 
 const KEY_STORAGE = "paper-playground-api-key";
+const TIER_STORAGE = "paper-playground-model-tier";
 
 export function getApiKey() {
   try { return localStorage.getItem(KEY_STORAGE) || ""; } catch { return ""; }
@@ -24,6 +25,59 @@ export function setApiKey(key) {
     if (key) localStorage.setItem(KEY_STORAGE, key.trim());
     else localStorage.removeItem(KEY_STORAGE);
   } catch { /* storage unavailable — key just won't persist */ }
+}
+
+/* ---------------- analysis model tiers ----------------
+ * Four capability levels mapped onto the current Claude lineup.
+ * Haiku 4.5 has a different API surface: no adaptive thinking, no effort
+ * parameter (both 400), and a 200K context window (≈100 PDF pages max).
+ */
+export const MODEL_TIERS = [
+  {
+    id: "advanced",
+    label: "Advanced",
+    model: "claude-opus-4-8",
+    blurb: "Opus 4.8 — deepest extraction, best for dense math-heavy papers",
+    adaptive: true,
+    effort: "high",
+  },
+  {
+    id: "standard",
+    label: "Standard",
+    model: "claude-sonnet-5",
+    blurb: "Sonnet 5 — near-Opus quality at lower cost, good default",
+    adaptive: true,
+    effort: "high",
+  },
+  {
+    id: "basic",
+    label: "Basic",
+    model: "claude-sonnet-4-6",
+    blurb: "Sonnet 4.6 — solid extraction for straightforward papers",
+    adaptive: true,
+    effort: "high",
+  },
+  {
+    id: "fast",
+    label: "Fast",
+    model: "claude-haiku-4-5",
+    blurb: "Haiku 4.5 — cheapest & quickest; papers up to ~100 pages",
+    adaptive: false,
+    effort: null,
+  },
+];
+
+export function getModelTier() {
+  try {
+    const saved = localStorage.getItem(TIER_STORAGE);
+    return MODEL_TIERS.find((t) => t.id === saved) || MODEL_TIERS[0];
+  } catch {
+    return MODEL_TIERS[0];
+  }
+}
+
+export function setModelTier(id) {
+  try { localStorage.setItem(TIER_STORAGE, id); } catch { /* non-fatal */ }
 }
 
 /* ---------------- PaperSpec JSON schema (structured outputs) -------------- */
@@ -145,11 +199,12 @@ OTHER FIELDS
 - conclusion: the paper's core finding, naming the coefficient values it depends on.`;
 
 /**
- * Analyze a paper PDF (base64 string, no newlines).
+ * Analyze a paper PDF (base64 string, no newlines) with the given model tier
+ * (defaults to the stored/most-capable tier).
  * onProgress(stageString) is called as the request advances.
  * Returns the parsed PaperSpec.
  */
-export async function analyzePaper(pdfBase64, onProgress) {
+export async function analyzePaper(pdfBase64, onProgress, tier = getModelTier()) {
   const apiKey = getApiKey();
   if (!apiKey) throw new Error("No API key set. Open Settings and paste your Anthropic API key.");
 
@@ -158,16 +213,16 @@ export async function analyzePaper(pdfBase64, onProgress) {
     dangerouslyAllowBrowser: true, // key is the user's own, stored only in their browser
   });
 
-  onProgress?.("Claude is reading the paper (text + figures)…");
+  onProgress?.(`${tier.label} analysis (${tier.model}) — reading the paper (text + figures)…`);
+
+  const outputConfig = { format: { type: "json_schema", schema: SPEC_SCHEMA } };
+  if (tier.effort) outputConfig.effort = tier.effort;
 
   const response = await client.messages.create({
-    model: "claude-opus-4-8",
+    model: tier.model,
     max_tokens: 16000,
-    thinking: { type: "adaptive" },
-    output_config: {
-      effort: "high",
-      format: { type: "json_schema", schema: SPEC_SCHEMA },
-    },
+    ...(tier.adaptive ? { thinking: { type: "adaptive" } } : {}),
+    output_config: outputConfig,
     messages: [
       {
         role: "user",
