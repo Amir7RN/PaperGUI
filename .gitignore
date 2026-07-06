@@ -1,0 +1,7 @@
+node_modules/
+dist/
+playground/
+.claude/settings.local.json
+*.local
+.env
+.env.*
