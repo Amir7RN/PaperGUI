@@ -8,7 +8,7 @@
 
 import React, { useState, useRef, useCallback, useEffect } from "react";
 import {
-  FlaskConical, Upload, BookOpenCheck, Settings, X, KeyRound,
+  FlaskConical, Upload, BookOpenCheck, X, KeyRound, CircleCheck,
   Loader2, TriangleAlert, FileText, Sparkles, SlidersHorizontal, LineChart,
 } from "lucide-react";
 import Workspace from "./Workspace.jsx";
@@ -21,7 +21,7 @@ const MAX_PDF_MB = 32;
 
 /* ---------------- API key settings modal ---------------- */
 
-function SettingsModal({ open, onClose }) {
+function SettingsModal({ open, onClose, onSaved }) {
   const [key, setKey] = useState("");
   useEffect(() => { if (open) setKey(getApiKey()); }, [open]);
   useEffect(() => {
@@ -44,10 +44,10 @@ function SettingsModal({ open, onClose }) {
         </div>
 
         <p className="mb-3 text-[13px] leading-relaxed text-slate-600">
-          Paper analysis runs directly from your browser against the Anthropic API using{" "}
-          <strong>your own key</strong>. The key is stored only in this browser's local storage —
-          it is never sent anywhere except <code className="rounded bg-slate-100 px-1">api.anthropic.com</code>{" "}
-          and never committed to the repository. Get a key at{" "}
+          <strong>You only need to do this once.</strong> Paste your key below and it stays saved
+          in this browser — every future analysis uses it automatically. The key never leaves
+          your device except to contact the analysis service directly, and it is never shared or
+          uploaded anywhere else. Don't have a key yet? Create one at{" "}
           <a href="https://platform.claude.com" target="_blank" rel="noreferrer" className="text-blue-600 underline">
             platform.claude.com
           </a>.
@@ -70,10 +70,10 @@ function SettingsModal({ open, onClose }) {
             Clear stored key
           </button>
           <button
-            onClick={() => { setApiKey(key); onClose(); }}
+            onClick={() => { setApiKey(key); onSaved?.(); onClose(); }}
             className="rounded-lg bg-slate-800 px-4 py-2 text-xs font-medium text-white hover:bg-slate-700"
           >
-            Save
+            Save key
           </button>
         </div>
       </div>
@@ -91,7 +91,7 @@ function TierPicker({ tier, onTier, disabled }) {
           Analysis level
         </span>
         <span className="text-[11px] text-slate-400">
-          used when analyzing a new paper · billed to your key
+          higher levels are more thorough but cost more
         </span>
       </div>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4" role="radiogroup" aria-label="Analysis model level">
@@ -104,7 +104,6 @@ function TierPicker({ tier, onTier, disabled }) {
               aria-checked={selected}
               disabled={disabled}
               onClick={() => onTier(t)}
-              title={t.model}
               className={`rounded-xl border-2 px-3 py-2 text-left transition disabled:opacity-50 ${
                 selected
                   ? "border-blue-500 bg-blue-50"
@@ -125,7 +124,7 @@ function TierPicker({ tier, onTier, disabled }) {
 
 /* ---------------- landing page ---------------- */
 
-function Landing({ onSample, onUpload, onSettings, busy, progress, error, tier, onTier }) {
+function Landing({ onSample, onUpload, onSettings, busy, progress, error, tier, onTier, hasKey }) {
   const fileRef = useRef(null);
 
   return (
@@ -138,9 +137,14 @@ function Landing({ onSample, onUpload, onSettings, busy, progress, error, tier, 
           </div>
           <button
             onClick={onSettings}
-            className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:border-blue-300 hover:text-blue-700"
+            className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium ${
+              hasKey
+                ? "border-emerald-200 bg-emerald-50 text-emerald-700 hover:border-emerald-300"
+                : "border-amber-300 bg-amber-50 text-amber-800 hover:border-amber-400"
+            }`}
           >
-            <Settings size={14} /> API key
+            {hasKey ? <CircleCheck size={14} /> : <KeyRound size={14} />}
+            {hasKey ? "API key saved" : "Add API key (one-time)"}
           </button>
         </div>
       </header>
@@ -153,7 +157,7 @@ function Landing({ onSample, onUpload, onSettings, busy, progress, error, tier, 
           Turn any scientific paper into a living, interactive dashboard
         </h1>
         <p className="mt-3 max-w-xl text-center text-sm leading-relaxed text-slate-600">
-          Upload a paper and Claude extracts its concept figures, methodology formulas and
+          Upload a paper and the analyzer extracts its concept figures, methodology formulas and
           coefficients into sequential modules with live sliders and synchronized plots — so you
           can grasp, reproduce and stress-test the idea without reading the original side by side.
         </p>
@@ -181,8 +185,8 @@ function Landing({ onSample, onUpload, onSettings, busy, progress, error, tier, 
             <span className="text-sm font-semibold text-slate-800">Analyze a new paper (PDF)</span>
             <span className="text-xs leading-relaxed text-slate-500">
               Pick a PDF from your local drive — synced OneDrive / Google Drive folders work too.
-              Claude ({tier.label} · {tier.model}) extracts the methodology into an interactive
-              pipeline. Requires your API key (top right).
+              The analyzer rebuilds its methodology as an interactive pipeline at the{" "}
+              <strong>{tier.label}</strong> level selected below.
             </span>
           </button>
           <input
@@ -249,6 +253,7 @@ export default function App() {
   const [error, setError] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [tier, setTier] = useState(getModelTier);
+  const [hasKey, setHasKey] = useState(() => !!getApiKey());
 
   const handleTier = useCallback((t) => {
     setTier(t);
@@ -260,7 +265,7 @@ export default function App() {
 
     if (!getApiKey()) {
       setSettingsOpen(true);
-      setError("Set your Anthropic API key first (top right), then upload the paper again.");
+      setError("Add your API key first — it's a one-time step. Then upload the paper again.");
       return;
     }
     if (file.size > MAX_PDF_MB * 1024 * 1024) {
@@ -318,8 +323,13 @@ export default function App() {
         error={error}
         tier={tier}
         onTier={handleTier}
+        hasKey={hasKey}
       />
-      <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <SettingsModal
+        open={settingsOpen}
+        onClose={() => { setSettingsOpen(false); setHasKey(!!getApiKey()); }}
+        onSaved={() => { setHasKey(!!getApiKey()); setError(""); }}
+      />
     </>
   );
 }

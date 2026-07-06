@@ -37,7 +37,7 @@ export const MODEL_TIERS = [
     id: "advanced",
     label: "Advanced",
     model: "claude-opus-4-8",
-    blurb: "Opus 4.8 — deepest extraction, best for dense math-heavy papers",
+    blurb: "Deepest analysis — best for dense, math-heavy papers",
     adaptive: true,
     effort: "high",
   },
@@ -45,7 +45,7 @@ export const MODEL_TIERS = [
     id: "standard",
     label: "Standard",
     model: "claude-sonnet-5",
-    blurb: "Sonnet 5 — near-Opus quality at lower cost, good default",
+    blurb: "Balanced quality, speed and cost — the recommended default",
     adaptive: true,
     effort: "high",
   },
@@ -53,7 +53,7 @@ export const MODEL_TIERS = [
     id: "basic",
     label: "Basic",
     model: "claude-sonnet-4-6",
-    blurb: "Sonnet 4.6 — solid extraction for straightforward papers",
+    blurb: "Lighter analysis for straightforward papers",
     adaptive: true,
     effort: "high",
   },
@@ -61,7 +61,7 @@ export const MODEL_TIERS = [
     id: "fast",
     label: "Fast",
     model: "claude-haiku-4-5",
-    blurb: "Haiku 4.5 — cheapest & quickest; papers up to ~100 pages",
+    blurb: "Quickest and cheapest — papers up to ~100 pages",
     adaptive: false,
     effort: null,
   },
@@ -213,14 +213,19 @@ export async function analyzePaper(pdfBase64, onProgress, tier = getModelTier())
     dangerouslyAllowBrowser: true, // key is the user's own, stored only in their browser
   });
 
-  onProgress?.(`${tier.label} analysis (${tier.model}) — reading the paper (text + figures)…`);
+  onProgress?.(`${tier.label} analysis — reading the paper (text + figures)…`);
 
   const outputConfig = { format: { type: "json_schema", schema: SPEC_SCHEMA } };
   if (tier.effort) outputConfig.effort = tier.effort;
 
-  const response = await client.messages.create({
+  // Stream with a large output budget: reasoning tokens and the extracted
+  // JSON share max_tokens, so a small cap truncates mid-analysis (wasting the
+  // whole request). Streaming also avoids HTTP timeouts on long analyses and
+  // lets us show live progress.
+  const maxTokens = tier.id === "fast" ? 32000 : 64000; // Haiku caps at 64K total; leave input headroom
+  const stream = client.messages.stream({
     model: tier.model,
-    max_tokens: 16000,
+    max_tokens: maxTokens,
     ...(tier.adaptive ? { thinking: { type: "adaptive" } } : {}),
     output_config: outputConfig,
     messages: [
@@ -237,15 +242,30 @@ export async function analyzePaper(pdfBase64, onProgress, tier = getModelTier())
     ],
   });
 
+  let chars = 0;
+  let lastUpdate = 0;
+  stream.on("text", (delta) => {
+    chars += delta.length;
+    const now = Date.now();
+    if (now - lastUpdate > 500) {
+      lastUpdate = now;
+      onProgress?.(`${tier.label} analysis in progress — ${(chars / 1024).toFixed(1)} kB extracted…`);
+    }
+  });
+
+  const response = await stream.finalMessage();
+
   if (response.stop_reason === "refusal") {
-    throw new Error("Claude declined to analyze this document.");
+    throw new Error("The analyzer declined to process this document.");
   }
   if (response.stop_reason === "max_tokens") {
-    throw new Error("The analysis was truncated (max_tokens). Try a shorter paper.");
+    throw new Error(
+      "The analysis ran longer than the output budget allows. Try the Standard or Advanced level, or a shorter paper."
+    );
   }
 
   onProgress?.("Parsing extracted methodology…");
-  const textBlock = response.content.find((b) => b.type === "text");
+  const textBlock = response.content.find((b) => b.type === "text" && b.text);
   if (!textBlock) throw new Error("Empty response from the analyzer.");
   return JSON.parse(textBlock.text);
 }
