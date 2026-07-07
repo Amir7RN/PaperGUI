@@ -9,16 +9,17 @@
 import React, { useState, useRef, useCallback, useEffect } from "react";
 import {
   FlaskConical, Upload, BookOpenCheck, X, KeyRound, CircleCheck,
-  Loader2, TriangleAlert, FileText, Sparkles, SlidersHorizontal, LineChart,
+  Loader2, TriangleAlert, FileText, Sparkles, SlidersHorizontal, LineChart, LogOut,
 } from "lucide-react";
 import Workspace from "./Workspace.jsx";
+import Auth from "./Auth.jsx";
 import { SAMPLE_SPEC } from "./samplePaper.js";
 import { analyzePaper, getApiKey, setApiKey, MODEL_TIERS, getModelTier, setModelTier } from "./api.js";
 import { fileToBase64, renderPdfRegions } from "./pdf.js";
-import {
-  compileSpec, buildHelpers, defaultsFromSpec, runSpec,
-  compileResultFigures, runResultFigure,
-} from "./engine.js";
+import { compileSpec, buildHelpers, defaultsFromSpec, runSpec, validateResultFigures } from "./engine.js";
+import { authEnabled, onAuthChange, signOut } from "./supabase.js";
+
+const BG_URL = `${import.meta.env.BASE_URL}Background.png`;
 
 const MAX_PDF_MB = 32;
 
@@ -127,28 +128,38 @@ function TierPicker({ tier, onTier, disabled }) {
 
 /* ---------------- landing page ---------------- */
 
-function Landing({ onSample, onUpload, onSettings, busy, progress, error, tier, onTier, hasKey }) {
+function Landing({ onSample, onUpload, onSettings, busy, progress, error, tier, onTier, hasKey, onSignOut }) {
   const fileRef = useRef(null);
 
   return (
-    <div className="flex min-h-screen flex-col bg-slate-100" style={{ fontFamily: "system-ui, -apple-system, 'Segoe UI', sans-serif" }}>
-      <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-4 sm:px-6">
+    <div className="flex min-h-screen flex-col" style={{ fontFamily: "system-ui, -apple-system, 'Segoe UI', sans-serif" }}>
+      <header className="border-b border-slate-200/70 bg-white/80 backdrop-blur">
+        <div className="mx-auto flex max-w-5xl items-center justify-between gap-2 px-4 py-4 sm:px-6">
           <div className="flex items-center gap-2 text-sm font-semibold text-slate-800">
             <FlaskConical size={18} className="text-blue-600" />
             Interactive Paper Playground
           </div>
-          <button
-            onClick={onSettings}
-            className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium ${
-              hasKey
-                ? "border-emerald-200 bg-emerald-50 text-emerald-700 hover:border-emerald-300"
-                : "border-amber-300 bg-amber-50 text-amber-800 hover:border-amber-400"
-            }`}
-          >
-            {hasKey ? <CircleCheck size={14} /> : <KeyRound size={14} />}
-            {hasKey ? "API key saved" : "Add API key (one-time)"}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={onSettings}
+              className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium ${
+                hasKey
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-700 hover:border-emerald-300"
+                  : "border-amber-300 bg-amber-50 text-amber-800 hover:border-amber-400"
+              }`}
+            >
+              {hasKey ? <CircleCheck size={14} /> : <KeyRound size={14} />}
+              {hasKey ? "API key saved" : "Add API key (one-time)"}
+            </button>
+            {onSignOut && (
+              <button
+                onClick={onSignOut}
+                className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white/80 px-3 py-1.5 text-xs font-medium text-slate-600 hover:border-slate-300"
+              >
+                <LogOut size={14} /> Sign out
+              </button>
+            )}
+          </div>
         </div>
       </header>
 
@@ -208,13 +219,24 @@ function Landing({ onSample, onUpload, onSettings, busy, progress, error, tier, 
         <TierPicker tier={tier} onTier={onTier} disabled={busy} />
 
         {busy && (
-          <div className="mt-6 flex w-full max-w-2xl items-center gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
-            <Loader2 size={18} className="shrink-0 animate-spin" />
-            <div>
-              <div className="font-medium">{progress || "Working…"}</div>
-              <div className="text-xs opacity-75">
-                Deep analysis can take a few minutes for dense papers — the tab must stay open.
+          <div className="mt-6 w-full max-w-2xl rounded-xl border border-blue-200 bg-white/90 px-4 py-4 shadow-sm backdrop-blur">
+            <div className="flex items-center gap-3 text-sm text-blue-900">
+              <Loader2 size={18} className="shrink-0 animate-spin" />
+              <div className="min-w-0 flex-1">
+                <div className="font-medium">{progress?.label || "Working…"}</div>
+                <div className="text-xs text-slate-500">
+                  Deep analysis can take a few minutes for dense papers — keep this tab open.
+                </div>
               </div>
+              <span className="shrink-0 text-sm font-semibold tabular-nums text-blue-700">
+                {Math.round(progress?.pct || 0)}%
+              </span>
+            </div>
+            <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-slate-200">
+              <div
+                className="h-full rounded-full bg-blue-600 transition-all duration-500 ease-out"
+                style={{ width: `${Math.max(3, Math.min(100, progress?.pct || 0))}%` }}
+              />
             </div>
           </div>
         )}
@@ -252,11 +274,20 @@ function Landing({ onSample, onUpload, onSettings, busy, progress, error, tier, 
 export default function App() {
   const [spec, setSpec] = useState(null);
   const [busy, setBusy] = useState(false);
-  const [progress, setProgress] = useState("");
+  const [progress, setProgress] = useState(null);
   const [error, setError] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [tier, setTier] = useState(getModelTier);
   const [hasKey, setHasKey] = useState(() => !!getApiKey());
+
+  // Auth: when Supabase is configured, gate the app behind sign-in.
+  const [session, setSession] = useState(null);
+  const [authReady, setAuthReady] = useState(!authEnabled);
+  useEffect(() => {
+    if (!authEnabled) return;
+    const unsub = onAuthChange((s) => { setSession(s); setAuthReady(true); });
+    return unsub;
+  }, []);
 
   const handleTier = useCallback((t) => {
     setTier(t);
@@ -278,13 +309,13 @@ export default function App() {
 
     setBusy(true);
     try {
-      setProgress("Reading the PDF…");
+      setProgress({ pct: 3, label: "Reading the PDF…" });
       const arrayBuffer = await file.arrayBuffer();
       const base64 = await fileToBase64(file);
 
       const newSpec = await analyzePaper(base64, setProgress, tier);
 
-      setProgress("Cropping figures from the paper…");
+      setProgress({ pct: 86, label: "Cropping figures from the paper…" });
       try {
         const concept = newSpec.conceptFigures || [];
         const results = newSpec.resultFigures || [];
@@ -296,7 +327,7 @@ export default function App() {
         // figure previews are optional — explanations still show
       }
 
-      setProgress("Compiling the computational pipeline…");
+      setProgress({ pct: 93, label: "Compiling the interactive pipeline…" });
       const helpers = buildHelpers(newSpec.protocol);
       const defaults = defaultsFromSpec(newSpec);
       const compiled = compileSpec(newSpec);
@@ -305,29 +336,62 @@ export default function App() {
         throw new Error(`The generated pipeline failed a test run: ${run.error}. Try re-analyzing the paper.`);
       }
 
-      // Test-run each reproduced result figure; drop any that error so a single
-      // bad kernel never blocks the whole workspace.
-      const figCompiled = compileResultFigures(newSpec);
-      newSpec.resultFigures = (newSpec.resultFigures || []).filter((fig) => {
-        const r = runResultFigure(fig, figCompiled.fns[fig.figureLabel], run.outputs, defaults, helpers);
-        return !r.error;
-      });
+      // Validate the reproduced figures: drop panels/figures whose kernels error
+      // so one bad subplot never blocks the whole workspace.
+      newSpec.resultFigures = validateResultFigures(newSpec, compiled, helpers, defaults);
 
+      setProgress({ pct: 100, label: "Done" });
       setSpec(newSpec);
     } catch (e) {
       setError(e?.message || String(e));
     } finally {
       setBusy(false);
-      setProgress("");
+      setProgress(null);
     }
   }, [tier]);
 
+  // Full-site background: fixed image layer + soft wash for legibility.
+  const bgLayer = (
+    <div aria-hidden="true" className="pointer-events-none fixed inset-0 -z-10">
+      <div
+        className="absolute inset-0 bg-cover bg-center bg-no-repeat"
+        style={{ backgroundImage: `url("${BG_URL}")` }}
+      />
+      <div className="absolute inset-0 bg-slate-100/70" />
+    </div>
+  );
+
+  // Auth gate
+  if (authEnabled && !authReady) {
+    return (
+      <>
+        {bgLayer}
+        <div className="flex min-h-screen items-center justify-center">
+          <Loader2 size={22} className="animate-spin text-slate-500" />
+        </div>
+      </>
+    );
+  }
+  if (authEnabled && !session) {
+    return (<>{bgLayer}<Auth /></>);
+  }
+
   if (spec) {
-    return <Workspace spec={spec} onBack={() => setSpec(null)} />;
+    return (
+      <>
+        {bgLayer}
+        <Workspace
+          spec={spec}
+          onBack={() => setSpec(null)}
+          onSignOut={authEnabled ? signOut : null}
+        />
+      </>
+    );
   }
 
   return (
     <>
+      {bgLayer}
       <Landing
         onSample={() => setSpec(SAMPLE_SPEC)}
         onUpload={handleUpload}
@@ -338,6 +402,7 @@ export default function App() {
         tier={tier}
         onTier={handleTier}
         hasKey={hasKey}
+        onSignOut={authEnabled ? signOut : null}
       />
       <SettingsModal
         open={settingsOpen}

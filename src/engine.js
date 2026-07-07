@@ -96,41 +96,63 @@ export function runSpec(spec, compiled, params, helpers) {
   return { outputs, error: null };
 }
 
-/** Compile every resultFigure's computeJs once. Returns {fns, errors}. */
+/**
+ * Compile every panel of every result figure once.
+ * Keyed by "figIndex:panelIndex". Returns {fns, errors}.
+ */
 export function compileResultFigures(spec) {
   const fns = {};
   const errors = {};
-  for (const fig of spec.resultFigures || []) {
-    try {
-      // eslint-disable-next-line no-new-func
-      fns[fig.figureLabel] = new Function("outputs", "params", "helpers", fig.computeJs);
-    } catch (e) {
-      errors[fig.figureLabel] = `Compile error: ${e.message}`;
-    }
-  }
+  (spec.resultFigures || []).forEach((fig, fi) => {
+    (fig.panels || []).forEach((panel, pi) => {
+      const id = `${fi}:${pi}`;
+      try {
+        // eslint-disable-next-line no-new-func
+        fns[id] = new Function("outputs", "params", "helpers", panel.computeJs);
+      } catch (e) {
+        errors[id] = `Compile error: ${e.message}`;
+      }
+    });
+  });
   return { fns, errors };
 }
 
 /**
- * Run one result-figure kernel. Returns { x?, series:[{label,data}], error }.
- * `outputs` is the pipeline output map (from runSpec), `params` the slider state.
+ * Build the helpers object passed to figure-panel kernels. Adds `simulate`,
+ * which re-runs the whole methodology pipeline under parameter overrides and
+ * returns its output map — this is what lets a figure show comparison curves
+ * (with/without control, perturbation sweeps, gain ablations, …) the way the
+ * paper's real figures do.
  */
-export function runResultFigure(fig, fn, outputs, params, helpers) {
-  if (!fn) return { series: [], error: `"${fig.figureLabel}" failed to compile` };
+export function makeFigureHelpers(spec, pipelineCompiled, helpers, baseParams) {
+  const simulate = (overrides) => {
+    const p = overrides ? { ...baseParams, ...overrides } : baseParams;
+    const r = runSpec(spec, pipelineCompiled, p, helpers);
+    return r.error ? null : r.outputs;
+  };
+  return { ...helpers, simulate };
+}
+
+/**
+ * Run one figure panel kernel. Returns { x?, series:[{label,data}], error }.
+ * `figHelpers` must be the object from makeFigureHelpers (includes simulate).
+ */
+export function runResultPanel(fn, outputs, params, figHelpers) {
+  if (!fn) return { series: [], error: "panel failed to compile" };
   let res;
   try {
-    res = fn(outputs, params, helpers);
+    res = fn(outputs, params, figHelpers);
   } catch (e) {
-    return { series: [], error: `Runtime error in ${fig.figureLabel}: ${e.message}` };
+    return { series: [], error: `Runtime error: ${e.message}` };
   }
   if (!res || !Array.isArray(res.series) || !res.series.length) {
-    return { series: [], error: `${fig.figureLabel} must return { series: [{label, data}] }` };
+    return { series: [], error: "panel must return { series: [{label, data}] }" };
   }
   const len = res.series[0].data?.length;
-  if (!len) return { series: [], error: `${fig.figureLabel} returned empty series data` };
+  if (!len) return { series: [], error: "panel returned empty series data" };
   for (const s of res.series) {
     if (!Array.isArray(s.data) || s.data.length !== len) {
-      return { series: [], error: `${fig.figureLabel}: all series must share one length` };
+      return { series: [], error: "all series in a panel must share one length" };
     }
     for (let i = 0; i < s.data.length; i++) {
       if (!Number.isFinite(s.data[i])) s.data[i] = 0;
@@ -141,12 +163,12 @@ export function runResultFigure(fig, fn, outputs, params, helpers) {
   return { x, series: res.series, error: null };
 }
 
-/** Build Recharts rows for a result figure: baseline + active series interleaved. */
-export function buildFigureRows(figKey, baseRun, actRun) {
+/** Recharts rows for one panel: baseline (b#) + active (a#) series interleaved. */
+export function buildPanelRows(baseRun, actRun) {
   const active = actRun && !actRun.error ? actRun : null;
   const base = baseRun && !baseRun.error ? baseRun : null;
   const ref = active || base;
-  if (!ref) return { rows: [], series: [] };
+  if (!ref) return { rows: [] };
 
   const x = ref.x;
   const n = ref.series[0].data.length;
@@ -157,7 +179,29 @@ export function buildFigureRows(figKey, baseRun, actRun) {
     if (base)   base.series.forEach((s, k) => { row[`b${k}`] = s.data[i]; });
     rows[i] = row;
   }
-  return { rows, xIsCustom: !!x };
+  return { rows };
+}
+
+/**
+ * Validate every panel of every result figure by test-running it.
+ * Returns figures with any all-panel-failed figures removed and per-figure
+ * panels pruned of individually-failing panels.
+ */
+export function validateResultFigures(spec, pipelineCompiled, helpers, baseParams) {
+  const figCompiled = compileResultFigures(spec);
+  const base = runSpec(spec, pipelineCompiled, baseParams, helpers);
+  const figHelpers = makeFigureHelpers(spec, pipelineCompiled, helpers, baseParams);
+  const kept = [];
+  (spec.resultFigures || []).forEach((fig, fi) => {
+    const goodPanels = (fig.panels || []).filter((panel, pi) => {
+      const id = `${fi}:${pi}`;
+      if (figCompiled.errors[id]) return false;
+      const r = runResultPanel(figCompiled.fns[id], base.outputs, baseParams, figHelpers);
+      return !r.error;
+    });
+    if (goodPanels.length) kept.push({ ...fig, panels: goodPanels });
+  });
+  return kept;
 }
 
 /** Normalized RMS drift (%) of the final block's output vs baseline. */

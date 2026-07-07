@@ -8,3 +8,6 @@ playground/
 
 # user papers
 *.pdf
+
+# root copy (tracked version lives in public/)
+/Background.png

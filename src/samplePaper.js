@@ -72,55 +72,107 @@ export const SAMPLE_SPEC = {
   resultFigures: [
     {
       figureLabel: "Fig. 6",
-      title: "Closed-loop step response vs. command",
-      xLabel: "t (s)",
-      yLabel: "position",
+      title: "Closed-loop step response and signal conditioning",
       explanation:
-        "The paper's headline result: the regulated output tracking the step command. Move the PID " +
-        "gains or plant time constant and watch overshoot, rise time and settling change against the " +
-        "author's baseline (dashed).",
-      svg: `<svg viewBox="0 0 340 170" xmlns="http://www.w3.org/2000/svg" font-family="system-ui" font-size="9">
-        <rect x="0" y="0" width="340" height="170" fill="white"/>
-        <line x1="38" y1="140" x2="325" y2="140" stroke="#c3c2b7"/>
-        <line x1="38" y1="20" x2="38" y2="140" stroke="#c3c2b7"/>
-        <text x="10" y="55" fill="#898781">1.5</text>
-        <text x="20" y="143" fill="#898781">0</text>
-        <text x="300" y="155" fill="#898781">t</text>
-        <polyline points="38,140 108,140 108,55 325,55" fill="none" stroke="#4a3aa7" stroke-width="1.5" stroke-dasharray="3 3"/>
-        <path d="M108 140 C 130 40, 150 45, 172 58 S 210 55, 325 55" fill="none" stroke="#111" stroke-width="1.6"/>
-        <text x="150" y="35" fill="#4a3aa7">command r(t)</text>
-        <text x="205" y="80" fill="#111">response y(t)</text>
+        "The paper's headline result, shown as two subplots. (a) The regulated output tracking the " +
+        "step command, compared against the uncontrolled plant — the gap is what the controller buys " +
+        "you. (b) The signal at each conditioning stage. Move the PID gains, filter α or gain G and " +
+        "both subplots redraw against the author's baseline (dashed).",
+      svg: `<svg viewBox="0 0 300 180" xmlns="http://www.w3.org/2000/svg" font-family="system-ui" font-size="8">
+        <rect x="0" y="0" width="300" height="180" fill="white"/>
+        <text x="8" y="12" fill="#52514e" font-weight="600">(a) step tracking</text>
+        <line x1="30" y1="80" x2="290" y2="80" stroke="#c3c2b7"/><line x1="30" y1="20" x2="30" y2="80" stroke="#c3c2b7"/>
+        <polyline points="30,80 95,80 95,30 290,30" fill="none" stroke="#4a3aa7" stroke-width="1.2" stroke-dasharray="3 2"/>
+        <path d="M95 80 C 115 22, 135 26, 160 32 S 220 30, 290 30" fill="none" stroke="#2a78d6" stroke-width="1.4"/>
+        <line x1="95" y1="80" x2="290" y2="79" stroke="#e34948" stroke-width="1.2"/>
+        <text x="150" y="98" fill="#52514e" font-weight="600">(b) conditioning stages</text>
+        <line x1="30" y1="160" x2="290" y2="160" stroke="#c3c2b7"/><line x1="30" y1="108" x2="30" y2="160" stroke="#c3c2b7"/>
+        <path d="M30 135 Q 70 108, 110 150 T 190 120 T 290 138" fill="none" stroke="#898781" stroke-width="1"/>
+        <path d="M30 135 Q 90 124, 150 140 T 290 133" fill="none" stroke="#1baf7a" stroke-width="1.2"/>
       </svg>`,
-      computeJs: `
+      panels: [
+        {
+          subplotLabel: "(a) Step tracking vs. uncontrolled plant",
+          xLabel: "t (s)", yLabel: "position",
+          computeJs: `
 const R = 1.5, tStep = 2.0;
 const cmd = new Array(helpers.n), y = outputs.resp;
 for (let i = 0; i < helpers.n; i++) cmd[i] = helpers.t[i] >= tStep ? R : 0;
+const off = helpers.simulate({ Kp: 0, Ki: 0, Kd: 0 }); // no controller
 return { series: [
   { label: "Command r(t)", data: cmd },
   { label: "Closed-loop y(t)", data: y },
+  { label: "Uncontrolled", data: off ? off.resp : cmd },
 ] };`,
+        },
+        {
+          subplotLabel: "(b) Signal at each conditioning stage",
+          xLabel: "t (s)", yLabel: "amplitude",
+          computeJs: `
+return { series: [
+  { label: "Raw x(t)", data: outputs.raw },
+  { label: "Filtered y(t)", data: outputs.filt },
+  { label: "Shaped z(t)", data: outputs.shaped },
+] };`,
+        },
+      ],
     },
     {
       figureLabel: "Fig. 7",
-      title: "Tracking error under regulation",
-      xLabel: "t (s)",
-      yLabel: "error e(t)",
+      title: "Robustness: error vs. plant speed, and overshoot vs. gain",
       explanation:
-        "The regulation error e = r − y over time. A well-tuned loop drives it to zero quickly; " +
-        "detune the gains and the error rings or fails to settle — exactly the failure modes §4 warns about.",
-      svg: `<svg viewBox="0 0 340 170" xmlns="http://www.w3.org/2000/svg" font-family="system-ui" font-size="9">
-        <rect x="0" y="0" width="340" height="170" fill="white"/>
-        <line x1="38" y1="90" x2="325" y2="90" stroke="#c3c2b7"/>
-        <line x1="38" y1="20" x2="38" y2="150" stroke="#c3c2b7"/>
-        <text x="20" y="93" fill="#898781">0</text>
-        <path d="M38 90 L108 90 L108 35 C 150 30, 180 92, 230 90 S 325 90, 325 90" fill="none" stroke="#e34948" stroke-width="1.6"/>
-        <text x="150" y="120" fill="#e34948">e(t) = r − y</text>
+        "The paper's robustness study, reproduced as two subplots that both use scenario sweeps. " +
+        "(a) Tracking error for three plant time constants — the loop stays fast for small τ and " +
+        "degrades as the plant slows. (b) Percent overshoot swept across the proportional gain Kₚ. " +
+        "Changing any other slider shifts these whole curves, because each point re-runs the model.",
+      svg: `<svg viewBox="0 0 300 180" xmlns="http://www.w3.org/2000/svg" font-family="system-ui" font-size="8">
+        <rect x="0" y="0" width="300" height="180" fill="white"/>
+        <text x="8" y="12" fill="#52514e" font-weight="600">(a) error vs τ</text>
+        <line x1="30" y1="80" x2="290" y2="80" stroke="#c3c2b7"/><line x1="30" y1="20" x2="30" y2="80" stroke="#c3c2b7"/>
+        <path d="M30 80 L95 80 L95 32 Q 150 88, 210 78 T 290 80" fill="none" stroke="#2a78d6" stroke-width="1.1"/>
+        <path d="M30 80 L95 80 L95 32 Q 160 96, 240 78 T 290 80" fill="none" stroke="#1baf7a" stroke-width="1.1"/>
+        <path d="M30 80 L95 80 L95 32 Q 180 104, 270 82 T 290 82" fill="none" stroke="#eda100" stroke-width="1.1"/>
+        <text x="120" y="98" fill="#52514e" font-weight="600">(b) overshoot vs Kp</text>
+        <line x1="30" y1="160" x2="290" y2="160" stroke="#c3c2b7"/><line x1="30" y1="108" x2="30" y2="160" stroke="#c3c2b7"/>
+        <path d="M40 150 C 110 148, 160 130, 290 112" fill="none" stroke="#e34948" stroke-width="1.4"/>
       </svg>`,
-      computeJs: `
-const R = 1.5, tStep = 2.0, y = outputs.resp;
-const e = new Array(helpers.n);
-for (let i = 0; i < helpers.n; i++) e[i] = (helpers.t[i] >= tStep ? R : 0) - y[i];
-return { series: [ { label: "Tracking error", data: e } ] };`,
+      panels: [
+        {
+          subplotLabel: "(a) Tracking error for three plant speeds",
+          xLabel: "t (s)", yLabel: "error e(t)",
+          computeJs: `
+const R = 1.5, tStep = 2.0;
+function err(o) {
+  const e = new Array(helpers.n);
+  for (let i = 0; i < helpers.n; i++) e[i] = (helpers.t[i] >= tStep ? R : 0) - o.resp[i];
+  return e;
+}
+const fast = helpers.simulate({ tau: 0.3 });
+const nom  = helpers.simulate({ tau: 0.5 });
+const slow = helpers.simulate({ tau: 1.0 });
+return { series: [
+  { label: "τ = 0.3 (fast)", data: err(fast) },
+  { label: "τ = 0.5 (nominal)", data: err(nom) },
+  { label: "τ = 1.0 (slow)", data: err(slow) },
+] };`,
+        },
+        {
+          subplotLabel: "(b) Overshoot swept over proportional gain",
+          xLabel: "Kₚ", yLabel: "overshoot (%)",
+          computeJs: `
+const R = 1.5, iStep = Math.round(2.0 / helpers.dt);
+const kps = [0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4];
+const x = [], os = [];
+for (const kp of kps) {
+  const o = helpers.simulate({ Kp: kp });
+  let peak = -1e9;
+  for (let i = iStep; i < helpers.n; i++) peak = Math.max(peak, o.resp[i]);
+  x.push(kp);
+  os.push(helpers.clamp((peak - R) / R * 100, 0, 200)); // clamp the unstable tail
+}
+return { x, series: [ { label: "Overshoot", data: os } ] };`,
+        },
+      ],
     },
   ],
   protocol: {

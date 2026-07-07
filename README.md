@@ -13,11 +13,13 @@ baseline-vs-modified plots. Inspired by Wolfram Mathematica's slider-driven modu
    at the analysis level you pick on the landing page:
    **Advanced** `claude-opus-4-8` · **Standard** `claude-sonnet-5` ·
    **Basic** `claude-sonnet-4-6` · **Fast** `claude-haiku-4-5` (~100-page limit).
-   Claude reads the text and figures and returns a structured
-   `PaperSpec`: metadata, references, concept figures (with plain-language explanations),
-   and 3–6 sequential methodology blocks, each with its governing equation, slider
-   coefficients (defaults = the paper's reported values), a Python/NumPy snippet, and a
-   JS compute kernel.
+   Claude reads the text and figures and returns a structured `PaperSpec`: metadata,
+   references, cropped concept figures (with plain-language explanations), 3–6 sequential
+   methodology blocks (equation + slider coefficients + Python/NumPy snippet + JS kernel),
+   and **faithful reproductions of the paper's real result figures** — every subplot and
+   overlaid curve, each computed from the pipeline so sliders redraw them live. Result-figure
+   kernels can call `simulate(overrides)` to re-run the whole model under different
+   conditions, which is how comparison/ablation/sweep curves are reproduced.
 3. **Workspace** — a generic engine runs the pipeline twice (author baseline + your
    slider state) and renders one synchronized chart per block. The Smart Conclusion box
    quantifies how far your modification has drifted from the paper's claim.
@@ -31,6 +33,31 @@ considered leaked and gets revoked). Instead:
 - Click **API key** (top right) and paste your key from https://platform.claude.com
 - It is stored only in your browser's `localStorage` and sent only to `api.anthropic.com`.
 - Analysis is billed to your own account (one Opus 4.8 call per paper).
+
+## Authentication (optional — Supabase)
+
+The site can require visitors to sign up / sign in before use. It's off until you
+supply Supabase credentials, so the app keeps working open until you're ready.
+
+1. Create a free project at https://supabase.com. In **Authentication → Providers**,
+   keep **Email** enabled (turn "Confirm email" on if you want verification links).
+2. Copy the project's **URL** and **anon public key** (Project Settings → API).
+3. In this GitHub repo: **Settings → Secrets and variables → Actions → New repository secret**,
+   add both:
+   - `VITE_SUPABASE_URL`
+   - `VITE_SUPABASE_ANON_KEY`
+4. Re-run the deploy (push any commit, or **Actions → Deploy → Run workflow**).
+
+Once those secrets are present at build time, the sign-in gate turns on. The anon
+key is a **public** key by design — it's safe in a static site; Supabase row-level
+security is what protects data. Never add the `service_role` key.
+
+For local dev, put the same two values in a `.env` file (git-ignored):
+
+```
+VITE_SUPABASE_URL=https://xxxx.supabase.co
+VITE_SUPABASE_ANON_KEY=eyJ...
+```
 
 ## Run locally
 

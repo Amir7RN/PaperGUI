@@ -10,8 +10,9 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "latest",
-    "pdfjs-dist": "^4.10.38",
+    "@supabase/supabase-js": "^2.110.0",
     "lucide-react": "^0.525.0",
+    "pdfjs-dist": "^4.10.38",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "recharts": "^2.15.0"

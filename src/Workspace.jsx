@@ -18,12 +18,12 @@ import {
 import {
   Info, RotateCcw, BookOpen, X, FlaskConical, SlidersHorizontal,
   Activity, GitBranch, Pin, PinOff, FileText, Code2, Sigma, Waves, Cpu,
-  ChevronRight, TriangleAlert, CircleCheck, CircleAlert, ArrowLeft, Image as ImageIcon,
+  ChevronRight, TriangleAlert, CircleCheck, CircleAlert, ArrowLeft, Image as ImageIcon, LogOut,
 } from "lucide-react";
 import {
   buildHelpers, defaultsFromSpec, compileSpec, runSpec,
   driftPercent, summaryMetrics, buildRows,
-  compileResultFigures, runResultFigure, buildFigureRows,
+  compileResultFigures, runResultPanel, buildPanelRows, makeFigureHelpers,
 } from "./engine.js";
 
 /* categorical hues for multi-series result reproductions (validated set) */
@@ -508,37 +508,84 @@ function ResultFigureTooltip({ active, payload, label, xLabel, legend }) {
   );
 }
 
-function ResultFigureCard({ fig, baseRun, actRun, onInfo }) {
-  const { rows } = useMemo(() => buildFigureRows(fig.figureLabel, baseRun, actRun), [fig.figureLabel, baseRun, actRun]);
-
+/** One subplot: original is shown once per figure, so this is just the chart. */
+function PanelChart({ panel, baseRun, actRun }) {
+  const { rows } = useMemo(() => buildPanelRows(baseRun, actRun), [baseRun, actRun]);
   const err = actRun?.error || baseRun?.error;
   const nSeries = (actRun?.series || baseRun?.series || []).length;
 
-  // legend: active (solid, colored) + baseline (dashed neutral) per source series
   const legend = [];
   for (let k = 0; k < nSeries; k++) {
     const name = (actRun?.series || baseRun?.series)[k]?.label || `series ${k + 1}`;
-    legend.push({ key: `a${k}`, label: `${name} (modified)`, color: SERIES_HUES[k % SERIES_HUES.length] });
+    legend.push({ key: `a${k}`, label: name, color: SERIES_HUES[k % SERIES_HUES.length] });
   }
   for (let k = 0; k < nSeries; k++) {
     const name = (baseRun?.series || actRun?.series)[k]?.label || `series ${k + 1}`;
-    legend.push({ key: `b${k}`, label: `${name} (paper baseline)`, color: C.baseline, dash: "5 4" });
+    legend.push({ key: `b${k}`, label: `${name} · baseline`, color: C.baseline, dash: "5 4" });
   }
 
   return (
+    <div className="rounded-lg border border-slate-100 bg-white p-2">
+      <div className="mb-1 flex items-baseline justify-between px-1">
+        <span className="text-[11px] font-semibold text-slate-700">{panel.subplotLabel}</span>
+        <span className="text-[10px] text-slate-400">{panel.xLabel} → {panel.yLabel}</span>
+      </div>
+      {err ? (
+        <div className="rounded border border-red-200 bg-red-50 px-2 py-2 text-[11px] text-red-700">{err}</div>
+      ) : (
+        <ResponsiveContainer width="100%" height={170}>
+          <LineChart data={rows} margin={{ top: 6, right: 10, bottom: 2, left: -12 }}>
+            <CartesianGrid stroke={C.grid} strokeWidth={1} vertical={false} />
+            <XAxis
+              dataKey="_i" type="number" domain={["dataMin", "dataMax"]}
+              tick={{ fill: C.inkMuted, fontSize: 9 }} stroke={C.axis} tickLine={false}
+              tickFormatter={(v) => fmt(v, 1)}
+            />
+            <YAxis
+              tick={{ fill: C.inkMuted, fontSize: 9 }} stroke="transparent"
+              tickLine={false} width={42} tickFormatter={(v) => fmt(v, 1)}
+            />
+            <Tooltip
+              content={<ResultFigureTooltip xLabel={panel.xLabel} legend={legend} />}
+              cursor={{ stroke: C.inkMuted, strokeWidth: 1, strokeDasharray: "3 3" }}
+              isAnimationActive={false}
+            />
+            {legend.map((l) => (
+              <Line key={l.key} dataKey={l.key} stroke={l.color} strokeWidth={1.8} dot={false}
+                strokeDasharray={l.dash || undefined} isAnimationActive={false} />
+            ))}
+          </LineChart>
+        </ResponsiveContainer>
+      )}
+      <LegendRow items={legend} />
+    </div>
+  );
+}
+
+function ResultFigureCard({ fig, figIndex, compiled, baseOutputs, actOutputs, defaults, params, baseFigHelpers, actFigHelpers }) {
+  const panels = fig.panels || [];
+  const runs = useMemo(() => panels.map((panel, pi) => {
+    const fn = compiled.fns[`${figIndex}:${pi}`];
+    return {
+      base: runResultPanel(fn, baseOutputs, defaults, baseFigHelpers),
+      act:  runResultPanel(fn, actOutputs, params, actFigHelpers),
+    };
+  }), [panels, compiled, figIndex, baseOutputs, actOutputs, defaults, params, baseFigHelpers, actFigHelpers]);
+
+  const gridCols = panels.length === 1 ? "grid-cols-1" : "grid-cols-1 md:grid-cols-2";
+
+  return (
     <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
-      <div className="flex items-start justify-between gap-2 border-b border-slate-100 px-4 py-3">
-        <div className="min-w-0">
-          <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-            Reproduction of {fig.figureLabel}
-          </div>
-          <h3 className="text-sm font-semibold text-slate-800">{fig.title}</h3>
+      <div className="border-b border-slate-100 px-4 py-3">
+        <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+          Reproduction of {fig.figureLabel}
         </div>
+        <h3 className="text-sm font-semibold text-slate-800">{fig.title}</h3>
       </div>
 
-      <div className="grid gap-4 px-4 py-3 lg:grid-cols-2">
-        {/* original cropped figure */}
-        <div>
+      <div className="grid gap-4 px-4 py-3 lg:grid-cols-5">
+        {/* original cropped figure (once, spanning left) */}
+        <div className="lg:col-span-2">
           <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
             Original figure (from the paper)
           </div>
@@ -556,44 +603,16 @@ function ResultFigureCard({ fig, baseRun, actRun, onInfo }) {
           )}
         </div>
 
-        {/* interactive reproduction */}
-        <div>
-          <div className="mb-1.5 flex items-center justify-between">
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-              Interactive reproduction
-            </span>
-            <span className="text-[10px] text-slate-400">{fig.xLabel} → {fig.yLabel}</span>
+        {/* interactive subplots grid */}
+        <div className="lg:col-span-3">
+          <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+            Interactive reproduction · {panels.length} subplot{panels.length === 1 ? "" : "s"} · solid = your run, dashed = paper baseline
           </div>
-          {err ? (
-            <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[11px] text-red-700">
-              {err}
-            </div>
-          ) : (
-            <ResponsiveContainer width="100%" height={190}>
-              <LineChart data={rows} margin={{ top: 6, right: 10, bottom: 2, left: -10 }}>
-                <CartesianGrid stroke={C.grid} strokeWidth={1} vertical={false} />
-                <XAxis
-                  dataKey="_i" type="number" domain={["dataMin", "dataMax"]}
-                  tick={{ fill: C.inkMuted, fontSize: 10 }} stroke={C.axis} tickLine={false}
-                  tickFormatter={(v) => fmt(v, 1)}
-                />
-                <YAxis
-                  tick={{ fill: C.inkMuted, fontSize: 10 }} stroke="transparent"
-                  tickLine={false} width={46} tickFormatter={(v) => fmt(v, 1)}
-                />
-                <Tooltip
-                  content={<ResultFigureTooltip xLabel={fig.xLabel} legend={legend} />}
-                  cursor={{ stroke: C.inkMuted, strokeWidth: 1, strokeDasharray: "3 3" }}
-                  isAnimationActive={false}
-                />
-                {legend.map((l) => (
-                  <Line key={l.key} dataKey={l.key} stroke={l.color} strokeWidth={2} dot={false}
-                    strokeDasharray={l.dash || undefined} isAnimationActive={false} />
-                ))}
-              </LineChart>
-            </ResponsiveContainer>
-          )}
-          <LegendRow items={legend} />
+          <div className={`grid gap-3 ${gridCols}`}>
+            {panels.map((panel, pi) => (
+              <PanelChart key={pi} panel={panel} baseRun={runs[pi].base} actRun={runs[pi].act} />
+            ))}
+          </div>
         </div>
       </div>
 
@@ -604,14 +623,11 @@ function ResultFigureCard({ fig, baseRun, actRun, onInfo }) {
   );
 }
 
-function ResultFigures({ spec, helpers, baseOutputs, actOutputs, defaults, params }) {
+function ResultFigures({ spec, pipelineCompiled, helpers, baseOutputs, actOutputs, defaults, params }) {
   const figs = spec.resultFigures || [];
   const compiled = useMemo(() => compileResultFigures(spec), [spec]);
-
-  const runs = useMemo(() => figs.map((fig) => ({
-    base: runResultFigure(fig, compiled.fns[fig.figureLabel], baseOutputs, defaults, helpers),
-    act:  runResultFigure(fig, compiled.fns[fig.figureLabel], actOutputs, params, helpers),
-  })), [figs, compiled, baseOutputs, actOutputs, defaults, params, helpers]);
+  const baseFigHelpers = useMemo(() => makeFigureHelpers(spec, pipelineCompiled, helpers, defaults), [spec, pipelineCompiled, helpers, defaults]);
+  const actFigHelpers  = useMemo(() => makeFigureHelpers(spec, pipelineCompiled, helpers, params), [spec, pipelineCompiled, helpers, params]);
 
   if (!figs.length) return null;
 
@@ -621,13 +637,24 @@ function ResultFigures({ spec, helpers, baseOutputs, actOutputs, defaults, param
         <Activity size={13} /> The paper's real figures · reproduced & interactive
       </div>
       <p className="mb-3 max-w-3xl text-[12px] leading-relaxed text-slate-500">
-        These recreate the paper's own result plots from the pipeline above. Each shows the
-        author's baseline (dashed) against your modified run (solid) — move any slider and the
-        real figure redraws, so you can see exactly how the paper's headline plots respond.
+        Faithful reconstructions of the paper's own result figures — every subplot, every overlaid
+        curve — computed from the methodology above. Solid lines are your modified run, dashed are
+        the author's baseline. Move any slider and the real figures redraw.
       </p>
       <div className="grid gap-4">
         {figs.map((fig, i) => (
-          <ResultFigureCard key={fig.figureLabel + i} fig={fig} baseRun={runs[i].base} actRun={runs[i].act} />
+          <ResultFigureCard
+            key={fig.figureLabel + i}
+            fig={fig}
+            figIndex={i}
+            compiled={compiled}
+            baseOutputs={baseOutputs}
+            actOutputs={actOutputs}
+            defaults={defaults}
+            params={params}
+            baseFigHelpers={baseFigHelpers}
+            actFigHelpers={actFigHelpers}
+          />
         ))}
       </div>
     </section>
@@ -697,7 +724,7 @@ function ConclusionBox({ drift, conclusion, baseM, actM, modifiedCount }) {
 
 /* ---------------- main workspace ---------------- */
 
-export default function Workspace({ spec, onBack }) {
+export default function Workspace({ spec, onBack, onSignOut }) {
   const defaults = useMemo(() => defaultsFromSpec(spec), [spec]);
   const helpers  = useMemo(() => buildHelpers(spec.protocol), [spec]);
   const compiled = useMemo(() => compileSpec(spec), [spec]);
@@ -735,9 +762,9 @@ export default function Workspace({ spec, onBack }) {
   const infoBlock = spec.blocks.find((b) => b.key === infoKey) || null;
 
   return (
-    <div className="min-h-screen bg-slate-100 pb-16" style={{ fontFamily: "system-ui, -apple-system, 'Segoe UI', sans-serif" }}>
+    <div className="min-h-screen pb-16" style={{ fontFamily: "system-ui, -apple-system, 'Segoe UI', sans-serif" }}>
       {/* ===== header ===== */}
-      <header className="border-b border-slate-200 bg-white">
+      <header className="border-b border-slate-200/70 bg-white/85 backdrop-blur">
         <div className="mx-auto max-w-7xl px-4 py-5 sm:px-6">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="min-w-0 max-w-3xl">
@@ -774,6 +801,14 @@ export default function Workspace({ spec, onBack }) {
               >
                 <RotateCcw size={14} /> Reset to author baseline
               </button>
+              {onSignOut && (
+                <button
+                  onClick={onSignOut}
+                  className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-600 shadow-sm hover:border-slate-300"
+                >
+                  <LogOut size={14} /> Sign out
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -860,6 +895,7 @@ export default function Workspace({ spec, onBack }) {
 
         <ResultFigures
           spec={spec}
+          pipelineCompiled={compiled}
           helpers={helpers}
           baseOutputs={baseline.outputs}
           actOutputs={active.outputs}
