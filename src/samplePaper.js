@@ -69,6 +69,60 @@ export const SAMPLE_SPEC = {
       svg: conceptSvg,
     },
   ],
+  resultFigures: [
+    {
+      figureLabel: "Fig. 6",
+      title: "Closed-loop step response vs. command",
+      xLabel: "t (s)",
+      yLabel: "position",
+      explanation:
+        "The paper's headline result: the regulated output tracking the step command. Move the PID " +
+        "gains or plant time constant and watch overshoot, rise time and settling change against the " +
+        "author's baseline (dashed).",
+      svg: `<svg viewBox="0 0 340 170" xmlns="http://www.w3.org/2000/svg" font-family="system-ui" font-size="9">
+        <rect x="0" y="0" width="340" height="170" fill="white"/>
+        <line x1="38" y1="140" x2="325" y2="140" stroke="#c3c2b7"/>
+        <line x1="38" y1="20" x2="38" y2="140" stroke="#c3c2b7"/>
+        <text x="10" y="55" fill="#898781">1.5</text>
+        <text x="20" y="143" fill="#898781">0</text>
+        <text x="300" y="155" fill="#898781">t</text>
+        <polyline points="38,140 108,140 108,55 325,55" fill="none" stroke="#4a3aa7" stroke-width="1.5" stroke-dasharray="3 3"/>
+        <path d="M108 140 C 130 40, 150 45, 172 58 S 210 55, 325 55" fill="none" stroke="#111" stroke-width="1.6"/>
+        <text x="150" y="35" fill="#4a3aa7">command r(t)</text>
+        <text x="205" y="80" fill="#111">response y(t)</text>
+      </svg>`,
+      computeJs: `
+const R = 1.5, tStep = 2.0;
+const cmd = new Array(helpers.n), y = outputs.resp;
+for (let i = 0; i < helpers.n; i++) cmd[i] = helpers.t[i] >= tStep ? R : 0;
+return { series: [
+  { label: "Command r(t)", data: cmd },
+  { label: "Closed-loop y(t)", data: y },
+] };`,
+    },
+    {
+      figureLabel: "Fig. 7",
+      title: "Tracking error under regulation",
+      xLabel: "t (s)",
+      yLabel: "error e(t)",
+      explanation:
+        "The regulation error e = r − y over time. A well-tuned loop drives it to zero quickly; " +
+        "detune the gains and the error rings or fails to settle — exactly the failure modes §4 warns about.",
+      svg: `<svg viewBox="0 0 340 170" xmlns="http://www.w3.org/2000/svg" font-family="system-ui" font-size="9">
+        <rect x="0" y="0" width="340" height="170" fill="white"/>
+        <line x1="38" y1="90" x2="325" y2="90" stroke="#c3c2b7"/>
+        <line x1="38" y1="20" x2="38" y2="150" stroke="#c3c2b7"/>
+        <text x="20" y="93" fill="#898781">0</text>
+        <path d="M38 90 L108 90 L108 35 C 150 30, 180 92, 230 90 S 325 90, 325 90" fill="none" stroke="#e34948" stroke-width="1.6"/>
+        <text x="150" y="120" fill="#e34948">e(t) = r − y</text>
+      </svg>`,
+      computeJs: `
+const R = 1.5, tStep = 2.0, y = outputs.resp;
+const e = new Array(helpers.n);
+for (let i = 0; i < helpers.n; i++) e[i] = (helpers.t[i] >= tStep ? R : 0) - y[i];
+return { series: [ { label: "Tracking error", data: e } ] };`,
+    },
+  ],
   protocol: {
     T: 12,
     dt: 0.05,

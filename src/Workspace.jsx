@@ -23,7 +23,11 @@ import {
 import {
   buildHelpers, defaultsFromSpec, compileSpec, runSpec,
   driftPercent, summaryMetrics, buildRows,
+  compileResultFigures, runResultFigure, buildFigureRows,
 } from "./engine.js";
+
+/* categorical hues for multi-series result reproductions (validated set) */
+const SERIES_HUES = ["#2a78d6", "#1baf7a", "#eda100", "#e34948", "#4a3aa7", "#e87ba4"];
 
 /* Palette — validated (CVD ΔE ≥ 16.6, ≥3:1 contrast on light surface) */
 const C = {
@@ -479,6 +483,157 @@ function ReferencesDrawer({ references, open, onClose }) {
   );
 }
 
+/* ---------------- result-figure reproductions ---------------- */
+
+function ResultFigureTooltip({ active, payload, label, xLabel, legend }) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white/95 shadow-lg px-3 py-2 text-xs backdrop-blur">
+      <div className="mb-1 font-semibold text-slate-700">{xLabel} = {fmt(label, 2)}</div>
+      {payload.map((p) => {
+        const info = legend.find((l) => l.key === p.dataKey);
+        if (!info) return null;
+        return (
+          <div key={p.dataKey} className="flex items-center gap-2 py-0.5">
+            <svg width="14" height="4" aria-hidden="true">
+              <line x1="0" y1="2" x2="14" y2="2" stroke={info.color} strokeWidth="2"
+                strokeDasharray={info.dash || "none"} />
+            </svg>
+            <span className="font-semibold tabular-nums text-slate-800">{fmt(p.value)}</span>
+            <span className="text-slate-400">{info.label}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function ResultFigureCard({ fig, baseRun, actRun, onInfo }) {
+  const { rows } = useMemo(() => buildFigureRows(fig.figureLabel, baseRun, actRun), [fig.figureLabel, baseRun, actRun]);
+
+  const err = actRun?.error || baseRun?.error;
+  const nSeries = (actRun?.series || baseRun?.series || []).length;
+
+  // legend: active (solid, colored) + baseline (dashed neutral) per source series
+  const legend = [];
+  for (let k = 0; k < nSeries; k++) {
+    const name = (actRun?.series || baseRun?.series)[k]?.label || `series ${k + 1}`;
+    legend.push({ key: `a${k}`, label: `${name} (modified)`, color: SERIES_HUES[k % SERIES_HUES.length] });
+  }
+  for (let k = 0; k < nSeries; k++) {
+    const name = (baseRun?.series || actRun?.series)[k]?.label || `series ${k + 1}`;
+    legend.push({ key: `b${k}`, label: `${name} (paper baseline)`, color: C.baseline, dash: "5 4" });
+  }
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
+      <div className="flex items-start justify-between gap-2 border-b border-slate-100 px-4 py-3">
+        <div className="min-w-0">
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+            Reproduction of {fig.figureLabel}
+          </div>
+          <h3 className="text-sm font-semibold text-slate-800">{fig.title}</h3>
+        </div>
+      </div>
+
+      <div className="grid gap-4 px-4 py-3 lg:grid-cols-2">
+        {/* original cropped figure */}
+        <div>
+          <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+            Original figure (from the paper)
+          </div>
+          {fig.image ? (
+            <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+              <img src={fig.image} alt={`${fig.figureLabel} from the paper`} className="w-full" loading="lazy" />
+            </div>
+          ) : fig.svg ? (
+            <div className="overflow-hidden rounded-lg border border-slate-200 bg-white p-2"
+              dangerouslySetInnerHTML={{ __html: fig.svg }} />
+          ) : (
+            <div className="flex h-full min-h-[120px] items-center justify-center rounded-lg border border-dashed border-slate-200 px-3 text-center text-[11px] text-slate-400">
+              {fig.page ? <>{fig.figureLabel} on page {fig.page} — crop unavailable</> : "No source figure for the sample paper"}
+            </div>
+          )}
+        </div>
+
+        {/* interactive reproduction */}
+        <div>
+          <div className="mb-1.5 flex items-center justify-between">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+              Interactive reproduction
+            </span>
+            <span className="text-[10px] text-slate-400">{fig.xLabel} → {fig.yLabel}</span>
+          </div>
+          {err ? (
+            <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[11px] text-red-700">
+              {err}
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height={190}>
+              <LineChart data={rows} margin={{ top: 6, right: 10, bottom: 2, left: -10 }}>
+                <CartesianGrid stroke={C.grid} strokeWidth={1} vertical={false} />
+                <XAxis
+                  dataKey="_i" type="number" domain={["dataMin", "dataMax"]}
+                  tick={{ fill: C.inkMuted, fontSize: 10 }} stroke={C.axis} tickLine={false}
+                  tickFormatter={(v) => fmt(v, 1)}
+                />
+                <YAxis
+                  tick={{ fill: C.inkMuted, fontSize: 10 }} stroke="transparent"
+                  tickLine={false} width={46} tickFormatter={(v) => fmt(v, 1)}
+                />
+                <Tooltip
+                  content={<ResultFigureTooltip xLabel={fig.xLabel} legend={legend} />}
+                  cursor={{ stroke: C.inkMuted, strokeWidth: 1, strokeDasharray: "3 3" }}
+                  isAnimationActive={false}
+                />
+                {legend.map((l) => (
+                  <Line key={l.key} dataKey={l.key} stroke={l.color} strokeWidth={2} dot={false}
+                    strokeDasharray={l.dash || undefined} isAnimationActive={false} />
+                ))}
+              </LineChart>
+            </ResponsiveContainer>
+          )}
+          <LegendRow items={legend} />
+        </div>
+      </div>
+
+      <p className="border-t border-slate-100 px-4 py-2.5 text-[12px] leading-relaxed text-slate-600">
+        {fig.explanation}
+      </p>
+    </div>
+  );
+}
+
+function ResultFigures({ spec, helpers, baseOutputs, actOutputs, defaults, params }) {
+  const figs = spec.resultFigures || [];
+  const compiled = useMemo(() => compileResultFigures(spec), [spec]);
+
+  const runs = useMemo(() => figs.map((fig) => ({
+    base: runResultFigure(fig, compiled.fns[fig.figureLabel], baseOutputs, defaults, helpers),
+    act:  runResultFigure(fig, compiled.fns[fig.figureLabel], actOutputs, params, helpers),
+  })), [figs, compiled, baseOutputs, actOutputs, defaults, params, helpers]);
+
+  if (!figs.length) return null;
+
+  return (
+    <section className="mt-6" aria-label="Reproduced result figures">
+      <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
+        <Activity size={13} /> The paper's real figures · reproduced & interactive
+      </div>
+      <p className="mb-3 max-w-3xl text-[12px] leading-relaxed text-slate-500">
+        These recreate the paper's own result plots from the pipeline above. Each shows the
+        author's baseline (dashed) against your modified run (solid) — move any slider and the
+        real figure redraws, so you can see exactly how the paper's headline plots respond.
+      </p>
+      <div className="grid gap-4">
+        {figs.map((fig, i) => (
+          <ResultFigureCard key={fig.figureLabel + i} fig={fig} baseRun={runs[i].base} actRun={runs[i].act} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
 /* ---------------- smart conclusion ---------------- */
 
 function ConclusionBox({ drift, conclusion, baseM, actM, modifiedCount }) {
@@ -702,6 +857,15 @@ export default function Workspace({ spec, onBack }) {
             ))}
           </section>
         </div>
+
+        <ResultFigures
+          spec={spec}
+          helpers={helpers}
+          baseOutputs={baseline.outputs}
+          actOutputs={active.outputs}
+          defaults={defaults}
+          params={params}
+        />
       </main>
 
       <InfoModal block={infoBlock} onClose={() => setInfoKey(null)} />

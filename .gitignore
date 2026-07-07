@@ -5,3 +5,6 @@ playground/
 *.local
 .env
 .env.*
+
+# user papers
+*.pdf

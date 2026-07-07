@@ -14,8 +14,11 @@ import {
 import Workspace from "./Workspace.jsx";
 import { SAMPLE_SPEC } from "./samplePaper.js";
 import { analyzePaper, getApiKey, setApiKey, MODEL_TIERS, getModelTier, setModelTier } from "./api.js";
-import { fileToBase64, renderPdfPages } from "./pdf.js";
-import { compileSpec, buildHelpers, defaultsFromSpec, runSpec } from "./engine.js";
+import { fileToBase64, renderPdfRegions } from "./pdf.js";
+import {
+  compileSpec, buildHelpers, defaultsFromSpec, runSpec,
+  compileResultFigures, runResultFigure,
+} from "./engine.js";
 
 const MAX_PDF_MB = 32;
 
@@ -281,23 +284,34 @@ export default function App() {
 
       const newSpec = await analyzePaper(base64, setProgress, tier);
 
-      setProgress("Rendering concept figures…");
+      setProgress("Cropping figures from the paper…");
       try {
-        const pages = (newSpec.conceptFigures || []).map((f) => f.page);
-        const images = await renderPdfPages(arrayBuffer, pages);
-        for (const fig of newSpec.conceptFigures || []) {
-          if (images.has(fig.page)) fig.image = images.get(fig.page);
-        }
+        const concept = newSpec.conceptFigures || [];
+        const results = newSpec.resultFigures || [];
+        const items = [...concept, ...results].map((f) => ({ page: f.page, bbox: f.bbox }));
+        const crops = await renderPdfRegions(arrayBuffer, items);
+        concept.forEach((f, i) => { if (crops[i]) f.image = crops[i]; });
+        results.forEach((f, i) => { if (crops[concept.length + i]) f.image = crops[concept.length + i]; });
       } catch {
         // figure previews are optional — explanations still show
       }
 
       setProgress("Compiling the computational pipeline…");
+      const helpers = buildHelpers(newSpec.protocol);
+      const defaults = defaultsFromSpec(newSpec);
       const compiled = compileSpec(newSpec);
-      const run = runSpec(newSpec, compiled, defaultsFromSpec(newSpec), buildHelpers(newSpec.protocol));
+      const run = runSpec(newSpec, compiled, defaults, helpers);
       if (run.error) {
         throw new Error(`The generated pipeline failed a test run: ${run.error}. Try re-analyzing the paper.`);
       }
+
+      // Test-run each reproduced result figure; drop any that error so a single
+      // bad kernel never blocks the whole workspace.
+      const figCompiled = compileResultFigures(newSpec);
+      newSpec.resultFigures = (newSpec.resultFigures || []).filter((fig) => {
+        const r = runResultFigure(fig, figCompiled.fns[fig.figureLabel], run.outputs, defaults, helpers);
+        return !r.error;
+      });
 
       setSpec(newSpec);
     } catch (e) {

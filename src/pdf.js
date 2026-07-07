@@ -21,29 +21,59 @@ export async function fileToBase64(file) {
   return btoa(binary);
 }
 
+const clamp01 = (v) => Math.max(0, Math.min(1, v));
+
 /**
- * Render the given 1-indexed pages of a PDF to PNG data URLs.
- * Returns a Map(pageNumber -> dataURL). Pages that fail render are skipped.
+ * Render figure regions out of a PDF.
+ * items: [{ page (1-indexed), bbox?: {x,y,w,h} in page fractions, top-left origin }]
+ * Returns an array of dataURL|null aligned with items. A valid bbox yields a
+ * cropped figure (with a small pad); a missing/degenerate bbox falls back to
+ * the full page. Failures yield null.
  */
-export async function renderPdfPages(arrayBuffer, pageNumbers) {
-  const result = new Map();
-  const unique = [...new Set(pageNumbers)].filter((p) => Number.isInteger(p) && p > 0);
-  if (!unique.length) return result;
+export async function renderPdfRegions(arrayBuffer, items) {
+  const out = new Array(items.length).fill(null);
+  const valid = items.some((it) => Number.isInteger(it?.page) && it.page > 0);
+  if (!valid) return out;
 
   const doc = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-  for (const pageNo of unique) {
-    if (pageNo > doc.numPages) continue;
+  const pageCanvases = new Map(); // pageNo -> canvas (rendered once, reused per crop)
+
+  for (let i = 0; i < items.length; i++) {
+    const it = items[i];
+    if (!Number.isInteger(it?.page) || it.page < 1 || it.page > doc.numPages) continue;
     try {
-      const page = await doc.getPage(pageNo);
-      const viewport = page.getViewport({ scale: 1.6 });
-      const canvas = document.createElement("canvas");
-      canvas.width = viewport.width;
-      canvas.height = viewport.height;
-      await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
-      result.set(pageNo, canvas.toDataURL("image/png"));
+      let canvas = pageCanvases.get(it.page);
+      if (!canvas) {
+        const page = await doc.getPage(it.page);
+        const viewport = page.getViewport({ scale: 2 });
+        canvas = document.createElement("canvas");
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
+        pageCanvases.set(it.page, canvas);
+      }
+
+      const b = it.bbox;
+      const usable = b && [b.x, b.y, b.w, b.h].every(Number.isFinite) && b.w > 0.02 && b.h > 0.02;
+      if (usable) {
+        const pad = 0.015; // generous pad — model bboxes are approximate
+        const x0 = clamp01(b.x - pad), y0 = clamp01(b.y - pad);
+        const x1 = clamp01(b.x + b.w + pad), y1 = clamp01(b.y + b.h + pad);
+        const sx = Math.round(x0 * canvas.width);
+        const sy = Math.round(y0 * canvas.height);
+        const sw = Math.max(1, Math.round((x1 - x0) * canvas.width));
+        const sh = Math.max(1, Math.round((y1 - y0) * canvas.height));
+        const crop = document.createElement("canvas");
+        crop.width = sw;
+        crop.height = sh;
+        crop.getContext("2d").drawImage(canvas, sx, sy, sw, sh, 0, 0, sw, sh);
+        out[i] = crop.toDataURL("image/png");
+      } else {
+        out[i] = canvas.toDataURL("image/png");
+      }
     } catch {
-      // skip unrenderable page — figure card will show explanation only
+      // leave null — the card shows the explanation without a preview
     }
   }
-  return result;
+  return out;
 }

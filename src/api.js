@@ -142,7 +142,7 @@ const SPEC_SCHEMA = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["page", "title", "explanation"],
+        required: ["page", "title", "explanation", "bbox"],
         properties: {
           page:  { type: "integer", description: "1-indexed PDF page where this conceptual/architecture figure appears" },
           title: { type: "string", description: "e.g. 'Fig. 1 — System overview'" },
@@ -150,9 +150,55 @@ const SPEC_SCHEMA = {
             type: "string",
             description: "3-6 sentences a newcomer can follow: what the figure shows and why it matters for the method. This replaces reading the paper.",
           },
+          bbox: {
+            type: "object",
+            additionalProperties: false,
+            required: ["x", "y", "w", "h"],
+            properties: {
+              x: { type: "number", description: "Left edge of the figure region as a fraction of page width (0-1)" },
+              y: { type: "number", description: "Top edge as a fraction of page height (0-1, origin top-left)" },
+              w: { type: "number", description: "Width as a fraction of page width" },
+              h: { type: "number", description: "Height as a fraction of page height; include the caption" },
+            },
+            description: "Tight bounding box of just the figure (plus caption) so it can be cropped out of the page. Pad generously.",
+          },
         },
       },
       description: "The introductory/conceptual figures that explain the idea (NOT results plots). Usually 1-3 figures from the first half of the paper.",
+    },
+    resultFigures: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["figureLabel", "page", "bbox", "title", "explanation", "xLabel", "yLabel", "computeJs"],
+        properties: {
+          figureLabel: { type: "string", description: "The paper's own label, e.g. 'Fig. 6'" },
+          page:  { type: "integer", description: "1-indexed PDF page where this results figure appears" },
+          bbox: {
+            type: "object",
+            additionalProperties: false,
+            required: ["x", "y", "w", "h"],
+            properties: {
+              x: { type: "number" }, y: { type: "number" },
+              w: { type: "number" }, h: { type: "number" },
+            },
+            description: "Fractional bounding box of the original figure on its page (0-1, top-left origin), caption included",
+          },
+          title: { type: "string", description: "What this reproduction shows, e.g. 'ZMP tracking under lateral push'" },
+          explanation: {
+            type: "string",
+            description: "2-4 sentences: what the original figure demonstrates and which sliders visibly change this reproduction",
+          },
+          xLabel: { type: "string" },
+          yLabel: { type: "string" },
+          computeJs: {
+            type: "string",
+            description: "Body of a JS function (outputs, params, helpers) => {x?: number[], series: [{label, data: number[]}]}. See rules in the prompt.",
+          },
+        },
+      },
+      description: "Interactive reproductions of the paper's KEY RESULT figures (2-4 of them) — the experimental/simulation plots the conclusions rest on.",
     },
     protocol: {
       type: "object",
@@ -191,11 +237,23 @@ RULES FOR computeJs (critical — this code is executed):
 - Keep numerics stable: use explicit Euler with helpers.dt for ODEs, clamp integrators, avoid division by values that can reach zero.
 - The pipeline run with every param at its "def" is the BASELINE and must qualitatively reproduce the paper's reported result.
 
+RULES FOR resultFigures (critical — these are the paper's REAL plots, reproduced live):
+- Pick the 2-4 KEY RESULT figures the paper's conclusions rest on (e.g. tracking plots, error curves, stability margins, phase portraits over time).
+- Each computeJs is the BODY of: function(outputs, params, helpers) { ... } where "outputs" holds every pipeline block's output array by block key (e.g. outputs.resp), "params" is the current slider state, and "helpers" is the same object as for blocks.
+- It MUST return { series: [{label, data}, ...] } with 1-4 series; every data array must have the same length. Optionally return x (same length) when the horizontal axis is not helpers.t (e.g. step index, frequency); otherwise data length must be helpers.n.
+- Derive the curves from the pipeline outputs wherever possible so the sliders visibly reshape the reproduction; small auxiliary quantities (reference commands, bounds, thresholds) may be recomputed inline.
+- At default params the reproduction must qualitatively match the ORIGINAL figure's shape (same trends, same number of curves, comparable ranges). Use the original's own curve names as series labels.
+- Same determinism and safety rules as block computeJs: only Math, basic JS and helpers.
+
+RULES FOR FIGURE BOUNDING BOXES (bbox):
+- Look at the actual page image. Give the figure's region as fractions of the page: x = left edge / page width, y = top edge / page height (origin top-left), w and h likewise.
+- Include the caption; exclude unrelated text columns. When unsure, err on the larger side — cropping slightly too much is fine, cutting the figure is not.
+
 OTHER FIELDS
 - equation: plain unicode math (α, Σ, ∫, subscripts), never LaTeX.
 - theory: quote or closely paraphrase the paper's own paragraph for that step, with the section number.
 - pythonCode: clean NumPy translation of the same block.
-- conceptFigures: pick the 1-3 INTRODUCTORY/architecture figures (not results plots), give their 1-indexed PDF page, and explain each in 3-6 sentences so the reader can follow the idea without the paper.
+- conceptFigures: pick the 1-3 INTRODUCTORY/architecture figures (not results plots), give their 1-indexed PDF page and bbox, and explain each in 3-6 sentences so the reader can follow the idea without the paper.
 - conclusion: the paper's core finding, naming the coefficient values it depends on.`;
 
 /**
