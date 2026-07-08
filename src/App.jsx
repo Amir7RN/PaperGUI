@@ -14,6 +14,7 @@ import {
 import Workspace from "./Workspace.jsx";
 import Auth from "./Auth.jsx";
 import { SAMPLE_SPEC } from "./samplePaper.js";
+import { SAMPLE_SPEC_2 } from "./samplePaper2.js";
 import { analyzePaper, getApiKey, setApiKey, MODEL_TIERS, getModelTier, setModelTier } from "./api.js";
 import { fileToBase64, renderPdfRegions } from "./pdf.js";
 import { compileSpec, buildHelpers, defaultsFromSpec, runSpec, validateResultFigures } from "./engine.js";
@@ -177,18 +178,32 @@ function Landing({ onSample, onUpload, onSettings, busy, progress, error, tier, 
         </p>
 
         <div className="mt-8 grid w-full max-w-2xl gap-4 sm:grid-cols-2">
-          <button
-            onClick={onSample}
-            disabled={busy}
-            className="group flex flex-col items-start gap-2 rounded-2xl border-2 border-slate-200 bg-white p-5 text-left shadow-sm transition hover:border-blue-300 hover:shadow-md disabled:opacity-50"
-          >
-            <BookOpenCheck size={22} className="text-blue-600" />
-            <span className="text-sm font-semibold text-slate-800">Load the sample paper</span>
-            <span className="text-xs leading-relaxed text-slate-500">
-              “A Generalized Multi-Stage Filtering and Feedback-Regulation Framework for Noisy
-              Multi-Frequency Signals” — fully wired, no API key needed.
-            </span>
-          </button>
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+              <BookOpenCheck size={14} className="text-blue-600" /> Try a ready-made example (no key needed)
+            </div>
+            <button
+              onClick={() => onSample(SAMPLE_SPEC_2)}
+              disabled={busy}
+              className="group flex flex-col items-start gap-1 rounded-2xl border-2 border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-blue-300 hover:shadow-md disabled:opacity-50"
+            >
+              <span className="text-sm font-semibold text-slate-800">Humanoid repetitive-learning control</span>
+              <span className="text-xs leading-relaxed text-slate-500">
+                Reproduces the paper's real figures 4–11 (joint tracking, errors, CoM &amp; ground
+                forces, indoor &amp; outdoor) as interactive plots.
+              </span>
+            </button>
+            <button
+              onClick={() => onSample(SAMPLE_SPEC)}
+              disabled={busy}
+              className="group flex flex-col items-start gap-1 rounded-2xl border-2 border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-blue-300 hover:shadow-md disabled:opacity-50"
+            >
+              <span className="text-sm font-semibold text-slate-800">Multi-stage filtering &amp; control</span>
+              <span className="text-xs leading-relaxed text-slate-500">
+                A signal-conditioning + feedback-regulation example — simpler, good for a first look.
+              </span>
+            </button>
+          </div>
 
           <button
             onClick={() => fileRef.current?.click()}
@@ -393,7 +408,7 @@ export default function App() {
     <>
       {bgLayer}
       <Landing
-        onSample={() => setSpec(SAMPLE_SPEC)}
+        onSample={(s) => setSpec(s)}
         onUpload={handleUpload}
         onSettings={() => setSettingsOpen(true)}
         busy={busy}

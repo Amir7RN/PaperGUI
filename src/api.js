@@ -251,6 +251,12 @@ RULES FOR computeJs (critical — this code is executed):
 
 RULES FOR resultFigures (THE MOST IMPORTANT PART — these are faithful, interactive reproductions of the paper's REAL plots):
 Your job here is to DUPLICATE the paper's result figures, not to draw a vague single-curve sketch. Treat this like being asked to reproduce every figure of the paper from its equations.
+
+INFER THE INPUT SIGNAL (the paper won't give you its raw data — reconstruct a compatible one):
+- Read what excites the system in each figure (a step/reference command, a periodic gait or oscillation, a swept parameter, a disturbance/push, measurement noise) and SYNTHESIZE a signal that matches it: same qualitative shape, frequency, amplitude range, and duration as the paper describes or plots. Pull concrete numbers from the text (gait period, speed, set-points, gains, reported error magnitudes, axis ranges) and USE them as the defaults so the reproduction lands in the paper's units and ranges.
+- Feed that synthesized input through the AUTHORS' OWN equations/method (the blocks above) to produce each figure's curves. Do not invent unrelated dynamics — the curves must be the output of the paper's model driven by a plausible input.
+- If a figure compares conditions (with/without the method, before/after learning, different gains/terrain/payload, iterations), reproduce EACH condition as its own curve via helpers.simulate or by re-running the method with those settings. Reproducing the comparison is the whole point — never collapse it.
+- Calibrate to the paper's reported numbers: if it says "error < 0.018 m" or "peak force ~650 N" or "converges in N cycles", tune your synthesized model so the reproduction shows exactly that at default parameters.
 - Reproduce the 3-6 KEY RESULT figures the conclusions rest on. For EACH figure, look at it carefully and reproduce ALL of its subplots and ALL of the curves within each subplot. If a figure has subplots (a),(b),(c),(d), emit 4 panels. If a subplot overlays 3 curves (e.g. reference, measured, commanded), emit all 3 series with the paper's own labels. Never collapse a multi-curve figure into one curve.
 - Each panel's computeJs is the BODY of: function(outputs, params, helpers) { ... } returning { series: [{label, data}, ...], x?: number[] }.
     * "outputs" = every pipeline block's output array by key (e.g. outputs.resp) at the CURRENT slider values.
