@@ -69,6 +69,52 @@ export const SAMPLE_SPEC = {
       svg: conceptSvg,
     },
   ],
+  foundations: [
+    {
+      title: "First-order recursive (IIR) filtering",
+      source: "Oppenheim & Schafer, Discrete-Time Signal Processing",
+      concept:
+        "The exponential moving average is the simplest infinite-impulse-response filter: each output " +
+        "sample blends a fraction α of the newest measurement with (1−α) of the previous output. It " +
+        "needs one multiply and one memory cell, yet acts as a genuine low-pass filter whose cutoff is " +
+        "set by α. The price of noise rejection is phase lag: the smaller α, the smoother the output " +
+        "but the later it responds — a delay that can destabilize any feedback loop wrapped around it. " +
+        "This noise-vs-lag trade is the central tension the paper's Stage 1 must manage.",
+      equation: "y[n] = α·x[n] + (1 − α)·y[n−1]",
+      whyItMatters:
+        "The paper picks α = 0.18 to buy ≈11 dB of noise attenuation while keeping the group delay " +
+        "small enough for the downstream loop to stay stable.",
+    },
+    {
+      title: "PID feedback control",
+      source: "Åström & Murray, Feedback Systems",
+      concept:
+        "The proportional–integral–derivative controller is the workhorse of feedback: the P term " +
+        "pushes against the current error, the I term accumulates past error to eliminate steady-state " +
+        "offset, and the D term anticipates by reacting to the error's slope. Tuning is a compromise — " +
+        "more P speeds the response but overshoots, more I removes offset but can ring, more D damps " +
+        "ringing but amplifies noise. Anti-windup clamping of the integrator prevents runaway when the " +
+        "actuator saturates.",
+      equation: "u = Kₚe + Kᵢ∫e dt + K_d·ė",
+      whyItMatters:
+        "The paper's headline claim — <9% overshoot, 2.1 s settling under noise — is a statement about " +
+        "this classic law working despite the injected disturbance, thanks to the conditioning stages.",
+    },
+    {
+      title: "Saturating (sigmoid) nonlinearities",
+      source: "Standard nonlinear-systems practice; cf. describing-function analysis",
+      concept:
+        "A tanh-shaped gain is linear for small inputs and flattens to a hard ceiling for large ones. " +
+        "Passing a signal through it guarantees the output can never exceed ±G no matter what spike " +
+        "arrives — a smooth, differentiable alternative to hard clipping that doesn't inject the harsh " +
+        "harmonics a hard limiter would. In control systems it is used to bound the energy a noisy or " +
+        "unmodeled signal can inject into a loop.",
+      equation: "z = G·tanh(y / S)",
+      whyItMatters:
+        "Stage 2 uses exactly this to cap the disturbance energy entering the regulation loop, which " +
+        "is what makes the closed loop robust to input-amplitude surprises.",
+    },
+  ],
   resultFigures: [
     {
       figureLabel: "Fig. 6",

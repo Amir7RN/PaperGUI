@@ -234,6 +234,70 @@ export const SAMPLE_SPEC_2 = {
       </svg>`,
     },
   ],
+  foundations: [
+    {
+      title: "Centroidal momentum dynamics",
+      source: "Orin, Goswami & Lee, Autonomous Robots, 2013",
+      concept:
+        "A humanoid has 30+ joints, but its overall balance is governed by just six quantities: the " +
+        "linear and angular momentum measured about its center of mass — the centroidal momentum. " +
+        "Newton–Euler says these can only change through external forces: gravity and the ground " +
+        "reaction forces at the feet. So instead of reasoning about every joint at once, a planner can " +
+        "reason at the centroidal level: choose foot forces that steer the CoM where it must go, and " +
+        "the balance problem collapses from dozens of dimensions to six. The joint motions are then " +
+        "found separately, constrained to be consistent with that centroidal plan.",
+      equation: "ḣ = [ mg + Σᵢ Fᵢ ;  Σᵢ (rᵢ − r_c) × Fᵢ ]",
+      whyItMatters:
+        "This paper's whole planning layer optimizes over centroidal momentum and contact forces; its " +
+        "novelty sits on top of this decomposition.",
+    },
+    {
+      title: "Repetitive / iterative learning control",
+      source: "Arimoto, Kawamura & Miyazaki, J. Robotic Systems, 1984",
+      concept:
+        "When a task repeats — like a walking gait repeating every cycle — the tracking error also " +
+        "repeats. Learning control exploits this: store the error from the previous cycle and add a " +
+        "correction proportional to it onto the control input for the current cycle. Whatever part of " +
+        "the disturbance is periodic gets cancelled a little more every repetition, without ever " +
+        "needing a model of what caused it. After a handful of cycles only the non-repeating part of " +
+        "the disturbance (random noise, one-off pushes) remains. The learning rate trades convergence " +
+        "speed against sensitivity to noise.",
+      equation: "u_k(t) = u_{k−1}(t) + Γ·e_{k−1}(t)",
+      whyItMatters:
+        "The paper decentralizes this classic law — each joint learns independently — and wraps it in " +
+        "an adaptive-robust term with a Lyapunov boundedness proof.",
+    },
+    {
+      title: "Hierarchical QP whole-body control",
+      source: "Sentis & Khatib, Int. J. Humanoid Robotics, 2005",
+      concept:
+        "A torque-controlled humanoid must satisfy many objectives at once — obey physics, keep the " +
+        "feet planted, track the swing foot, hold posture — and they can conflict. Whole-body control " +
+        "resolves this by stacking quadratic programs in strict priority: hard physical constraints " +
+        "first (dynamics, contact, friction, torque limits), task tracking second, and 'nice-to-have' " +
+        "regularization last. Each level optimizes only in the null space of the levels above it, so a " +
+        "lower-priority wish can never violate a higher-priority constraint.",
+      equation: "min ‖A x − b‖²  s.t.  dynamics, contact, friction, torque limits (per priority level)",
+      whyItMatters:
+        "The paper's WBC is exactly this three-level hierarchy; the learned corrective torque U_dr is " +
+        "added on top of the QP's feedforward solution.",
+    },
+    {
+      title: "Coulomb friction cones & unilateral contact",
+      source: "Classic contact mechanics; e.g. Wieber, 2006",
+      concept:
+        "A foot can only push on the ground, never pull, and its tangential force is limited by " +
+        "friction: |F_tangential| ≤ μ·F_normal. Geometrically the set of physically realizable contact " +
+        "forces is a cone. Any planned force outside this cone makes the foot slip or lift " +
+        "unexpectedly — the classic cause of falls. Planners therefore constrain every contact force " +
+        "to stay inside a (usually pyramid-linearized) friction cone, with a normal-force cap for " +
+        "hardware safety.",
+      equation: "√(Fₓ² + F_y²) ≤ μ·F_z,   0 ≤ F_z ≤ F_max",
+      whyItMatters:
+        "The paper enforces these cones (μ = 0.7, F_z ≤ 650 N) in the planner, which is why its " +
+        "reproduced ground-reaction forces stay smooth and physically consistent.",
+    },
+  ],
   protocol: {
     T: 12,
     dt: 0.02,

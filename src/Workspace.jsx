@@ -19,6 +19,7 @@ import {
   Info, RotateCcw, BookOpen, X, FlaskConical, SlidersHorizontal,
   Activity, GitBranch, Pin, PinOff, FileText, Code2, Sigma, Waves, Cpu,
   ChevronRight, TriangleAlert, CircleCheck, CircleAlert, ArrowLeft, Image as ImageIcon, LogOut,
+  Landmark, Maximize2, Lightbulb, LineChart as LineChartIcon,
 } from "lucide-react";
 import {
   buildHelpers, defaultsFromSpec, compileSpec, runSpec,
@@ -151,43 +152,156 @@ function ParamSlider({ def, value, onChange }) {
   );
 }
 
-/* ---------------- concept figure primer ---------------- */
+/* ---------------- section chrome ---------------- */
 
-function ConceptFigures({ figures }) {
+const SECTION_TONES = {
+  violet:  { badge: "bg-violet-600",  ring: "ring-violet-200/60",  text: "text-violet-700"  },
+  amber:   { badge: "bg-amber-500",   ring: "ring-amber-200/60",   text: "text-amber-700"   },
+  blue:    { badge: "bg-blue-600",    ring: "ring-blue-200/60",    text: "text-blue-700"    },
+  emerald: { badge: "bg-emerald-600", ring: "ring-emerald-200/60", text: "text-emerald-700" },
+};
+
+function SectionHeader({ num, tone, icon: IconCmp, title, sub }) {
+  const t = SECTION_TONES[tone];
+  return (
+    <div className="mb-4 mt-10 flex items-start gap-3">
+      <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${t.badge} text-sm font-bold text-white shadow-md ring-4 ${t.ring}`}>
+        {num}
+      </div>
+      <div className="min-w-0">
+        <h2 className={`flex items-center gap-2 text-base font-bold text-slate-900`}>
+          <IconCmp size={16} className={t.text} /> {title}
+        </h2>
+        <p className="mt-0.5 text-xs leading-relaxed text-slate-500">{sub}</p>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- fullscreen figure lightbox ---------------- */
+
+function Lightbox({ fig, onClose }) {
+  useEffect(() => {
+    const kill = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", kill);
+    return () => window.removeEventListener("keydown", kill);
+  }, [onClose]);
+
+  if (!fig) return null;
+  return (
+    <div
+      className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-slate-950/85 p-4 backdrop-blur-sm sm:p-8"
+      onClick={onClose}
+      role="dialog" aria-modal="true" aria-label={fig.title}
+    >
+      <button
+        onClick={onClose}
+        aria-label="Close"
+        className="absolute right-4 top-4 rounded-full bg-white/10 p-2 text-white hover:bg-white/25"
+      >
+        <X size={20} />
+      </button>
+      <div
+        className="flex max-h-full w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex-1 overflow-auto bg-slate-50 p-4">
+          {fig.image ? (
+            <img src={fig.image} alt={fig.title} className="mx-auto max-h-[62vh] w-auto max-w-full" />
+          ) : fig.svg ? (
+            <div className="mx-auto max-w-3xl" dangerouslySetInnerHTML={{ __html: fig.svg }} />
+          ) : (
+            <div className="py-16 text-center text-sm text-slate-400">No preview available</div>
+          )}
+        </div>
+        <div className="border-t border-slate-100 px-6 py-4">
+          <h3 className="text-sm font-bold text-slate-900">{fig.title}</h3>
+          <p className="mt-1.5 max-h-40 overflow-y-auto text-[13px] leading-relaxed text-slate-600">
+            {fig.explanation}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- 1 · concept figure primer (clickable) ---------------- */
+
+function ConceptFigures({ figures, onOpen }) {
   if (!figures?.length) return null;
   return (
-    <section className="mt-4" aria-label="Concept primer">
-      <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
-        <ImageIcon size={13} /> Concept primer · read this first
-      </div>
-      <div className="grid gap-4 md:grid-cols-2">
-        {figures.map((fig, i) => (
-          <div key={i}
-            className={`rounded-xl border border-slate-200 bg-white shadow-sm ${figures.length === 1 ? "md:col-span-2" : ""}`}>
-            <div className="border-b border-slate-100 px-4 py-2.5">
-              <h3 className="text-sm font-semibold text-slate-800">{fig.title}</h3>
-            </div>
-            <div className="px-4 py-3">
-              {fig.svg && (
-                <div className="mb-3 overflow-x-auto rounded-lg border border-slate-100 bg-slate-50 p-2"
-                  dangerouslySetInnerHTML={{ __html: fig.svg }} />
-              )}
-              {fig.image && (
-                <div className="mb-3 overflow-hidden rounded-lg border border-slate-100">
-                  <img src={fig.image} alt={fig.title} className="w-full" loading="lazy" />
-                </div>
-              )}
-              {!fig.svg && !fig.image && fig.page != null && (
-                <div className="mb-3 rounded-lg border border-dashed border-slate-200 px-3 py-2 text-[11px] text-slate-400">
-                  Figure on PDF page {fig.page} (preview unavailable)
-                </div>
-              )}
-              <p className="text-[13px] leading-relaxed text-slate-600">{fig.explanation}</p>
+    <div className="grid gap-4 md:grid-cols-2">
+      {figures.map((fig, i) => (
+        <button
+          key={i}
+          onClick={() => onOpen(fig)}
+          className={`group rounded-2xl border border-slate-200/80 bg-white/90 text-left shadow-sm backdrop-blur transition hover:-translate-y-0.5 hover:border-violet-300 hover:shadow-lg ${figures.length === 1 ? "md:col-span-2" : ""}`}
+        >
+          <div className="flex items-center justify-between border-b border-slate-100 px-4 py-2.5">
+            <h3 className="text-sm font-semibold text-slate-800">{fig.title}</h3>
+            <span className="flex items-center gap-1 rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-medium text-violet-600 opacity-70 transition group-hover:opacity-100">
+              <Maximize2 size={11} /> fullscreen
+            </span>
+          </div>
+          <div className="px-4 py-3">
+            {fig.svg && (
+              <div className="mb-3 overflow-x-auto rounded-lg border border-slate-100 bg-slate-50 p-2"
+                dangerouslySetInnerHTML={{ __html: fig.svg }} />
+            )}
+            {fig.image && (
+              <div className="mb-3 overflow-hidden rounded-lg border border-slate-100">
+                <img src={fig.image} alt={fig.title} className="w-full" loading="lazy" />
+              </div>
+            )}
+            {!fig.svg && !fig.image && fig.page != null && (
+              <div className="mb-3 rounded-lg border border-dashed border-slate-200 px-3 py-2 text-[11px] text-slate-400">
+                Figure on PDF page {fig.page} (preview unavailable)
+              </div>
+            )}
+            <p className="text-[13px] leading-relaxed text-slate-600 line-clamp-3">{fig.explanation}</p>
+            <span className="mt-1.5 inline-block text-[11px] font-medium text-violet-600">
+              Click to read the full explanation →
+            </span>
+          </div>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/* ---------------- 2 · foundations (borrowed core ideas) ---------------- */
+
+function Foundations({ foundations }) {
+  if (!foundations?.length) return null;
+  return (
+    <div className="grid gap-4 md:grid-cols-2">
+      {foundations.map((f, i) => (
+        <div key={i}
+          className="rounded-2xl border border-slate-200/80 bg-white/90 shadow-sm backdrop-blur transition hover:shadow-md">
+          <div className="border-b border-slate-100 px-4 py-3">
+            <div className="flex items-start gap-2.5">
+              <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-amber-50 text-amber-600">
+                <Landmark size={14} />
+              </div>
+              <div className="min-w-0">
+                <h3 className="text-sm font-semibold text-slate-800">{f.title}</h3>
+                <p className="text-[11px] italic text-slate-400">{f.source}</p>
+              </div>
             </div>
           </div>
-        ))}
-      </div>
-    </section>
+          <div className="px-4 py-3">
+            {f.equation ? <Eq>{f.equation}</Eq> : null}
+            <p className={`text-[13px] leading-relaxed text-slate-600 ${f.equation ? "mt-2.5" : ""}`}>{f.concept}</p>
+            <div className="mt-3 flex items-start gap-2 rounded-lg bg-amber-50/70 px-3 py-2">
+              <Lightbulb size={13} className="mt-0.5 shrink-0 text-amber-600" />
+              <p className="text-[12px] leading-relaxed text-amber-900">
+                <span className="font-semibold">What this paper adds: </span>{f.whyItMatters}
+              </p>
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -632,17 +746,8 @@ function ResultFigures({ spec, pipelineCompiled, helpers, baseOutputs, actOutput
   if (!figs.length) return null;
 
   return (
-    <section className="mt-6" aria-label="Reproduced result figures">
-      <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
-        <Activity size={13} /> The paper's real figures · reproduced & interactive
-      </div>
-      <p className="mb-3 max-w-3xl text-[12px] leading-relaxed text-slate-500">
-        Faithful reconstructions of the paper's own result figures — every subplot, every overlaid
-        curve — computed from the methodology above. Solid lines are your modified run, dashed are
-        the author's baseline. Move any slider and the real figures redraw.
-      </p>
-      <div className="grid gap-4">
-        {figs.map((fig, i) => (
+    <div className="grid gap-4">
+      {figs.map((fig, i) => (
           <ResultFigureCard
             key={fig.figureLabel + i}
             fig={fig}
@@ -655,9 +760,8 @@ function ResultFigures({ spec, pipelineCompiled, helpers, baseOutputs, actOutput
             baseFigHelpers={baseFigHelpers}
             actFigHelpers={actFigHelpers}
           />
-        ))}
-      </div>
-    </section>
+      ))}
+    </div>
   );
 }
 
@@ -734,6 +838,7 @@ export default function Workspace({ spec, onBack, onSignOut }) {
   const [refsOpen, setRefsOpen] = useState(false);
   const [pinnedT, setPinnedT] = useState(null);
   const [inspect, setInspect] = useState(null);
+  const [lightbox, setLightbox] = useState(null);
 
   useEffect(() => { setParams(defaults); setPinnedT(null); }, [defaults]);
 
@@ -829,84 +934,119 @@ export default function Workspace({ spec, onBack, onSignOut }) {
           </div>
         )}
 
-        <ConceptFigures figures={spec.conceptFigures} />
-
-        {/* cursor status row */}
-        <div className="mt-4 flex flex-wrap items-center gap-3 text-xs text-slate-500">
-          <span className="flex items-center gap-1.5">
-            {pinnedT != null ? <Pin size={13} className="text-slate-700" /> : <PinOff size={13} />}
-            {pinnedT != null
-              ? <>Global cursor pinned at <strong className="tabular-nums text-slate-700">t = {fmt(pinnedT, 2)}</strong> across all plots — click that point again to unpin.</>
-              : "Hover any plot for a synchronized crosshair on every chart · click to pin a global cursor · right-click a point to inspect deltas & local stats."}
-          </span>
-          {pinnedT != null && (
-            <button
-              onClick={() => setPinnedT(null)}
-              className="rounded border border-slate-300 px-2 py-0.5 text-[11px] hover:bg-white"
-            >
-              Unpin
-            </button>
-          )}
-        </div>
-
-        {/* ===== workspace grid ===== */}
-        <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-5">
-          <section className="lg:col-span-2" aria-label="Methodology pipeline">
-            <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
-              <GitBranch size={13} /> Methodology pipeline · live coefficients
-            </div>
-            {spec.blocks.map((block, i) => (
-              <MethodBlock
-                key={block.key}
-                step={i}
-                block={block}
-                params={params}
-                onChange={setParam}
-                onInfo={setInfoKey}
-                isLast={i === spec.blocks.length - 1}
-                error={compiled.errors[block.key]}
-              />
-            ))}
-            <p className="mt-2 px-1 text-[11px] leading-relaxed text-slate-400">
-              {spec.protocol.description}
-            </p>
+        {/* ===== 1 · concept figures (clickable → fullscreen) ===== */}
+        {spec.conceptFigures?.length ? (
+          <section aria-label="Concept primer">
+            <SectionHeader
+              num={1} tone="violet" icon={ImageIcon}
+              title="The idea, in pictures"
+              sub="The paper's own introductory figures, cropped and explained. Click any figure to open it fullscreen with its full explanation."
+            />
+            <ConceptFigures figures={spec.conceptFigures} onOpen={setLightbox} />
           </section>
+        ) : null}
 
-          <section className="flex flex-col gap-4 lg:col-span-3" aria-label="Result engine">
-            <div className="-mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
-              <Activity size={13} /> Result engine · baseline vs. modified
-            </div>
-            {spec.blocks.map((block, i) => (
-              <ChartCard
-                key={block.key}
-                title={`${String.fromCharCode(65 + i)} · ${block.title}`}
-                blockKey={block.key}
-                rows={rows}
-                tMax={spec.protocol.T}
-                height={i === spec.blocks.length - 1 ? 240 : 180}
-                pinnedT={pinnedT}
-                onPin={togglePin}
-                onInfo={setInfoKey}
-                onInspect={setInspect}
-              />
-            ))}
+        {/* ===== 2 · foundations (borrowed core ideas) ===== */}
+        {spec.foundations?.length ? (
+          <section aria-label="Foundations from prior work">
+            <SectionHeader
+              num={2} tone="amber" icon={Landmark}
+              title="The wheels it doesn't reinvent"
+              sub="Core ideas this paper borrows from earlier work — mini-lessons you need before its own contribution makes sense."
+            />
+            <Foundations foundations={spec.foundations} />
           </section>
-        </div>
+        ) : null}
 
-        <ResultFigures
-          spec={spec}
-          pipelineCompiled={compiled}
-          helpers={helpers}
-          baseOutputs={baseline.outputs}
-          actOutputs={active.outputs}
-          defaults={defaults}
-          params={params}
-        />
+        {/* ===== 3 · the paper's own method, interactive ===== */}
+        <section aria-label="The paper's contribution">
+          <SectionHeader
+            num={3} tone="blue" icon={GitBranch}
+            title="What this paper actually proposes"
+            sub="The methodology as a live pipeline: every coefficient on a slider, every stage plotted against the authors' baseline."
+          />
+
+          {/* cursor status row */}
+          <div className="mb-3 flex flex-wrap items-center gap-3 text-xs text-slate-500">
+            <span className="flex items-center gap-1.5">
+              {pinnedT != null ? <Pin size={13} className="text-slate-700" /> : <PinOff size={13} />}
+              {pinnedT != null
+                ? <>Global cursor pinned at <strong className="tabular-nums text-slate-700">t = {fmt(pinnedT, 2)}</strong> across all plots — click that point again to unpin.</>
+                : "Hover any plot for a synchronized crosshair · click to pin a global cursor · right-click a point to inspect deltas & local stats."}
+            </span>
+            {pinnedT != null && (
+              <button
+                onClick={() => setPinnedT(null)}
+                className="rounded border border-slate-300 px-2 py-0.5 text-[11px] hover:bg-white"
+              >
+                Unpin
+              </button>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
+            <div className="lg:col-span-2">
+              {spec.blocks.map((block, i) => (
+                <MethodBlock
+                  key={block.key}
+                  step={i}
+                  block={block}
+                  params={params}
+                  onChange={setParam}
+                  onInfo={setInfoKey}
+                  isLast={i === spec.blocks.length - 1}
+                  error={compiled.errors[block.key]}
+                />
+              ))}
+              <p className="mt-2 px-1 text-[11px] leading-relaxed text-slate-400">
+                {spec.protocol.description}
+              </p>
+            </div>
+
+            <div className="flex flex-col gap-4 lg:col-span-3">
+              {spec.blocks.map((block, i) => (
+                <ChartCard
+                  key={block.key}
+                  title={`${String.fromCharCode(65 + i)} · ${block.title}`}
+                  blockKey={block.key}
+                  rows={rows}
+                  tMax={spec.protocol.T}
+                  height={i === spec.blocks.length - 1 ? 240 : 180}
+                  pinnedT={pinnedT}
+                  onPin={togglePin}
+                  onInfo={setInfoKey}
+                  onInspect={setInspect}
+                />
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {/* ===== 4 · the paper's real result figures ===== */}
+        {spec.resultFigures?.length ? (
+          <section aria-label="Reproduced result figures">
+            <SectionHeader
+              num={4} tone="emerald" icon={LineChartIcon}
+              title="The results, recreated and alive"
+              sub="The paper's own result figures — every subplot, every curve — recomputed from the method above. Solid = your run, dashed = the authors' baseline. Every slider reshapes them."
+            />
+            <ResultFigures
+              spec={spec}
+              pipelineCompiled={compiled}
+              helpers={helpers}
+              baseOutputs={baseline.outputs}
+              actOutputs={active.outputs}
+              defaults={defaults}
+              params={params}
+            />
+          </section>
+        ) : null}
       </main>
 
       <InfoModal block={infoBlock} onClose={() => setInfoKey(null)} />
       <ReferencesDrawer references={spec.references} open={refsOpen} onClose={() => setRefsOpen(false)} />
       <Inspector inspect={inspect} rows={rows} onClose={() => setInspect(null)} />
+      <Lightbox fig={lightbox} onClose={() => setLightbox(null)} />
     </div>
   );
 }

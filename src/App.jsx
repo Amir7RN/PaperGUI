@@ -10,6 +10,7 @@ import React, { useState, useRef, useCallback, useEffect } from "react";
 import {
   FlaskConical, Upload, BookOpenCheck, X, KeyRound, CircleCheck,
   Loader2, TriangleAlert, FileText, Sparkles, SlidersHorizontal, LineChart, LogOut,
+  ChevronDown, Wand2, Landmark, Image as ImageIcon,
 } from "lucide-react";
 import Workspace from "./Workspace.jsx";
 import Auth from "./Auth.jsx";
@@ -127,9 +128,74 @@ function TierPicker({ tier, onTier, disabled }) {
   );
 }
 
+/* ---------------- analysis hints (optional guidance) ---------------- */
+
+function HintsPanel({ hints, onHints, disabled }) {
+  const [open, setOpen] = useState(false);
+  const set = (k) => (e) => onHints({ ...hints, [k]: e.target.value });
+  const filled = ["domain", "focus", "signal", "notes"].filter((k) => hints[k]?.trim()).length;
+  return (
+    <div className="mt-3 w-full max-w-2xl rounded-2xl border border-slate-200/80 bg-white/90 shadow-sm backdrop-blur">
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex w-full items-center justify-between px-4 py-3 text-left"
+      >
+        <span className="flex items-center gap-2 text-xs font-semibold text-slate-700">
+          <Wand2 size={14} className="text-blue-600" />
+          Guide the analyzer <span className="font-normal text-slate-400">(optional — sharpens the result for the same cost)</span>
+        </span>
+        <span className="flex items-center gap-2">
+          {filled > 0 && (
+            <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-600">
+              {filled} hint{filled > 1 ? "s" : ""} set
+            </span>
+          )}
+          <ChevronDown size={15} className={`text-slate-400 transition-transform ${open ? "rotate-180" : ""}`} />
+        </span>
+      </button>
+      {open && (
+        <div className="grid gap-3 border-t border-slate-100 px-4 py-3 sm:grid-cols-2">
+          <label className="text-xs text-slate-600">
+            <span className="mb-1 block font-medium">Field / domain</span>
+            <input
+              value={hints.domain} onChange={set("domain")} disabled={disabled}
+              placeholder="e.g. legged robotics, signal processing, epidemiology"
+              className="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs focus:border-blue-400 focus:outline-none"
+            />
+          </label>
+          <label className="text-xs text-slate-600">
+            <span className="mb-1 block font-medium">Figures to prioritize</span>
+            <input
+              value={hints.focus} onChange={set("focus")} disabled={disabled}
+              placeholder="e.g. reproduce Figs 4–11 exactly, especially Fig 6"
+              className="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs focus:border-blue-400 focus:outline-none"
+            />
+          </label>
+          <label className="text-xs text-slate-600 sm:col-span-2">
+            <span className="mb-1 block font-medium">What drives the system / experimental setup</span>
+            <input
+              value={hints.signal} onChange={set("signal")} disabled={disabled}
+              placeholder="e.g. periodic walking gait at ~1.2 s per cycle; step command at t = 2 s; push disturbance mid-trial"
+              className="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs focus:border-blue-400 focus:outline-none"
+            />
+          </label>
+          <label className="text-xs text-slate-600 sm:col-span-2">
+            <span className="mb-1 block font-medium">Anything else the analyzer should know</span>
+            <textarea
+              value={hints.notes} onChange={set("notes")} disabled={disabled} rows={2}
+              placeholder="key equations or gains you care about, reported numbers to match, what you want to understand…"
+              className="w-full resize-y rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs focus:border-blue-400 focus:outline-none"
+            />
+          </label>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ---------------- landing page ---------------- */
 
-function Landing({ onSample, onUpload, onSettings, busy, progress, error, tier, onTier, hasKey, onSignOut }) {
+function Landing({ onSample, onUpload, onSettings, busy, progress, error, tier, onTier, hasKey, onSignOut, hints, onHints }) {
   const fileRef = useRef(null);
 
   return (
@@ -165,17 +231,33 @@ function Landing({ onSample, onUpload, onSettings, busy, progress, error, tier, 
       </header>
 
       <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col items-center justify-center px-4 py-12 sm:px-6">
-        <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-blue-600">
+        <div className="mb-3 flex items-center gap-2 rounded-full border border-blue-200/60 bg-white/70 px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-blue-700 shadow-sm backdrop-blur">
           <Sparkles size={13} /> Leave the PDF aside — work with the paper
         </div>
-        <h1 className="max-w-2xl text-center text-2xl font-bold leading-snug text-slate-900 sm:text-3xl">
-          Turn any scientific paper into a living, interactive dashboard
+        <h1 className="max-w-2xl text-center text-3xl font-extrabold leading-tight tracking-tight text-slate-900 sm:text-4xl">
+          Turn any scientific paper into a{" "}
+          <span className="bg-gradient-to-r from-blue-600 via-violet-600 to-emerald-600 bg-clip-text text-transparent">
+            living, interactive lab
+          </span>
         </h1>
-        <p className="mt-3 max-w-xl text-center text-sm leading-relaxed text-slate-600">
-          Upload a paper and the analyzer extracts its concept figures, methodology formulas and
-          coefficients into sequential modules with live sliders and synchronized plots — so you
-          can grasp, reproduce and stress-test the idea without reading the original side by side.
+        <p className="mt-4 max-w-xl text-center text-sm leading-relaxed text-slate-600">
+          The analyzer walks you through a paper the way a good colleague would: the idea in
+          pictures, the prior work it stands on, its own method with every coefficient on a
+          slider, and its real result figures — recreated and reshaping live as you explore.
         </p>
+
+        <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
+          {[
+            { icon: ImageIcon, label: "1 · Idea in pictures", cls: "text-violet-700 bg-violet-50 border-violet-200/70" },
+            { icon: Landmark, label: "2 · Prior foundations", cls: "text-amber-700 bg-amber-50 border-amber-200/70" },
+            { icon: SlidersHorizontal, label: "3 · Method, interactive", cls: "text-blue-700 bg-blue-50 border-blue-200/70" },
+            { icon: LineChart, label: "4 · Results, recreated", cls: "text-emerald-700 bg-emerald-50 border-emerald-200/70" },
+          ].map(({ icon: Icon, label, cls }) => (
+            <span key={label} className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-medium shadow-sm ${cls}`}>
+              <Icon size={12} /> {label}
+            </span>
+          ))}
+        </div>
 
         <div className="mt-8 grid w-full max-w-2xl gap-4 sm:grid-cols-2">
           <div className="flex flex-col gap-3">
@@ -185,18 +267,18 @@ function Landing({ onSample, onUpload, onSettings, busy, progress, error, tier, 
             <button
               onClick={() => onSample(SAMPLE_SPEC_2)}
               disabled={busy}
-              className="group flex flex-col items-start gap-1 rounded-2xl border-2 border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-blue-300 hover:shadow-md disabled:opacity-50"
+              className="group flex flex-col items-start gap-1 rounded-2xl border border-slate-200/80 bg-white/90 p-4 text-left shadow-sm backdrop-blur transition hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-xl disabled:opacity-50"
             >
               <span className="text-sm font-semibold text-slate-800">Humanoid repetitive-learning control</span>
               <span className="text-xs leading-relaxed text-slate-500">
-                Reproduces the paper's real figures 4–11 (joint tracking, errors, CoM &amp; ground
-                forces, indoor &amp; outdoor) as interactive plots.
+                Full four-chapter walkthrough with the paper's figures 4–11 (joint tracking, errors,
+                CoM &amp; ground forces, indoor &amp; outdoor) recreated as interactive plots.
               </span>
             </button>
             <button
               onClick={() => onSample(SAMPLE_SPEC)}
               disabled={busy}
-              className="group flex flex-col items-start gap-1 rounded-2xl border-2 border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-blue-300 hover:shadow-md disabled:opacity-50"
+              className="group flex flex-col items-start gap-1 rounded-2xl border border-slate-200/80 bg-white/90 p-4 text-left shadow-sm backdrop-blur transition hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-xl disabled:opacity-50"
             >
               <span className="text-sm font-semibold text-slate-800">Multi-stage filtering &amp; control</span>
               <span className="text-xs leading-relaxed text-slate-500">
@@ -208,13 +290,15 @@ function Landing({ onSample, onUpload, onSettings, busy, progress, error, tier, 
           <button
             onClick={() => fileRef.current?.click()}
             disabled={busy}
-            className="group flex flex-col items-start gap-2 rounded-2xl border-2 border-dashed border-slate-300 bg-white p-5 text-left shadow-sm transition hover:border-blue-400 hover:shadow-md disabled:opacity-50"
+            className="group relative flex flex-col items-start gap-2 overflow-hidden rounded-2xl border-2 border-dashed border-blue-300/70 bg-gradient-to-br from-white/95 to-blue-50/80 p-5 text-left shadow-sm backdrop-blur transition hover:-translate-y-0.5 hover:border-blue-400 hover:shadow-xl disabled:opacity-50"
           >
-            <Upload size={22} className="text-blue-600" />
+            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-white shadow-md transition group-hover:scale-105">
+              <Upload size={18} />
+            </span>
             <span className="text-sm font-semibold text-slate-800">Analyze a new paper (PDF)</span>
             <span className="text-xs leading-relaxed text-slate-500">
               Pick a PDF from your local drive — synced OneDrive / Google Drive folders work too.
-              The analyzer rebuilds its methodology as an interactive pipeline at the{" "}
+              The analyzer builds the full four-chapter walkthrough at the{" "}
               <strong>{tier.label}</strong> level selected below.
             </span>
           </button>
@@ -232,6 +316,8 @@ function Landing({ onSample, onUpload, onSettings, busy, progress, error, tier, 
         </div>
 
         <TierPicker tier={tier} onTier={onTier} disabled={busy} />
+
+        <HintsPanel hints={hints} onHints={onHints} disabled={busy} />
 
         {busy && (
           <div className="mt-6 w-full max-w-2xl rounded-xl border border-blue-200 bg-white/90 px-4 py-4 shadow-sm backdrop-blur">
@@ -266,19 +352,9 @@ function Landing({ onSample, onUpload, onSettings, busy, progress, error, tier, 
           </div>
         )}
 
-        <div className="mt-10 grid w-full max-w-2xl grid-cols-1 gap-3 text-center sm:grid-cols-3">
-          {[
-            { icon: FileText, label: "Concept primer", sub: "Static intro figures, explained" },
-            { icon: SlidersHorizontal, label: "Formula matrix", sub: "Every coefficient on a slider" },
-            { icon: LineChart, label: "Result engine", sub: "Baseline vs. your modification" },
-          ].map(({ icon: Icon, label, sub }) => (
-            <div key={label} className="rounded-xl border border-slate-200 bg-white px-3 py-4">
-              <Icon size={18} className="mx-auto text-slate-400" />
-              <div className="mt-1.5 text-xs font-semibold text-slate-700">{label}</div>
-              <div className="text-[11px] text-slate-400">{sub}</div>
-            </div>
-          ))}
-        </div>
+        <p className="mt-8 flex items-center gap-1.5 text-[11px] text-slate-400">
+          <FileText size={12} /> Your paper is sent only to the analysis service, never stored on a server.
+        </p>
       </main>
     </div>
   );
@@ -294,6 +370,7 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [tier, setTier] = useState(getModelTier);
   const [hasKey, setHasKey] = useState(() => !!getApiKey());
+  const [hints, setHints] = useState({ domain: "", focus: "", signal: "", notes: "" });
 
   // Auth: when Supabase is configured, gate the app behind sign-in.
   const [session, setSession] = useState(null);
@@ -328,7 +405,7 @@ export default function App() {
       const arrayBuffer = await file.arrayBuffer();
       const base64 = await fileToBase64(file);
 
-      const newSpec = await analyzePaper(base64, setProgress, tier);
+      const newSpec = await analyzePaper(base64, setProgress, tier, hints);
 
       setProgress({ pct: 86, label: "Cropping figures from the paper…" });
       try {
@@ -363,7 +440,7 @@ export default function App() {
       setBusy(false);
       setProgress(null);
     }
-  }, [tier]);
+  }, [tier, hints]);
 
   // Full-site background: fixed image layer + soft wash for legibility.
   const bgLayer = (
@@ -418,6 +495,8 @@ export default function App() {
         onTier={handleTier}
         hasKey={hasKey}
         onSignOut={authEnabled ? signOut : null}
+        hints={hints}
+        onHints={setHints}
       />
       <SettingsModal
         open={settingsOpen}

@@ -115,7 +115,7 @@ const blockSchema = {
 const SPEC_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["meta", "conclusion", "references", "conceptFigures", "protocol", "blocks"],
+  required: ["meta", "conclusion", "references", "conceptFigures", "foundations", "protocol", "blocks"],
   properties: {
     meta: {
       type: "object",
@@ -165,6 +165,25 @@ const SPEC_SCHEMA = {
         },
       },
       description: "The introductory/conceptual figures that explain the idea (NOT results plots). Usually 1-3 figures from the first half of the paper.",
+    },
+    foundations: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["title", "source", "concept", "equation", "whyItMatters"],
+        properties: {
+          title: { type: "string", description: "Name of the borrowed concept, e.g. 'Centroidal momentum dynamics'" },
+          source: { type: "string", description: "Where it comes from, as the paper cites it, e.g. 'Orin et al., Autonomous Robots 2013 [12]'" },
+          concept: {
+            type: "string",
+            description: "4-7 sentences teaching this prior-work concept to a newcomer, in this paper's context. This is a mini-lesson, not a citation.",
+          },
+          equation: { type: "string", description: "The concept's key equation in plain unicode math, or empty string if none" },
+          whyItMatters: { type: "string", description: "1-2 sentences: what this paper builds on top of this concept" },
+        },
+      },
+      description: "The 2-4 core ideas the paper BORROWS from prior work — the 'wheels' it doesn't reinvent but the reader must understand (e.g. the base dynamics model, the classic control/learning principle, the standard optimization formulation).",
     },
     resultFigures: {
       type: "array",
@@ -277,6 +296,11 @@ RULES FOR FIGURE BOUNDING BOXES (bbox):
 - Look at the actual page image. Give the figure's region as fractions of the page: x = left edge / page width, y = top edge / page height (origin top-left), w and h likewise.
 - Include the caption; exclude unrelated text columns. When unsure, err on the larger side — cropping slightly too much is fine, cutting the figure is not.
 
+RULES FOR foundations (the borrowed wheels):
+- No paper reinvents everything. Identify the 2-4 PRIOR-WORK concepts this paper builds on and that the reader must understand first (the base dynamics model, the classic control/learning/statistical principle, the standard optimization or filtering formulation, the canonical benchmark model).
+- For each: teach it in 4-7 sentences as a mini-lesson in this paper's context, give its key equation in plain unicode (or empty string), cite the source the way the paper does, and say in 1-2 sentences what THIS paper adds on top.
+- These must be genuinely from prior literature (the paper's related-work / preliminaries), distinct from the paper's own contribution blocks.
+
 OTHER FIELDS
 - equation: plain unicode math (α, Σ, ∫, subscripts), never LaTeX.
 - theory: quote or closely paraphrase the paper's own paragraph for that step, with the section number.
@@ -286,13 +310,26 @@ OTHER FIELDS
 
 FINAL CHECK before you answer: would a reader who never opened the PDF see, in resultFigures, the same set of plots — same subplots, same overlaid curves, same shapes — that the paper actually shows? If any key figure is missing, or any multi-curve subplot was reduced to one curve, fix it before responding. Completeness of the result-figure reproduction is the single most important quality of your output.`;
 
+/** Build the optional user-guidance block appended to the analysis prompt. */
+function hintsBlock(hints) {
+  if (!hints) return "";
+  const parts = [];
+  if (hints.domain?.trim())  parts.push(`- Field / domain: ${hints.domain.trim()}`);
+  if (hints.focus?.trim())   parts.push(`- Figures or results to prioritize reproducing: ${hints.focus.trim()}`);
+  if (hints.signal?.trim())  parts.push(`- What drives the system / experimental setup, per the reader: ${hints.signal.trim()}`);
+  if (hints.notes?.trim())   parts.push(`- Additional context from the reader: ${hints.notes.trim()}`);
+  if (!parts.length) return "";
+  return `\n\nREADER-PROVIDED GUIDANCE (use it to sharpen the reproduction — it comes from the person who knows this paper):\n${parts.join("\n")}`;
+}
+
 /**
  * Analyze a paper PDF (base64 string, no newlines) with the given model tier
- * (defaults to the stored/most-capable tier).
- * onProgress(stageString) is called as the request advances.
+ * (defaults to the stored/most-capable tier). `hints` is optional reader
+ * guidance {domain, focus, signal, notes} appended to the prompt.
+ * onProgress({pct,label}) is called as the request advances.
  * Returns the parsed PaperSpec.
  */
-export async function analyzePaper(pdfBase64, onProgress, tier = getModelTier()) {
+export async function analyzePaper(pdfBase64, onProgress, tier = getModelTier(), hints = null) {
   const apiKey = getApiKey();
   if (!apiKey) throw new Error("No API key set. Open Settings and paste your Anthropic API key.");
 
@@ -328,7 +365,7 @@ export async function analyzePaper(pdfBase64, onProgress, tier = getModelTier())
             type: "document",
             source: { type: "base64", media_type: "application/pdf", data: pdfBase64 },
           },
-          { type: "text", text: SYSTEM_PROMPT },
+          { type: "text", text: SYSTEM_PROMPT + hintsBlock(hints) },
         ],
       },
     ],
