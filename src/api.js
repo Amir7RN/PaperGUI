@@ -37,9 +37,12 @@ export function setModelTier(id) {
  * 2 and 3 re-read it at ~10% of the input price.
  */
 const PHASES = [
-  { id: "overview", title: "Idea & foundations", from: 3,  to: 34 },
-  { id: "method",   title: "Method pipeline",    from: 34, to: 67 },
-  { id: "results",  title: "Result figures",     from: 67, to: 99 },
+  { id: "overview", title: "Idea & foundations", from: 3,  to: 34,
+    keys: ["meta", "conclusion", "references", "conceptFigures", "foundations"] },
+  { id: "method",   title: "Method pipeline",    from: 34, to: 67,
+    keys: ["protocol", "blocks"] },
+  { id: "results",  title: "Result figures",     from: 67, to: 99,
+    keys: ["resultFigures"] },
 ];
 
 /** One phase call: streams NDJSON progress, returns {spec, cost, remainingBalance}. */
@@ -131,7 +134,11 @@ export async function analyzePaper(pdfBase64, onProgress, tier = getModelTier(),
     const contextSpec =
       phase.id === "results" ? { protocol: spec.protocol, blocks: spec.blocks } : null;
     const result = await runPhase(pdfBase64, tier, hints, phase, contextSpec, token, report);
-    Object.assign(spec, result.spec);
+    // Copy only this phase's expected fields — without strict structured
+    // outputs the model occasionally emits stray extra keys.
+    for (const k of phase.keys) {
+      if (result.spec?.[k] !== undefined) spec[k] = result.spec[k];
+    }
     totalCost += result.cost || 0;
     if (typeof result.remainingBalance === "number") remainingBalance = result.remainingBalance;
   }
