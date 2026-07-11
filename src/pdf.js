@@ -45,7 +45,7 @@ export async function renderPdfRegions(arrayBuffer, items) {
       let canvas = pageCanvases.get(it.page);
       if (!canvas) {
         const page = await doc.getPage(it.page);
-        const viewport = page.getViewport({ scale: 2 });
+        const viewport = page.getViewport({ scale: 3 }); // high-res so figure text stays readable
         canvas = document.createElement("canvas");
         canvas.width = viewport.width;
         canvas.height = viewport.height;
@@ -67,9 +67,9 @@ export async function renderPdfRegions(arrayBuffer, items) {
         crop.width = sw;
         crop.height = sh;
         crop.getContext("2d").drawImage(canvas, sx, sy, sw, sh, 0, 0, sw, sh);
-        out[i] = crop.toDataURL("image/png");
+        out[i] = crop.toDataURL("image/jpeg", 0.92);
       } else {
-        out[i] = canvas.toDataURL("image/png");
+        out[i] = canvas.toDataURL("image/jpeg", 0.92);
       }
     } catch {
       // leave null — the card shows the explanation without a preview

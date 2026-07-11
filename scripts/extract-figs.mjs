@@ -76,7 +76,7 @@ for (let p = 1; p <= doc.numPages; p++) {
 console.log("captions found:", [...captions.entries()].map(([n, c]) => `Fig${n}@p${c.page}`).join(" "));
 
 // 2) crop each target
-const SCALE = 2;
+const SCALE = 4; // high-res so subplot axis text stays readable when enlarged
 for (const t of TARGETS) {
   const cap = captions.get(t.fig);
   if (!cap) { console.log(`Fig ${t.fig}: caption NOT FOUND, skipped`); continue; }
@@ -119,8 +119,8 @@ for (const t of TARGETS) {
   const sh = Math.max(40, Math.round(yEnd - yStart));
   const crop = createCanvas(x1 - x0, sh);
   crop.getContext("2d").drawImage(canvas, x0, Math.round(yStart), x1 - x0, sh, 0, 0, x1 - x0, sh);
-  const file = path.join(OUT_DIR, `${t.out}.png`);
-  fs.writeFileSync(file, crop.toBuffer("image/png"));
-  console.log(`${t.out}.png  p${cap.page}  ${x1 - x0}x${sh}`);
+  const file = path.join(OUT_DIR, `${t.out}.jpg`);
+  fs.writeFileSync(file, crop.toBuffer("image/jpeg", 90));
+  console.log(`${t.out}.jpg  p${cap.page}  ${x1 - x0}x${sh}`);
 }
 console.log("done");

@@ -179,7 +179,7 @@ const IN = 0.12, OUT = 0.55; // internal terrain for indoor / outdoor scenarios
 
 /* real figure crops extracted from the paper's PDF (scripts/extract-figs.mjs) */
 const BASE = (typeof import.meta !== "undefined" && import.meta.env) ? import.meta.env.BASE_URL : "/";
-const FIG = (name) => `${BASE}figs/${name}.png`;
+const FIG = (name) => `${BASE}figs/${name}.jpg`;
 
 export const SAMPLE_SPEC_2 = {
   meta: {
@@ -283,6 +283,30 @@ export const SAMPLE_SPEC_2 = {
       whyItMatters:
         "This paper's whole planning layer optimizes over centroidal momentum and contact forces; its " +
         "novelty sits on top of this decomposition.",
+      demo: {
+        kind: "chart", T: 4, dt: 0.02,
+        xLabel: "t (s)", yLabel: "CoM motion",
+        caption: "shove a 66 kg robot and watch force become momentum, momentum become drift",
+        params: [
+          { key: "F",   sym: "F",  label: "Push force (N)",     min: 0,   max: 250, step: 5,    def: 100 },
+          { key: "dur", sym: "τ",  label: "Push duration (s)",  min: 0.1, max: 1,   step: 0.05, def: 0.3 },
+        ],
+        computeJs: `
+const m = 66;
+const pos = new Array(helpers.n), vel = new Array(helpers.n);
+let v = 0, x = 0;
+for (let i = 0; i < helpers.n; i++) {
+  const t = helpers.t[i];
+  const f = (t > 0.5 && t < 0.5 + params.dur) ? params.F : 0;
+  v += (f / m) * helpers.dt;
+  x += v * helpers.dt;
+  vel[i] = v; pos[i] = x;
+}
+return { series: [
+  { label: "CoM velocity (m/s)", data: vel },
+  { label: "CoM drift (m)", data: pos },
+] };`,
+      },
     },
     {
       title: "Repetitive / iterative learning control",
@@ -299,6 +323,26 @@ export const SAMPLE_SPEC_2 = {
       whyItMatters:
         "The paper decentralizes this classic law — each joint learns independently — and wraps it in " +
         "an adaptive-robust term with a Lyapunov boundedness proof.",
+      demo: {
+        kind: "chart", T: 1, dt: 1,
+        xLabel: "gait cycle", yLabel: "peak tracking error",
+        caption: "drag the learning rate and watch the repeating error die out, cycle by cycle",
+        params: [
+          { key: "g",     sym: "Γ", label: "Learning rate",        min: 0, max: 0.9, step: 0.05, def: 0.4 },
+          { key: "floor", sym: "η", label: "Random (unlearnable) part", min: 0, max: 0.5, step: 0.02, def: 0.1 },
+        ],
+        computeJs: `
+const cycles = 15, x = [], learn = [], none = [];
+for (let k = 0; k < cycles; k++) {
+  x.push(k + 1);
+  learn.push(Math.pow(1 - params.g, k) * (1 - params.floor) + params.floor + 0.02 * Math.abs(helpers.noise[k]));
+  none.push(1 + 0.02 * Math.abs(helpers.noise[k + 20]));
+}
+return { x, series: [
+  { label: "with repetitive learning", data: learn },
+  { label: "no learning", data: none },
+] };`,
+      },
     },
     {
       title: "Hierarchical QP whole-body control",
@@ -314,6 +358,28 @@ export const SAMPLE_SPEC_2 = {
       whyItMatters:
         "The paper's WBC is exactly this three-level hierarchy; the learned corrective torque U_dr is " +
         "added on top of the QP's feedforward solution.",
+      demo: {
+        kind: "chart", T: 1, dt: 1,
+        xLabel: "demand on the robot (0 = easy, 1 = at its limits)", yLabel: "task error",
+        caption: "push the robot toward its limits — the safety-critical task never budges; the nice-to-have one gives way first",
+        params: [
+          { key: "budget", sym: "τ_max", label: "Torque budget", min: 0.5, max: 2, step: 0.05, def: 1 },
+        ],
+        computeJs: `
+const N = 60, x = [], hi = [], lo = [];
+for (let i = 0; i < N; i++) {
+  const demand = i / (N - 1);
+  x.push(demand);
+  const capacity = params.budget;
+  const excess = Math.max(0, demand * 1.6 - capacity);
+  hi.push(Math.max(0, demand * 1.6 - capacity - 0.8) * 0.5); // priority 1 only fails far beyond capacity
+  lo.push(excess);                                            // priority 2 absorbs the shortfall first
+}
+return { x, series: [
+  { label: "priority 1: keep balance", data: hi },
+  { label: "priority 2: elegant posture", data: lo },
+] };`,
+      },
     },
     {
       title: "Coulomb friction cones & unilateral contact",
@@ -329,6 +395,26 @@ export const SAMPLE_SPEC_2 = {
       whyItMatters:
         "The paper enforces these cones (μ = 0.7, F_z ≤ 650 N) in the planner, which is why its " +
         "reproduced ground-reaction forces stay smooth and physically consistent.",
+      demo: {
+        kind: "chart", T: 1, dt: 1,
+        xLabel: "push direction (degrees from vertical)", yLabel: "friction coefficient",
+        caption: "tilt the foot force — where the curves cross, the foot slips",
+        params: [
+          { key: "mu", sym: "μ", label: "Ground friction (ice 0.1 → rubber 1)", min: 0.1, max: 1, step: 0.05, def: 0.7 },
+        ],
+        computeJs: `
+const N = 91, x = [], need = [], have = [];
+for (let i = 0; i < N; i++) {
+  const deg = -45 + i;
+  x.push(deg);
+  need.push(Math.abs(Math.tan((deg * Math.PI) / 180)));
+  have.push(params.mu);
+}
+return { x, series: [
+  { label: "friction needed for this angle", data: need },
+  { label: "friction the ground provides", data: have },
+] };`,
+      },
     },
   ],
   protocol: {
@@ -343,6 +429,7 @@ export const SAMPLE_SPEC_2 = {
   blocks: [
     {
       key: "com",
+      plain: "Before the robot takes a single step, its planner makes one big decision: where should the body's weight ride? Just like you settle your posture before walking — pick a height, let the weight roll forward smoothly. This block is that decision, written down as a target for the robot's balance point.",
       title: "Whole-Body Planning — Centroidal / CoM trajectory",
       equation: "min Σ ‖h − hᵈ‖²_Q + ‖F_CT‖²_R   s.t.  centroidal dynamics, friction cones",
       params: [
@@ -367,6 +454,7 @@ return out;`,
     },
     {
       key: "ref",
+      plain: "Every joint gets a rhythm to follow, like a dancer counting beats. The knee here swings on a metronome set to one stride every 1.2 seconds — quiet while standing, swinging while walking. This rhythm is the 'sheet music' the controller must play.",
       title: "Gait Reference — representative joint (knee)",
       equation: "qᵈ(t) = A·sin(2π t / T_g + φ)",
       params: [
@@ -392,6 +480,7 @@ return out;`,
     },
     {
       key: "dist",
+      plain: "Reality never matches the blueprint. Motors drag, the ground gives a little, cables snag, payloads shift. This block bundles everything the model got wrong into one troublemaker signal that keeps shoving the leg off its rhythm — bigger and messier on grass than on a lab floor.",
       title: "Model Uncertainty & Disturbance  Dₙ(t)",
       equation: "Dₙ = (U* − M₂ z̈ᵣ − C₂ żᵣ − D₂),   |Dₙ| ≤ ϕ*·p(x)",
       params: [
@@ -414,6 +503,7 @@ return out;`,
     },
     {
       key: "track",
+      plain: "Here's the paper's trick: walking repeats, so mistakes repeat too. The controller remembers exactly how it got shoved last stride and pre-corrects this stride, cancelling a bit more of the error every cycle. Watch the actual curve hug the rhythm tighter step after step — that's the machine literally learning on the job.",
       title: "Decentralized Repetitive Learning Control (headline)",
       equation: "U_dr = −Kₛ eₛ − eₛϕ̂²ω²/(eₛϕ̂ω+δ),  ϕ̂̇ = Γ(eₛω − σϕ̂),  eₛ = ė + Λe",
       params: [

@@ -16,7 +16,8 @@ const STORAGE = "paper-playground-layout";
 /* Each numeric knob: { group, label, cssVar, unit, min, max, step, value } */
 export const NUMERIC_DEFS = [
   // Global
-  { key: "contentMax",   group: "Global",       label: "Page width",            cssVar: "--content-max",   unit: "px", min: 900, max: 1600, step: 20, value: 1280 },
+  { key: "contentMax",   group: "Global",       label: "Page width (flow mode)", cssVar: "--content-max",  unit: "px", min: 900, max: 2200, step: 20, value: 1280 },
+  { key: "pagePad",      group: "Global",       label: "Side margin (flow mode)", cssVar: "--page-pad",    unit: "px", min: 0,   max: 48,   step: 2,  value: 24   },
   { key: "cardRadius",   group: "Global",       label: "Corner rounding",       cssVar: "--card-radius",   unit: "px", min: 6,   max: 26,   step: 1,  value: 16   },
 
   // Title header
@@ -51,9 +52,28 @@ export const DEFAULT_SECTIONS = [
   { key: "results",     on: true, title: "The results, recreated and alive", sub: "Pick any of the paper's result figures on the left: the original beside its interactive reproduction — every subplot, every curve — reshaping as you tune the parameters." },
 ];
 
+/* Free-form canvas boxes: id -> { x,w in % of canvas width; y,h in px; font mult }.
+ * The values below are the finalized "master slide" the maintainer approved —
+ * every paper renders against this by default; visitors can still rearrange. */
 export const DEFAULT_LAYOUT = {
-  numeric: Object.fromEntries(NUMERIC_DEFS.map((d) => [d.key, d.value])),
+  numeric: {
+    ...Object.fromEntries(NUMERIC_DEFS.map((d) => [d.key, d.value])),
+    contentMax: 2140, pagePad: 28, cardRadius: 18,
+    titleSize: 29, authorSize: 13, abstractSize: 15,
+    secBadge: 38, secHead: 20, secSub: 15, secGap: 36,
+    conceptText: 13, conceptChartH: 300,
+    resultOrigMax: 680, resultText: 14.5, panelChartH: 220,
+    foundText: 14.5,
+  },
   sections: DEFAULT_SECTIONS.map((s) => ({ ...s })),
+  freeMode: false, // flow by default; the box geometry below applies when arranging
+  boxes: {
+    conclusion:        { x: 5,   y: 40,   w: 89.5, h: 176,  font: 1 },
+    "sec-concept":     { x: 5,   y: 264,  w: 89.5, h: 976,  font: 1 },
+    "sec-foundations": { x: 5,   y: 1304, w: 89.5, h: 968,  font: 1.5 },
+    "sec-method":      { x: 4.5, y: 2384, w: 90,   h: 904,  font: 1.5 },
+    "sec-results":     { x: 4.5, y: 3384, w: 90,   h: 1272, font: 1.5 },
+  },
 };
 
 export function loadLayout() {
@@ -64,6 +84,8 @@ export function loadLayout() {
     return {
       numeric: { ...DEFAULT_LAYOUT.numeric, ...(saved.numeric || {}) },
       sections: DEFAULT_SECTIONS.map((d, i) => ({ ...d, ...(saved.sections?.[i] || {}) })),
+      freeMode: !!saved.freeMode,
+      boxes: saved.boxes || {},
     };
   } catch {
     return structuredClone(DEFAULT_LAYOUT);

@@ -84,6 +84,26 @@ export const SAMPLE_SPEC = {
       whyItMatters:
         "The paper picks α = 0.18 to buy ≈11 dB of noise attenuation while keeping the group delay " +
         "small enough for the downstream loop to stay stable.",
+      demo: {
+        kind: "chart", T: 6, dt: 0.02,
+        xLabel: "t (s)", yLabel: "signal",
+        caption: "drag the trust dial: low = smooth but late, high = fast but noisy",
+        params: [
+          { key: "alpha", sym: "α", label: "Trust in each new sample", min: 0.02, max: 1, step: 0.02, def: 0.15 },
+        ],
+        computeJs: `
+const raw = new Array(helpers.n), out = new Array(helpers.n);
+let y = 0;
+for (let i = 0; i < helpers.n; i++) {
+  raw[i] = Math.sin(2 * Math.PI * 0.5 * helpers.t[i]) + 0.5 * helpers.noise[i];
+  y = params.alpha * raw[i] + (1 - params.alpha) * y;
+  out[i] = y;
+}
+return { series: [
+  { label: "noisy measurement", data: raw },
+  { label: "filtered", data: out },
+] };`,
+      },
     },
     {
       title: "PID feedback control",
@@ -99,6 +119,28 @@ export const SAMPLE_SPEC = {
       whyItMatters:
         "The paper's headline claim — <9% overshoot, 2.1 s settling under noise — is a statement about " +
         "this classic law working despite the injected disturbance, thanks to the conditioning stages.",
+      demo: {
+        kind: "chart", T: 8, dt: 0.02,
+        xLabel: "t (s)", yLabel: "position",
+        caption: "one knob, three personalities: sluggish, perfect, or ringing — find each one",
+        params: [
+          { key: "Kp", sym: "Kₚ", label: "Reaction strength", min: 0.2, max: 10, step: 0.1, def: 2 },
+        ],
+        computeJs: `
+const r = new Array(helpers.n), y = new Array(helpers.n);
+let pos = 0, vel = 0;
+for (let i = 0; i < helpers.n; i++) {
+  r[i] = helpers.t[i] >= 1 ? 1 : 0;
+  const acc = params.Kp * (r[i] - pos) - 0.8 * vel;
+  vel += acc * helpers.dt;
+  pos += vel * helpers.dt;
+  y[i] = pos;
+}
+return { series: [
+  { label: "target", data: r },
+  { label: "response", data: y },
+] };`,
+      },
     },
     {
       title: "Saturating (sigmoid) nonlinearities",
@@ -113,6 +155,26 @@ export const SAMPLE_SPEC = {
       whyItMatters:
         "Stage 2 uses exactly this to cap the disturbance energy entering the regulation loop, which " +
         "is what makes the closed loop robust to input-amplitude surprises.",
+      demo: {
+        kind: "chart", T: 1, dt: 1,
+        xLabel: "input", yLabel: "output",
+        caption: "feed the squasher a growing input — see where 'almost linear' turns into 'hard ceiling'",
+        params: [
+          { key: "S", sym: "S", label: "Where the squash begins", min: 0.2, max: 3, step: 0.05, def: 1 },
+        ],
+        computeJs: `
+const N = 121, x = [], out = [], ident = [];
+for (let i = 0; i < N; i++) {
+  const u = -3 + (6 * i) / (N - 1);
+  x.push(u);
+  out.push(Math.tanh(u / params.S));
+  ident.push(Math.max(-1.2, Math.min(1.2, u)));
+}
+return { x, series: [
+  { label: "squashed output", data: out },
+  { label: "no squash (for comparison)", data: ident },
+] };`,
+      },
     },
   ],
   resultFigures: [
@@ -232,6 +294,7 @@ return { x, series: [ { label: "Overshoot", data: os } ] };`,
   blocks: [
     {
       key: "raw",
+      plain: "Every experiment starts with a messy input. Here it's a wavy signal — one slow wave, one fast wave — buried in static, like a radio station fighting through interference. The sliders let you make the waves taller or the static louder.",
       title: "Signal Synthesis (Universal Signal Adapter)",
       equation: "x(t) = A₁·sin(2πf₁t) + A₂·sin(2πf₂t) + η·𝒩(0,1)",
       params: [
@@ -270,6 +333,7 @@ return out;`,
     },
     {
       key: "filt",
+      plain: "First cleanup step: a smoothing filter that trusts each new measurement only a little, blending it with what it already believes. Small trust = silky-smooth output that reacts late; big trust = instant reaction that lets the static through. One dial, one classic dilemma.",
       title: "Stage 1 — Recursive Low-Pass Filter",
       equation: "y[n] = α·x[n] + (1 − α)·y[n−1]",
       params: [
@@ -298,6 +362,7 @@ return out;`,
     },
     {
       key: "shaped",
+      plain: "Next, a safety squash. Small signals pass through almost untouched, but the harder the signal pushes, the more this stage pushes back — nothing can ever exceed the ceiling. It's a volume limiter for physics: spikes come in, gentle bumps come out.",
       title: "Stage 2 — Saturating Gain Shaping",
       equation: "z(t) = G·tanh( y(t) / S )",
       params: [
@@ -321,6 +386,7 @@ return out;`,
     },
     {
       key: "resp",
+      plain: "Finally, the payoff: a feedback controller tries to hold a target while the cleaned-up (but still misbehaving) signal keeps nudging it. Tune the three control knobs and watch it snap to the target, wobble around it, or give up entirely — this plot is the paper's whole claim in one picture.",
       title: "Stage 3 — PID-Regulated Plant (headline result)",
       equation: "τ·ẏ = −y + u + w_d·z,   u = Kₚe + Kᵢ∫e dt + K_d·ė,   e = r − y",
       params: [

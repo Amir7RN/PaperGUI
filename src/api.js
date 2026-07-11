@@ -100,15 +100,35 @@ const paramSchema = {
 const blockSchema = {
   type: "object",
   additionalProperties: false,
-  required: ["key", "title", "equation", "params", "theory", "pythonCode", "computeJs"],
+  required: ["key", "title", "plain", "equation", "params", "theory", "pythonCode", "computeJs"],
   properties: {
     key:      { type: "string", description: "Short unique JS-identifier-safe block id" },
     title:    { type: "string", description: "e.g. 'Stage 1 — Kalman Prediction'" },
+    plain:    { type: "string", description: "2-4 sentences telling this step's STORY in everyday language a curious teenager would enjoy — vivid, metaphor welcome, zero jargon, zero symbols. This is what the reader sees first; the math hides behind a toggle." },
     equation: { type: "string", description: "The governing equation in plain unicode math (no LaTeX)" },
     params:   { type: "array", items: paramSchema },
-    theory:   { type: "string", description: "The paper's own explanation of this step, quoting or closely paraphrasing the relevant paragraph, with section reference" },
+    theory:   { type: "string", description: "The paper's own explanation of this step, closely paraphrasing the relevant paragraph, with section reference" },
     pythonCode: { type: "string", description: "Clean executable Python/NumPy snippet implementing this block" },
     computeJs:  { type: "string", description: "Body of a JS function (input, params, helpers) => number[] of length helpers.n. See rules in the prompt." },
+  },
+};
+
+const demoSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["kind", "T", "dt", "xLabel", "yLabel", "caption", "params", "computeJs"],
+  properties: {
+    kind: { type: "string", description: "'chart' (line plot) or 'frames' (animated colored grid, for inherently spatial/iterative ideas: gridworld RL, value iteration, message passing, network weights updating)" },
+    T:  { type: "number", description: "Demo horizon (chart kind); e.g. 10" },
+    dt: { type: "number", description: "Demo step; T/dt should be 100-400. For frames kind use T=1, dt=1." },
+    xLabel: { type: "string" },
+    yLabel: { type: "string" },
+    caption: { type: "string", description: "One inviting sentence telling the reader what to try, e.g. 'drag the learning rate and watch the error die out'" },
+    params: { type: "array", items: paramSchema, description: "1-3 sliders" },
+    computeJs: {
+      type: "string",
+      description: "Body of function(params, helpers). chart kind: return {x?: number[], series: [{label, data: number[]}]} (1-4 series, same length, x defaults to helpers.t). frames kind: return {frames: [{grid: number[][] (<=10x10), note: string}]} with 4-25 frames showing the idea converging step by step. Only Math + helpers {n,dt,t,T,noise,clamp,step}. Deterministic.",
+    },
   },
 };
 
@@ -171,16 +191,17 @@ const SPEC_SCHEMA = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["title", "source", "concept", "equation", "whyItMatters"],
+        required: ["title", "source", "concept", "equation", "whyItMatters", "demo"],
         properties: {
           title: { type: "string", description: "Name of the borrowed concept, e.g. 'Centroidal momentum dynamics'" },
           source: { type: "string", description: "Where it comes from, as the paper cites it, e.g. 'Orin et al., Autonomous Robots 2013 [12]'" },
           concept: {
             type: "string",
-            description: "4-7 sentences teaching this prior-work concept to a newcomer, in this paper's context. This is a mini-lesson, not a citation.",
+            description: "4-7 sentences teaching this prior-work concept to a newcomer in everyday language, in this paper's context. A mini-lesson, not a citation.",
           },
           equation: { type: "string", description: "The concept's key equation in plain unicode math, or empty string if none" },
           whyItMatters: { type: "string", description: "1-2 sentences: what this paper builds on top of this concept" },
+          demo: demoSchema,
         },
       },
       description: "The 2-4 core ideas the paper BORROWS from prior work — the 'wheels' it doesn't reinvent but the reader must understand (e.g. the base dynamics model, the classic control/learning principle, the standard optimization formulation).",
@@ -296,14 +317,21 @@ RULES FOR FIGURE BOUNDING BOXES (bbox):
 - Look at the actual page image. Give the figure's region as fractions of the page: x = left edge / page width, y = top edge / page height (origin top-left), w and h likewise.
 - Include the caption; exclude unrelated text columns. When unsure, err on the larger side — cropping slightly too much is fine, cutting the figure is not.
 
-RULES FOR foundations (the borrowed wheels):
+RULES FOR foundations (the borrowed background — TEACH IT INTERACTIVELY):
 - No paper reinvents everything. Identify the 2-4 PRIOR-WORK concepts this paper builds on and that the reader must understand first (the base dynamics model, the classic control/learning/statistical principle, the standard optimization or filtering formulation, the canonical benchmark model).
-- For each: teach it in 4-7 sentences as a mini-lesson in this paper's context, give its key equation in plain unicode (or empty string), cite the source the way the paper does, and say in 1-2 sentences what THIS paper adds on top.
+- For each: teach it in 4-7 sentences of everyday language as a mini-lesson in this paper's context, give its key equation in plain unicode (or empty string), cite the source the way the paper does, and say in 1-2 sentences what THIS paper adds on top.
+- EVERY foundation gets a "demo": a small interactive experiment that makes the concept CLICK, with 1-3 sliders. Pick the visualization that teaches best — you decide:
+    * kind "chart" for signal/response/tradeoff ideas: e.g. a filter demo where a noise slider and a smoothing slider fight; a feedback demo where a gain slider trades speed against overshoot; a learning-rate slider making error die out over iterations.
+    * kind "frames" for inherently spatial or iterative ideas: an animated colored grid stepping through time — value iteration filling a gridworld from the goal outward, activations/weights updating in a small network, information propagating across cells. 4-25 frames, grid <= 10x10, each frame with a one-line note narrating what just happened.
+- The demo must be about the CONCEPT (a minimal toy), not the paper's full system — small, punchy, obvious cause-and-effect within 2 seconds of dragging a slider.
 - These must be genuinely from prior literature (the paper's related-work / preliminaries), distinct from the paper's own contribution blocks.
+
+RULES FOR blocks.plain (the story layer — this is what makes the platform addictive):
+- Every block's "plain" field is the FIRST thing the reader sees; the equation hides behind a "show the math" toggle. Write it like a great teacher hooked on the subject: everyday words, one vivid metaphor, cause-and-effect, zero symbols, zero jargon. Example register: "Reality never matches the blueprint — motors drag, ground gives. This block bundles everything the model got wrong into one signal that keeps shoving the leg off its rhythm."
 
 OTHER FIELDS
 - equation: plain unicode math (α, Σ, ∫, subscripts), never LaTeX.
-- theory: quote or closely paraphrase the paper's own paragraph for that step, with the section number.
+- theory: closely paraphrase the paper's explanation for that step, with the section number.
 - pythonCode: clean NumPy translation of the same block.
 - conceptFigures: pick the 1-3 INTRODUCTORY/architecture figures (not results plots), give their 1-indexed PDF page and bbox, and explain each in 3-6 sentences so the reader can follow the idea without the paper.
 - conclusion: the paper's core finding, naming the coefficient values it depends on.

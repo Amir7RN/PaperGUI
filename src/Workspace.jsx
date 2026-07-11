@@ -19,10 +19,11 @@ import {
   Info, RotateCcw, BookOpen, X, FlaskConical, SlidersHorizontal,
   Activity, GitBranch, Pin, PinOff, FileText, Code2, Sigma, Waves, Cpu,
   ChevronRight, TriangleAlert, CircleCheck, CircleAlert, ArrowLeft, Image as ImageIcon, LogOut,
-  Landmark, Maximize2, Lightbulb, LineChart as LineChartIcon, LayoutTemplate,
+  Landmark, Maximize2, Lightbulb, LineChart as LineChartIcon, LayoutTemplate, Move,
 } from "lucide-react";
 import LayoutEditor from "./LayoutEditor.jsx";
-import { loadLayout, layoutStyle, sectionByKey } from "./layout.js";
+import DesignBox from "./DesignBox.jsx";
+import { loadLayout, saveLayout, layoutStyle, sectionByKey } from "./layout.js";
 import {
   buildHelpers, defaultsFromSpec, compileSpec, runSpec,
   driftPercent, summaryMetrics, buildRows,
@@ -43,6 +44,9 @@ const C = {
 };
 
 const BLOCK_ICONS = [Activity, SlidersHorizontal, Sigma, GitBranch, Waves, Cpu];
+
+/* draggable top-level boxes on the free-form canvas */
+const BOX_IDS = ["conclusion", "sec-concept", "sec-foundations", "sec-method", "sec-results"];
 
 const fmt = (v, d = 3) =>
   v === undefined || v === null || Number.isNaN(v) ? "–" : (+v).toFixed(d);
@@ -174,10 +178,10 @@ function SectionHeader({ num, tone, icon: IconCmp, title, sub }) {
         {num}
       </div>
       <div className="min-w-0">
-        <h2 className="flex items-center gap-2 font-bold text-slate-900" style={{ fontSize: "var(--sec-head, 16px)" }}>
+        <h2 className="flex items-center gap-2 font-bold text-slate-900" style={{ fontSize: "calc(var(--sec-head, 16px) * var(--box-font-scale, 1))" }}>
           <IconCmp size={16} className={t.text} /> {title}
         </h2>
-        <p className="mt-0.5 leading-relaxed text-slate-500" style={{ fontSize: "var(--sec-sub, 12px)" }}>{sub}</p>
+        <p className="mt-0.5 leading-relaxed text-slate-500" style={{ fontSize: "calc(var(--sec-sub, 12px) * var(--box-font-scale, 1))" }}>{sub}</p>
       </div>
     </div>
   );
@@ -249,21 +253,18 @@ function ConceptFigures({ figures, onOpen }) {
             </span>
           </div>
           <div className="px-4 py-3">
-            {fig.svg && (
-              <div className="mb-3 overflow-x-auto rounded-lg border border-slate-100 bg-slate-50 p-2"
-                dangerouslySetInnerHTML={{ __html: fig.svg }} />
-            )}
-            {fig.image && (
-              <div className="mb-3 overflow-hidden rounded-lg border border-slate-100">
-                <img src={fig.image} alt={fig.title} className="w-full" loading="lazy" />
+            {/* only the paper's real figure — never a fabricated stand-in */}
+            {fig.image ? (
+              <div className="mb-3 flex items-center justify-center overflow-hidden rounded-lg border border-slate-100 bg-white">
+                <img src={fig.image} alt={fig.title}
+                  className="max-h-64 w-auto max-w-full object-contain" loading="lazy" />
               </div>
-            )}
-            {!fig.svg && !fig.image && fig.page != null && (
+            ) : fig.page != null ? (
               <div className="mb-3 rounded-lg border border-dashed border-slate-200 px-3 py-2 text-[11px] text-slate-400">
                 Figure on PDF page {fig.page} (preview unavailable)
               </div>
-            )}
-            <p className="text-[13px] leading-relaxed text-slate-600 line-clamp-3">{fig.explanation}</p>
+            ) : null}
+            <p className="text-[13px] leading-relaxed text-slate-600 line-clamp-4">{fig.explanation}</p>
             <span className="mt-1.5 inline-block text-[11px] font-medium text-violet-600">
               Click to read the full explanation →
             </span>
@@ -296,7 +297,7 @@ function Foundations({ foundations }) {
           </div>
           <div className="px-4 py-3">
             {f.equation ? <Eq>{f.equation}</Eq> : null}
-            <p className={`leading-relaxed text-slate-600 ${f.equation ? "mt-2.5" : ""}`} style={{ fontSize: "var(--found-text, 13px)" }}>{f.concept}</p>
+            <p className={`leading-relaxed text-slate-600 ${f.equation ? "mt-2.5" : ""}`} style={{ fontSize: "calc(var(--found-text, 13px) * var(--box-font-scale, 1))" }}>{f.concept}</p>
             <div className="mt-3 flex items-start gap-2 rounded-lg bg-amber-50/70 px-3 py-2">
               <Lightbulb size={13} className="mt-0.5 shrink-0 text-amber-600" />
               <p className="text-[12px] leading-relaxed text-amber-900">
@@ -361,6 +362,7 @@ function MethodBlock({ step, block, params, onChange, onInfo, isLast, error }) {
 
 function ChartCard({ title, blockKey, rows, tMax, height = 180, pinnedT, onPin, onInfo, onInspect }) {
   const lastHover = useRef(null);
+  const [readout, setReadout] = useState(null);
   const series = [
     { key: blockKey + "B", label: "Baseline (paper)", color: C.baseline, dash: "6 4" },
     { key: blockKey + "A", label: "Modified (you)",   color: C.active },
@@ -368,7 +370,16 @@ function ChartCard({ title, blockKey, rows, tMax, height = 180, pinnedT, onPin, 
 
   const handleMove = useCallback((state) => {
     if (state && state.activeTooltipIndex != null) lastHover.current = state.activeTooltipIndex;
-  }, []);
+    if (state?.activePayload?.length) {
+      setReadout({
+        x: state.activeLabel,
+        rows: series.map((s) => {
+          const p = state.activePayload.find((ap) => ap.dataKey === s.key);
+          return p ? { ...s, value: p.value } : null;
+        }).filter(Boolean),
+      });
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const handleClick = useCallback((state) => {
     if (state && state.activeLabel != null) onPin(+state.activeLabel);
   }, [onPin]);
@@ -405,7 +416,7 @@ function ChartCard({ title, blockKey, rows, tMax, height = 180, pinnedT, onPin, 
               tickFormatter={(v) => fmt(v, 1)}
             />
             <Tooltip
-              content={<ChartTooltip series={series} />}
+              content={() => null}
               cursor={{ stroke: C.inkMuted, strokeWidth: 1, strokeDasharray: "3 3" }}
               isAnimationActive={false}
             />
@@ -423,7 +434,24 @@ function ChartCard({ title, blockKey, rows, tMax, height = 180, pinnedT, onPin, 
           </LineChart>
         </ResponsiveContainer>
       </div>
-      <LegendRow items={series} />
+      <div className="flex flex-wrap items-center justify-between gap-2 px-1 pb-1">
+        <LegendRow items={series} />
+        <div className="rounded-md bg-slate-50 px-2 py-1 text-[11px] tabular-nums text-slate-600">
+          {readout ? (
+            <>
+              t = <strong>{fmt(readout.x, 2)}</strong>
+              {readout.rows.map((r) => (
+                <span key={r.key} className="ml-3">
+                  <span style={{ color: r.color === C.baseline ? "#52514e" : r.color }}>{r.label}:</span>{" "}
+                  <strong>{fmt(r.value)}</strong>
+                </span>
+              ))}
+            </>
+          ) : (
+            <span className="text-slate-400">hover the plot for exact values</span>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -627,8 +655,9 @@ function ResultFigureTooltip({ active, payload, label, xLabel, legend }) {
   );
 }
 
-/** One subplot: original is shown once per figure, so this is just the chart. */
-function PanelChart({ panel, baseRun, actRun, height = 170 }) {
+/** One subplot. Hover values are NOT drawn on the plot (a floating box hides
+ *  the curves) — they're forwarded to a dedicated readout box via onHover. */
+function PanelChart({ panel, baseRun, actRun, height = 170, onHover }) {
   const { rows } = useMemo(() => buildPanelRows(baseRun, actRun), [baseRun, actRun]);
   const err = actRun?.error || baseRun?.error;
   const nSeries = (actRun?.series || baseRun?.series || []).length;
@@ -643,6 +672,20 @@ function PanelChart({ panel, baseRun, actRun, height = 170 }) {
     legend.push({ key: `b${k}`, label: `${name} · baseline`, color: C.baseline, dash: "5 4" });
   }
 
+  const handleMove = useCallback((state) => {
+    if (!onHover || !state?.activePayload?.length) return;
+    onHover({
+      subplot: panel.subplotLabel,
+      xLabel: panel.xLabel,
+      yLabel: panel.yLabel,
+      x: state.activeLabel,
+      rows: legend.map((l) => {
+        const p = state.activePayload.find((ap) => ap.dataKey === l.key);
+        return p ? { ...l, value: p.value } : null;
+      }).filter(Boolean),
+    });
+  }, [onHover, panel, legend]); // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
     <div className="rounded-lg border border-slate-100 bg-white p-2">
       <div className="mb-1 flex items-baseline justify-between px-1">
@@ -653,7 +696,8 @@ function PanelChart({ panel, baseRun, actRun, height = 170 }) {
         <div className="rounded border border-red-200 bg-red-50 px-2 py-2 text-[11px] text-red-700">{err}</div>
       ) : (
         <ResponsiveContainer width="100%" height={height}>
-          <LineChart data={rows} margin={{ top: 6, right: 10, bottom: 2, left: -12 }}>
+          <LineChart data={rows} margin={{ top: 6, right: 10, bottom: 2, left: -12 }}
+            onMouseMove={handleMove}>
             <CartesianGrid stroke={C.grid} strokeWidth={1} vertical={false} />
             <XAxis
               dataKey="_i" type="number" domain={["dataMin", "dataMax"]}
@@ -664,8 +708,9 @@ function PanelChart({ panel, baseRun, actRun, height = 170 }) {
               tick={{ fill: C.inkMuted, fontSize: 9 }} stroke="transparent"
               tickLine={false} width={42} tickFormatter={(v) => fmt(v, 1)}
             />
+            {/* cursor line only — values go to the readout box, never over the curves */}
             <Tooltip
-              content={<ResultFigureTooltip xLabel={panel.xLabel} legend={legend} />}
+              content={() => null}
               cursor={{ stroke: C.inkMuted, strokeWidth: 1, strokeDasharray: "3 3" }}
               isAnimationActive={false}
             />
@@ -677,6 +722,48 @@ function PanelChart({ panel, baseRun, actRun, height = 170 }) {
         </ResponsiveContainer>
       )}
       <LegendRow items={legend} />
+    </div>
+  );
+}
+
+/** Dedicated live-readout box: shows the hovered subplot's values as a table. */
+function ReadoutBox({ hover }) {
+  return (
+    <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50/80 p-3">
+      <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+        Live readout — hover any subplot
+      </div>
+      {hover ? (
+        <>
+          <div className="mb-1 text-[11px] font-semibold text-slate-700">
+            {hover.subplot} · {hover.xLabel} = <span className="tabular-nums">{fmt(hover.x, 2)}</span>
+          </div>
+          <table className="w-full">
+            <tbody>
+              {hover.rows.map((r) => (
+                <tr key={r.key}>
+                  <td className="py-0.5 pr-2">
+                    <span className="flex items-center gap-1.5 text-[11px] text-slate-500">
+                      <svg width="16" height="4" aria-hidden="true">
+                        <line x1="0" y1="2" x2="16" y2="2" stroke={r.color} strokeWidth="2"
+                          strokeDasharray={r.dash || "none"} />
+                      </svg>
+                      {r.label}
+                    </span>
+                  </td>
+                  <td className="py-0.5 text-right text-[12px] font-semibold tabular-nums text-slate-800">
+                    {fmt(r.value)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      ) : (
+        <p className="text-[11px] text-slate-400">
+          Move the mouse across any plot on the right — exact values appear here instead of covering the curves.
+        </p>
+      )}
     </div>
   );
 }
@@ -828,6 +915,254 @@ function ConclusionBox({ drift, conclusion, baseM, actM, modifiedCount }) {
         </div>
       </div>
     </div>
+  );
+}
+
+/* ---------------- foundation demos: interactive mini-labs ---------------- */
+
+/** Compile & run a foundation demo kernel: function(params, helpers) -> result. */
+function useDemo(demo) {
+  const helpers = useMemo(
+    () => buildHelpers({ T: demo?.T || 10, dt: demo?.dt || 0.05 }),
+    [demo]
+  );
+  const fn = useMemo(() => {
+    if (!demo?.computeJs) return null;
+    try {
+      // eslint-disable-next-line no-new-func
+      return new Function("params", "helpers", demo.computeJs);
+    } catch { return null; }
+  }, [demo]);
+  const [params, setParams] = useState(() =>
+    Object.fromEntries((demo?.params || []).map((p) => [p.key, p.def]))
+  );
+  useEffect(() => {
+    setParams(Object.fromEntries((demo?.params || []).map((p) => [p.key, p.def])));
+  }, [demo]);
+  const result = useMemo(() => {
+    if (!fn) return { error: "demo failed to compile" };
+    try { return { value: fn(params, helpers) }; }
+    catch (e) { return { error: `demo error: ${e.message}` }; }
+  }, [fn, params, helpers]);
+  const setParam = (key, v) => setParams((p) => ({ ...p, [key]: Number.isFinite(v) ? v : p[key] }));
+  return { helpers, params, setParam, result };
+}
+
+/** Line-chart demo with its own dials and an under-chart readout. */
+function DemoChart({ demo }) {
+  const { helpers, params, setParam, result } = useDemo(demo);
+  const [readout, setReadout] = useState(null);
+
+  const { rows, legend, err } = useMemo(() => {
+    if (result.error) return { rows: [], legend: [], err: result.error };
+    const v = result.value;
+    if (!v?.series?.length) return { rows: [], legend: [], err: "demo returned no series" };
+    const n = v.series[0].data?.length || 0;
+    const rows = new Array(n);
+    for (let i = 0; i < n; i++) {
+      const row = { _i: v.x ? v.x[i] : helpers.t[i] ?? i };
+      v.series.forEach((s, k) => { row[`s${k}`] = Number.isFinite(s.data[i]) ? s.data[i] : 0; });
+      rows[i] = row;
+    }
+    const legend = v.series.map((s, k) => ({ key: `s${k}`, label: s.label, color: SERIES_HUES[k % SERIES_HUES.length] }));
+    return { rows, legend, err: null };
+  }, [result, helpers]);
+
+  const handleMove = useCallback((state) => {
+    if (!state?.activePayload?.length) return;
+    setReadout({
+      x: state.activeLabel,
+      rows: legend.map((l) => {
+        const p = state.activePayload.find((ap) => ap.dataKey === l.key);
+        return p ? { ...l, value: p.value } : null;
+      }).filter(Boolean),
+    });
+  }, [legend]);
+
+  return (
+    <div>
+      {err ? (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[11px] text-red-700">{err}</div>
+      ) : (
+        <div className="rounded-lg border border-slate-100 bg-white p-2">
+          <div className="mb-1 flex items-baseline justify-end px-1">
+            <span className="text-[10px] text-slate-400">{demo.xLabel} → {demo.yLabel}</span>
+          </div>
+          <ResponsiveContainer width="100%" height={210}>
+            <LineChart data={rows} margin={{ top: 6, right: 10, bottom: 2, left: -8 }} onMouseMove={handleMove}>
+              <CartesianGrid stroke={C.grid} strokeWidth={1} vertical={false} />
+              <XAxis dataKey="_i" type="number" domain={["dataMin", "dataMax"]}
+                tick={{ fill: C.inkMuted, fontSize: 9 }} stroke={C.axis} tickLine={false}
+                tickFormatter={(v) => fmt(v, 1)} />
+              <YAxis tick={{ fill: C.inkMuted, fontSize: 9 }} stroke="transparent"
+                tickLine={false} width={44} tickFormatter={(v) => fmt(v, 1)} />
+              <Tooltip content={() => null}
+                cursor={{ stroke: C.inkMuted, strokeWidth: 1, strokeDasharray: "3 3" }}
+                isAnimationActive={false} />
+              {legend.map((l) => (
+                <Line key={l.key} dataKey={l.key} stroke={l.color} strokeWidth={2} dot={false}
+                  isAnimationActive={false} />
+              ))}
+            </LineChart>
+          </ResponsiveContainer>
+          <div className="flex flex-wrap items-center justify-between gap-2 px-1 pb-1">
+            <LegendRow items={legend} />
+            <div className="rounded-md bg-slate-50 px-2 py-1 text-[11px] tabular-nums text-slate-600">
+              {readout
+                ? <>x = <strong>{fmt(readout.x, 2)}</strong>{readout.rows.map((r) => (
+                    <span key={r.key} className="ml-3"><span style={{ color: r.color }}>{r.label}:</span> <strong>{fmt(r.value)}</strong></span>
+                  ))}</>
+                : <span className="text-slate-400">hover for values</span>}
+            </div>
+          </div>
+        </div>
+      )}
+      {demo.params?.length ? (
+        <div className="mt-2 rounded-lg border border-amber-100 bg-amber-50/50 px-3 py-1.5">
+          {demo.params.map((p) => (
+            <ParamSlider key={p.key} def={p} value={params[p.key]} onChange={setParam} />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/** Animated-grid demo (value iteration, message passing, network updates, …):
+ *  kernel returns { frames: [{ grid: number[][], note }] }; play/step through. */
+function DemoFrames({ demo }) {
+  const { params, setParam, result } = useDemo(demo);
+  const [idx, setIdx] = useState(0);
+  const [playing, setPlaying] = useState(false);
+
+  const frames = result.value?.frames || [];
+  useEffect(() => { setIdx(0); setPlaying(false); }, [result.value]);
+  useEffect(() => {
+    if (!playing || frames.length < 2) return;
+    const t = setInterval(() => setIdx((i) => (i + 1 < frames.length ? i + 1 : (setPlaying(false), i))), 650);
+    return () => clearInterval(t);
+  }, [playing, frames.length]);
+
+  if (result.error) {
+    return <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[11px] text-red-700">{result.error}</div>;
+  }
+  const frame = frames[Math.min(idx, frames.length - 1)];
+  if (!frame?.grid?.length) {
+    return <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[11px] text-red-700">demo returned no frames</div>;
+  }
+
+  let mn = Infinity, mx = -Infinity;
+  for (const f of frames) for (const row of f.grid) for (const v of row) {
+    if (Number.isFinite(v)) { mn = Math.min(mn, v); mx = Math.max(mx, v); }
+  }
+  const span = mx - mn || 1;
+  const cellColor = (v) => {
+    const u = (v - mn) / span; // sequential blue ramp, light -> dark
+    const light = [205, 226, 251], dark = [13, 54, 107];
+    const c = light.map((l, i) => Math.round(l + (dark[i] - l) * u));
+    return { bg: `rgb(${c.join(",")})`, ink: u > 0.55 ? "#fff" : "#0b0b0b" };
+  };
+  const small = frame.grid.length <= 9 && frame.grid[0].length <= 9;
+
+  return (
+    <div>
+      <div className="rounded-lg border border-slate-100 bg-white p-3">
+        <div className="mb-2 flex items-center gap-2">
+          <button onClick={() => setPlaying(!playing)}
+            className="rounded-lg bg-slate-800 px-3 py-1 text-[11px] font-medium text-white hover:bg-slate-700">
+            {playing ? "Pause" : "▶ Play"}
+          </button>
+          <button onClick={() => { setPlaying(false); setIdx((i) => Math.max(0, i - 1)); }}
+            className="rounded-lg border border-slate-200 px-2 py-1 text-[11px] text-slate-600 hover:bg-slate-50">◀ step</button>
+          <button onClick={() => { setPlaying(false); setIdx((i) => Math.min(frames.length - 1, i + 1)); }}
+            className="rounded-lg border border-slate-200 px-2 py-1 text-[11px] text-slate-600 hover:bg-slate-50">step ▶</button>
+          <button onClick={() => { setPlaying(false); setIdx(0); }}
+            className="rounded-lg border border-slate-200 px-2 py-1 text-[11px] text-slate-600 hover:bg-slate-50">reset</button>
+          <span className="ml-auto text-[11px] tabular-nums text-slate-400">
+            step {idx + 1} / {frames.length}
+          </span>
+        </div>
+        <div className="inline-grid gap-0.5"
+          style={{ gridTemplateColumns: `repeat(${frame.grid[0].length}, minmax(0, 1fr))` }}>
+          {frame.grid.flatMap((row, r) =>
+            row.map((v, c) => {
+              const col = cellColor(v);
+              return (
+                <div key={`${r}-${c}`}
+                  className="flex items-center justify-center rounded-sm text-[10px] font-medium tabular-nums transition-colors duration-300"
+                  style={{ background: col.bg, color: col.ink, width: small ? 44 : 26, height: small ? 44 : 26 }}>
+                  {small && Number.isFinite(v) ? (Math.abs(v) >= 100 ? v.toFixed(0) : v.toFixed(1)) : ""}
+                </div>
+              );
+            })
+          )}
+        </div>
+        {frame.note && <p className="mt-2 text-[11.5px] leading-relaxed text-slate-600">{frame.note}</p>}
+      </div>
+      {demo.params?.length ? (
+        <div className="mt-2 rounded-lg border border-amber-100 bg-amber-50/50 px-3 py-1.5">
+          {demo.params.map((p) => (
+            <ParamSlider key={p.key} def={p} value={params[p.key]} onChange={setParam} />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/* ---------------- foundations lab window ---------------- */
+
+function FoundationsLab({ foundations }) {
+  const [pageIdx, setPageIdx] = useState(0);
+  const f = foundations[Math.min(pageIdx, foundations.length - 1)];
+  if (!f) return null;
+
+  return (
+    <LabWindow
+      title="Foundations Lab — learn the background by playing"
+      accent="bg-amber-500"
+      pages={foundations.map((x, i) => ({ id: String(i), label: x.title, sub: x.source.split(",")[0] }))}
+      activeId={String(pageIdx)}
+      onSelect={(id) => setPageIdx(+id)}
+    >
+      <div className="grid gap-4 xl:grid-cols-5">
+        <div className="min-w-0 xl:col-span-2">
+          <h3 className="text-sm font-bold text-slate-900">{f.title}</h3>
+          <p className="text-[11px] italic text-slate-400">{f.source}</p>
+          <p className="mt-2 leading-relaxed text-slate-700" style={{ fontSize: "calc(var(--found-text, 13px) * var(--box-font-scale, 1))" }}>
+            {f.concept}
+          </p>
+          {f.equation ? (
+            <details className="mt-2 rounded-lg border border-slate-200 bg-slate-50/60 px-3 py-2">
+              <summary className="cursor-pointer select-none text-[11px] font-semibold text-slate-500 hover:text-amber-600">
+                Show the math
+              </summary>
+              <div className="mt-2"><Eq>{f.equation}</Eq></div>
+            </details>
+          ) : null}
+          <div className="mt-3 flex items-start gap-2 rounded-lg bg-amber-50/70 px-3 py-2">
+            <Lightbulb size={13} className="mt-0.5 shrink-0 text-amber-600" />
+            <p className="text-[12px] leading-relaxed text-amber-900">
+              <span className="font-semibold">What this paper adds: </span>{f.whyItMatters}
+            </p>
+          </div>
+        </div>
+        <div className="min-w-0 xl:col-span-3">
+          {f.demo ? (
+            <>
+              <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                Try it — {f.demo.caption}
+              </div>
+              {f.demo.kind === "frames" ? <DemoFrames demo={f.demo} /> : <DemoChart demo={f.demo} />}
+            </>
+          ) : (
+            <div className="flex min-h-[180px] items-center justify-center rounded-lg border border-dashed border-slate-200 text-[11px] text-slate-400">
+              No interactive demo for this concept
+            </div>
+          )}
+        </div>
+      </div>
+    </LabWindow>
   );
 }
 
@@ -1001,8 +1336,19 @@ function ConceptLab({ spec, params, defaults, setParam, rows, compiled, pinnedT,
               <h3 className="text-sm font-bold text-slate-900">{block.title}</h3>
               <InfoButton onClick={() => onInfo(block.key)} label={`Theory and code for ${block.title}`} />
             </div>
-            <Eq>{block.equation}</Eq>
-            <p className="mt-2 leading-relaxed text-slate-600" style={{ fontSize: "var(--concept-text, 12.5px)" }}>{block.theory}</p>
+            {/* the story first — plain language, no formulas in your face */}
+            <p className="leading-relaxed text-slate-700" style={{ fontSize: "calc(var(--concept-text, 12.5px) * 1.1 * var(--box-font-scale, 1))" }}>
+              {block.plain || block.theory}
+            </p>
+            <details className="mt-2 rounded-lg border border-slate-200 bg-slate-50/60 px-3 py-2">
+              <summary className="cursor-pointer select-none text-[11px] font-semibold text-slate-500 hover:text-blue-600">
+                Show the math &amp; the paper's own wording
+              </summary>
+              <div className="mt-2">
+                <Eq>{block.equation}</Eq>
+                <p className="mt-2 leading-relaxed text-slate-600" style={{ fontSize: "calc(var(--concept-text, 12.5px) * var(--box-font-scale, 1))" }}>{block.theory}</p>
+              </div>
+            </details>
             {compiled.errors[block.key] && (
               <div className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[11px] text-red-700">
                 {compiled.errors[block.key]}
@@ -1049,7 +1395,10 @@ function ResultsLab({ spec, pipelineCompiled, helpers, baseOutputs, actOutputs, 
   const figs = spec.resultFigures || [];
   const [pageId, setPageId] = useState(figs[0]?.figureLabel || "");
   const [showParams, setShowParams] = useState(false);
+  const [hover, setHover] = useState(null);
   const panelH = layout?.numeric?.panelChartH ?? 170;
+
+  useEffect(() => { setHover(null); }, [pageId]);
 
   const compiled = useMemo(() => compileResultFigures(spec), [spec]);
   const baseFigHelpers = useMemo(() => makeFigureHelpers(spec, pipelineCompiled, helpers, defaults), [spec, pipelineCompiled, helpers, defaults]);
@@ -1085,7 +1434,7 @@ function ResultsLab({ spec, pipelineCompiled, helpers, baseOutputs, actOutputs, 
           <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
             <div className="min-w-0">
               <h3 className="text-sm font-bold text-slate-900">{fig.figureLabel} — {fig.title}</h3>
-              <p className="mt-1 max-w-3xl leading-relaxed text-slate-600" style={{ fontSize: "var(--result-text, 12.5px)" }}>{fig.explanation}</p>
+              <p className="mt-1 max-w-3xl leading-relaxed text-slate-600" style={{ fontSize: "calc(var(--result-text, 12.5px) * var(--box-font-scale, 1))" }}>{fig.explanation}</p>
             </div>
             <button
               onClick={() => setShowParams(!showParams)}
@@ -1124,6 +1473,7 @@ function ResultsLab({ spec, pipelineCompiled, helpers, baseOutputs, actOutputs, 
                   {fig.page ? <>{fig.figureLabel} on page {fig.page} — crop unavailable</> : "No source figure available"}
                 </div>
               )}
+              <ReadoutBox hover={hover} />
             </div>
 
             <div className="xl:col-span-3">
@@ -1132,7 +1482,7 @@ function ResultsLab({ spec, pipelineCompiled, helpers, baseOutputs, actOutputs, 
               </div>
               <div className={`grid gap-3 ${(fig.panels?.length || 0) > 1 ? "md:grid-cols-2" : ""}`}>
                 {(fig.panels || []).map((panel, pi) => (
-                  <PanelChart key={pi} panel={panel} baseRun={runs[pi]?.base} actRun={runs[pi]?.act} height={panelH} />
+                  <PanelChart key={pi} panel={panel} baseRun={runs[pi]?.base} actRun={runs[pi]?.act} height={panelH} onHover={setHover} />
                 ))}
               </div>
             </div>
@@ -1159,6 +1509,61 @@ export default function Workspace({ spec, onBack, onSignOut }) {
   const [layout, setLayout] = useState(loadLayout);
   const [editorOpen, setEditorOpen] = useState(false);
   const sec = useCallback((k) => sectionByKey(layout, k), [layout]);
+
+  // free-form canvas ("PowerPoint mode")
+  const canvasRef = useRef(null);
+  const boxEls = useRef({});
+  const free = layout.freeMode;
+
+  const registerBox = useCallback((id, el) => {
+    if (el) boxEls.current[id] = el; else delete boxEls.current[id];
+  }, []);
+
+  const setBox = useCallback((id, rect) => {
+    setLayout((L) => {
+      const next = { ...L, boxes: { ...L.boxes, [id]: rect } };
+      saveLayout(next);
+      return next;
+    });
+  }, []);
+
+  // enter free mode: freeze the current flow positions as the starting canvas
+  const toggleFree = useCallback(() => {
+    setLayout((L) => {
+      if (L.freeMode) { const next = { ...L, freeMode: false }; saveLayout(next); return next; }
+      // free canvas is full-bleed: measure x/w against the viewport width, y
+      // against the current main top (unchanged — the hint is a fixed pill).
+      const canvas = canvasRef.current?.getBoundingClientRect();
+      const fullW = document.documentElement.clientWidth || (canvas?.width ?? 1280);
+      const boxes = { ...L.boxes };
+      if (canvas) {
+        for (const [id, el] of Object.entries(boxEls.current)) {
+          if (!el || boxes[id]) continue; // keep any positions already saved
+          const r = el.getBoundingClientRect();
+          boxes[id] = {
+            x: +((r.left / fullW) * 100).toFixed(2),
+            y: Math.round(r.top - canvas.top),
+            w: +((r.width / fullW) * 100).toFixed(2),
+            h: Math.round(r.height),
+            font: 1,
+          };
+        }
+      }
+      const next = { ...L, freeMode: true, boxes };
+      saveLayout(next);
+      return next;
+    });
+  }, []);
+
+  const canvasHeight = useMemo(() => {
+    if (!free) return undefined;
+    let max = 600;
+    for (const id of BOX_IDS) {
+      const b = layout.boxes[id];
+      if (b) max = Math.max(max, b.y + b.h);
+    }
+    return max + 60;
+  }, [free, layout.boxes]);
 
   useEffect(() => { setParams(defaults); setPinnedT(null); }, [defaults]);
 
@@ -1223,7 +1628,15 @@ export default function Workspace({ spec, onBack, onSignOut }) {
                 onClick={() => setEditorOpen(true)}
                 className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-600 shadow-sm hover:border-blue-300 hover:text-blue-700"
               >
-                <LayoutTemplate size={14} /> Edit layout
+                <LayoutTemplate size={14} /> Edit fonts &amp; sections
+              </button>
+              <button
+                onClick={toggleFree}
+                className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-medium shadow-sm ${
+                  free ? "border-blue-500 bg-blue-600 text-white hover:bg-blue-700" : "border-slate-200 bg-white text-slate-600 hover:border-blue-300 hover:text-blue-700"
+                }`}
+              >
+                <Move size={14} /> {free ? "Done arranging" : "Free layout (drag boxes)"}
               </button>
               <button
                 onClick={() => { setParams(defaults); setPinnedT(null); }}
@@ -1245,74 +1658,94 @@ export default function Workspace({ spec, onBack, onSignOut }) {
         </div>
       </header>
 
-      <main className="mx-auto px-4 pt-4 sm:px-6" style={{ maxWidth: "var(--content-max, 1280px)" }}>
-        <ConclusionBox
-          drift={drift}
-          conclusion={spec.conclusion}
-          baseM={baseM}
-          actM={actM}
-          modifiedCount={modifiedCount}
-        />
-
-        {active.error && (
-          <div className="mt-3 rounded-xl border-2 border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800">
-            <strong>Pipeline error:</strong> {active.error}
-          </div>
-        )}
+      {free && (
+        <div className="fixed bottom-4 left-1/2 z-40 -translate-x-1/2 rounded-full border border-blue-300 bg-blue-600/95 px-4 py-2 text-[11px] font-medium text-white shadow-lg backdrop-blur">
+          Free layout · drag a box by its blue label · resize from the corner · A−/A+ scales text · saves automatically
+        </div>
+      )}
+      <main
+        ref={canvasRef}
+        className={free ? "relative w-full p-0" : "mx-auto pt-4"}
+        style={free
+          ? { height: canvasHeight, maxWidth: "none" }
+          : { maxWidth: "var(--content-max, 1280px)", paddingLeft: "var(--page-pad, 24px)", paddingRight: "var(--page-pad, 24px)" }}
+      >
+        <DesignBox id="conclusion" label="Conclusion" mode={free ? "free" : "flow"} rect={layout.boxes.conclusion} onRect={setBox} register={registerBox}>
+          <ConclusionBox
+            drift={drift}
+            conclusion={spec.conclusion}
+            baseM={baseM}
+            actM={actM}
+            modifiedCount={modifiedCount}
+          />
+          {active.error && (
+            <div className="mt-3 rounded-xl border-2 border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800">
+              <strong>Pipeline error:</strong> {active.error}
+            </div>
+          )}
+        </DesignBox>
 
         {/* ===== 1 · concept figures (clickable → fullscreen) ===== */}
         {spec.conceptFigures?.length && sec("concept").on ? (
-          <section aria-label="Concept primer">
-            <SectionHeader num={1} tone="violet" icon={ImageIcon} title={sec("concept").title} sub={sec("concept").sub} />
-            <ConceptFigures figures={spec.conceptFigures} onOpen={setLightbox} />
-          </section>
+          <DesignBox id="sec-concept" label="1 · Idea in pictures" mode={free ? "free" : "flow"} rect={layout.boxes["sec-concept"]} onRect={setBox} register={registerBox}>
+            <section aria-label="Concept primer">
+              <SectionHeader num={1} tone="violet" icon={ImageIcon} title={sec("concept").title} sub={sec("concept").sub} />
+              <ConceptFigures figures={spec.conceptFigures} onOpen={setLightbox} />
+            </section>
+          </DesignBox>
         ) : null}
 
         {/* ===== 2 · foundations (borrowed core ideas) ===== */}
         {spec.foundations?.length && sec("foundations").on ? (
-          <section aria-label="Foundations from prior work">
-            <SectionHeader num={2} tone="amber" icon={Landmark} title={sec("foundations").title} sub={sec("foundations").sub} />
-            <Foundations foundations={spec.foundations} />
-          </section>
+          <DesignBox id="sec-foundations" label="2 · Background" mode={free ? "free" : "flow"} rect={layout.boxes["sec-foundations"]} onRect={setBox} register={registerBox}>
+            <section aria-label="Foundations from prior work">
+              <SectionHeader num={2} tone="amber" icon={Landmark} title={sec("foundations").title} sub={sec("foundations").sub} />
+              <FoundationsLab foundations={spec.foundations} />
+            </section>
+          </DesignBox>
         ) : null}
 
         {/* ===== 3 · concept lab window ===== */}
         {sec("method").on ? (
-          <section aria-label="The paper's contribution">
-            <SectionHeader num={3} tone="blue" icon={GitBranch} title={sec("method").title} sub={sec("method").sub} />
-            <ConceptLab
-              spec={spec}
-              params={params}
-              defaults={defaults}
-              setParam={setParam}
-              rows={rows}
-              compiled={compiled}
-              pinnedT={pinnedT}
-              onPin={togglePin}
-              onInfo={setInfoKey}
-              onInspect={setInspect}
-              layout={layout}
-            />
-          </section>
+          <DesignBox id="sec-method" label="3 · Method lab" mode={free ? "free" : "flow"} rect={layout.boxes["sec-method"]} onRect={setBox} register={registerBox}>
+            <section aria-label="The paper's contribution">
+              <SectionHeader num={3} tone="blue" icon={GitBranch} title={sec("method").title} sub={sec("method").sub} />
+              <ConceptLab
+                spec={spec}
+                params={params}
+                defaults={defaults}
+                setParam={setParam}
+                rows={rows}
+                compiled={compiled}
+                pinnedT={pinnedT}
+                onPin={togglePin}
+                onInfo={setInfoKey}
+                onInspect={setInspect}
+                layout={layout}
+              />
+            </section>
+          </DesignBox>
         ) : null}
 
         {/* ===== 4 · results lab window ===== */}
         {spec.resultFigures?.length && sec("results").on ? (
-          <section aria-label="Reproduced result figures">
-            <SectionHeader num={4} tone="emerald" icon={LineChartIcon} title={sec("results").title} sub={sec("results").sub} />
-            <ResultsLab
-              spec={spec}
-              pipelineCompiled={compiled}
-              helpers={helpers}
-              baseOutputs={baseline.outputs}
-              actOutputs={active.outputs}
-              defaults={defaults}
-              params={params}
-              setParam={setParam}
-              onOpenFig={setLightbox}
-              layout={layout}
-            />
-          </section>
+          <DesignBox id="sec-results" label="4 · Results lab" mode={free ? "free" : "flow"} rect={layout.boxes["sec-results"]} onRect={setBox} register={registerBox}>
+            <section aria-label="Reproduced result figures">
+              <SectionHeader num={4} tone="emerald" icon={LineChartIcon} title={sec("results").title} sub={sec("results").sub} />
+              <ResultsLab
+                spec={spec}
+                pipelineCompiled={compiled}
+                helpers={helpers}
+                baseOutputs={baseline.outputs}
+                actOutputs={active.outputs}
+                defaults={defaults}
+                params={params}
+                setParam={setParam}
+                onOpenFig={setLightbox}
+                layout={layout}
+              />
+            </section>
+          </DesignBox>
         ) : null}
       </main>
 
