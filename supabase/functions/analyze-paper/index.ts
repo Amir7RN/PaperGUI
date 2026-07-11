@@ -22,7 +22,10 @@
 import Anthropic from "npm:@anthropic-ai/sdk@^0.68.0";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { jsonrepair } from "npm:jsonrepair@3";
-import { MODEL_TIERS, SPEC_SCHEMA, SYSTEM_PROMPT, hintsBlock, tierById, usageCostUsd } from "../_shared/paperSpec.js";
+import {
+  MODEL_TIERS, SPEC_SCHEMA, PHASE_SCHEMAS, SYSTEM_PROMPT,
+  hintsBlock, phaseInstruction, tierById, usageCostUsd,
+} from "../_shared/paperSpec.js";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -89,12 +92,18 @@ Deno.serve(async (req) => {
     return json(400, { error: "Invalid JSON body." });
   }
 
-  const { pdfBase64, tierId, hints } = body || {};
+  const { pdfBase64, tierId, hints, phase, contextSpec } = body || {};
   if (!pdfBase64 || typeof pdfBase64 !== "string") {
     return json(400, { error: "Missing pdfBase64." });
   }
   if (pdfBase64.length > MAX_PDF_BASE64_CHARS) {
     return json(400, { error: "PDF is too large (32MB API limit)." });
+  }
+  if (phase && !PHASE_SCHEMAS[phase]) {
+    return json(400, { error: `Unknown analysis phase "${phase}".` });
+  }
+  if (phase === "results" && !contextSpec?.blocks) {
+    return json(400, { error: "The results phase requires the pipeline from the method phase." });
   }
   const tier = tierById(tierId) || MODEL_TIERS[0];
 
@@ -121,13 +130,20 @@ Deno.serve(async (req) => {
 
         const maxTokens = tier.id === "fast" ? 48000 : 64000;
 
+        const schema = phase ? PHASE_SCHEMAS[phase] : SPEC_SCHEMA;
         const schemaBlock =
           "\n\nOUTPUT FORMAT (critical):\n" +
           "Respond with ONLY one JSON object — no markdown fences, no commentary before or after. " +
           "Valid JSON syntax: escape all newlines inside strings as \\n. " +
           "Keep it focused: for dense papers prefer 3-4 result figures and 3-4 blocks over exhaustive coverage. " +
           "It must validate against this JSON Schema:\n" +
-          JSON.stringify(SPEC_SCHEMA);
+          JSON.stringify(schema);
+
+        const prompt =
+          SYSTEM_PROMPT +
+          hintsBlock(hints) +
+          (phase ? phaseInstruction(phase, contextSpec) : "") +
+          schemaBlock;
 
         const anthropicStream = client.messages.stream({
           model: tier.model,
@@ -141,21 +157,24 @@ Deno.serve(async (req) => {
                 {
                   type: "document",
                   source: { type: "base64", media_type: "application/pdf", data: pdfBase64 },
+                  // Cache the PDF so the later phases of the same analysis
+                  // re-read it at ~10% of the input price (5-minute TTL).
+                  cache_control: { type: "ephemeral" },
                 },
-                { type: "text", text: SYSTEM_PROMPT + hintsBlock(hints) + schemaBlock },
+                { type: "text", text: prompt },
               ],
             },
           ],
         });
 
-        // Supabase kills the whole function at its ~400s wall-clock limit,
+        // Supabase kills the whole function at 150s of wall clock (free plan),
         // which the client sees as a silent disconnect. Abort the Anthropic
         // stream ourselves a bit earlier so we can return a clear error.
         let timedOut = false;
         const deadline = setTimeout(() => {
           timedOut = true;
           try { anthropicStream.abort(); } catch { /* already done */ }
-        }, 330_000);
+        }, 140_000);
 
         let chars = 0;
         let lastUpdate = 0;
@@ -184,8 +203,8 @@ Deno.serve(async (req) => {
         } catch (streamErr) {
           if (timedOut) {
             throw new Error(
-              "The analysis exceeded the platform's time limit before finishing. " +
-              "Try the Standard or Fast level, or a shorter paper."
+              "This stage of the analysis exceeded the server's time limit. " +
+              "Try again on a faster level (Basic or Fast), or with a shorter paper."
             );
           }
           throw streamErr;

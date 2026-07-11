@@ -40,7 +40,9 @@ export const MODEL_TIERS = [
     model: "claude-sonnet-5",
     blurb: "Balanced quality, speed and cost — the recommended default",
     adaptive: true,
-    effort: "high",
+    // "medium" fits each analysis phase inside the platform's 150s kill
+    // window; on Sonnet 5, medium ≈ the previous generation's high.
+    effort: "medium",
     priceIn: 3.0,
     priceOut: 15.0,
   },
@@ -50,7 +52,7 @@ export const MODEL_TIERS = [
     model: "claude-sonnet-4-6",
     blurb: "Lighter analysis for straightforward papers",
     adaptive: true,
-    effort: "high",
+    effort: "medium",
     priceIn: 3.0,
     priceOut: 15.0,
   },
@@ -275,6 +277,72 @@ export const SPEC_SCHEMA = {
     blocks: { type: "array", items: blockSchema, description: "3-6 sequential methodology blocks" },
   },
 };
+
+/* ---------------- Phase split ----------------
+ * The hosting platform (Supabase Edge Functions) hard-kills a function at
+ * 150s of wall clock, so one call can never produce the whole spec for a
+ * real paper. The client instead requests the analysis in THREE sequential
+ * calls — overview → method → results — each returning a slice of the
+ * PaperSpec that the client merges. The PDF document block is prompt-cached
+ * (5-minute TTL), so calls 2 and 3 re-read it at ~10% of the input price.
+ */
+
+const P = SPEC_SCHEMA.properties;
+
+export const PHASE_SCHEMAS = {
+  overview: {
+    type: "object",
+    additionalProperties: false,
+    required: ["meta", "conclusion", "references", "conceptFigures", "foundations"],
+    properties: {
+      meta: P.meta,
+      conclusion: P.conclusion,
+      references: P.references,
+      conceptFigures: P.conceptFigures,
+      foundations: P.foundations,
+    },
+  },
+  method: {
+    type: "object",
+    additionalProperties: false,
+    required: ["protocol", "blocks"],
+    properties: { protocol: P.protocol, blocks: P.blocks },
+  },
+  results: {
+    type: "object",
+    additionalProperties: false,
+    required: ["resultFigures"],
+    properties: { resultFigures: P.resultFigures },
+  },
+};
+
+/** Per-phase instruction appended to the prompt. `contextSpec` is the
+ *  {protocol, blocks} slice from the method phase, required by results. */
+export function phaseInstruction(phase, contextSpec) {
+  if (phase === "overview") {
+    return (
+      "\n\nTHIS CALL IS PHASE 1 of 3: produce ONLY the fields " +
+      "{meta, conclusion, references, conceptFigures, foundations}. " +
+      "The method pipeline (protocol/blocks) and the result-figure reproductions are " +
+      "produced in later calls — keep them in mind for coherence, but do NOT emit them now."
+    );
+  }
+  if (phase === "method") {
+    return (
+      "\n\nTHIS CALL IS PHASE 2 of 3: produce ONLY the fields {protocol, blocks} — " +
+      "the full interactive pipeline per the rules above. Concept figures, foundations " +
+      "and result figures are handled in other calls — do NOT emit them now."
+    );
+  }
+  return (
+    "\n\nTHIS CALL IS PHASE 3 of 3: produce ONLY the field {resultFigures}, reproducing " +
+    "the paper's key result figures per the rules above. The pipeline was already produced " +
+    "in the previous call and is given below — your panels' computeJs receive ITS block " +
+    "outputs (by block key) and ITS slider params, and helpers.simulate re-runs THIS " +
+    "pipeline. Use its exact block keys and param keys.\n\nTHE PIPELINE (protocol + blocks):\n" +
+    JSON.stringify(contextSpec || {})
+  );
+}
 
 /* ---------------- Prompt ---------------- */
 

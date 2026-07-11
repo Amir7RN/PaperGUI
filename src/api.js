@@ -30,26 +30,20 @@ export function setModelTier(id) {
 }
 
 /**
- * Analyze a paper PDF (base64 string, no newlines) with the given model tier
- * (defaults to the stored/most-capable tier). `hints` is optional reader
- * guidance {domain, focus, signal, notes} appended to the prompt.
- * onProgress({pct,label}) is called as the request advances.
- * Returns { spec, cost, remainingBalance }.
+ * The analysis runs as THREE sequential edge-function calls — the hosting
+ * platform kills any single function at 150s of wall clock, which a full
+ * one-shot analysis always exceeds on real papers. Each phase returns a
+ * slice of the PaperSpec; the PDF is prompt-cached server-side so phases
+ * 2 and 3 re-read it at ~10% of the input price.
  */
-export async function analyzePaper(pdfBase64, onProgress, tier = getModelTier(), hints = null) {
-  const report = (pct, label) => onProgress?.({ pct, label });
+const PHASES = [
+  { id: "overview", title: "Idea & foundations", from: 3,  to: 34 },
+  { id: "method",   title: "Method pipeline",    from: 34, to: 67 },
+  { id: "results",  title: "Result figures",     from: 67, to: 99 },
+];
 
-  if (!functionsUrl) {
-    throw new Error("Sign-in is not configured for this deployment — analysis is unavailable.");
-  }
-
-  const token = await getAccessToken();
-  if (!token) {
-    throw new Error("Your session has expired. Please sign in again.");
-  }
-
-  report(3, "Uploading the paper…");
-
+/** One phase call: streams NDJSON progress, returns {spec, cost, remainingBalance}. */
+async function runPhase(pdfBase64, tier, hints, phase, contextSpec, token, report) {
   const res = await fetch(`${functionsUrl}/analyze-paper`, {
     method: "POST",
     headers: {
@@ -57,7 +51,7 @@ export async function analyzePaper(pdfBase64, onProgress, tier = getModelTier(),
       Authorization: `Bearer ${token}`,
       apikey: supabaseAnonKey,
     },
-    body: JSON.stringify({ pdfBase64, tierId: tier.id, hints }),
+    body: JSON.stringify({ pdfBase64, tierId: tier.id, hints, phase: phase.id, contextSpec }),
   });
 
   if (!res.ok || !res.body) {
@@ -87,7 +81,9 @@ export async function analyzePaper(pdfBase64, onProgress, tier = getModelTier(),
       try { event = JSON.parse(line); } catch { continue; }
 
       if (event.type === "progress") {
-        report(event.pct, event.label);
+        // Map this phase's 0-100% into its slice of the overall bar.
+        const pct = phase.from + (Math.min(100, event.pct) / 100) * (phase.to - phase.from);
+        report(pct, `${phase.title} — ${event.label}`);
       } else if (event.type === "result") {
         result = event;
       } else if (event.type === "error") {
@@ -99,11 +95,46 @@ export async function analyzePaper(pdfBase64, onProgress, tier = getModelTier(),
   if (errorMessage) throw new Error(errorMessage);
   if (!result) {
     throw new Error(
-      "The connection to the analyzer dropped before it finished — this usually means the " +
-      "analysis ran longer than the server allows. Try again on the Standard or Fast level, " +
-      "or with a shorter paper. (No credit is charged for an unfinished analysis.)"
+      `The connection dropped during the "${phase.title}" stage — the server likely hit its ` +
+      "time limit. Try again on a faster level (Basic or Fast), or with a shorter paper."
     );
   }
+  return result;
+}
 
-  return { spec: result.spec, cost: result.cost, remainingBalance: result.remainingBalance };
+/**
+ * Analyze a paper PDF (base64 string, no newlines) with the given model tier
+ * (defaults to the stored/most-capable tier). `hints` is optional reader
+ * guidance {domain, focus, signal, notes} appended to the prompt.
+ * onProgress({pct,label}) is called as the request advances.
+ * Returns { spec, cost, remainingBalance }.
+ */
+export async function analyzePaper(pdfBase64, onProgress, tier = getModelTier(), hints = null) {
+  const report = (pct, label) => onProgress?.({ pct, label });
+
+  if (!functionsUrl) {
+    throw new Error("Sign-in is not configured for this deployment — analysis is unavailable.");
+  }
+
+  const token = await getAccessToken();
+  if (!token) {
+    throw new Error("Your session has expired. Please sign in again.");
+  }
+
+  report(2, "Uploading the paper…");
+
+  const spec = {};
+  let totalCost = 0;
+  let remainingBalance = null;
+
+  for (const phase of PHASES) {
+    const contextSpec =
+      phase.id === "results" ? { protocol: spec.protocol, blocks: spec.blocks } : null;
+    const result = await runPhase(pdfBase64, tier, hints, phase, contextSpec, token, report);
+    Object.assign(spec, result.spec);
+    totalCost += result.cost || 0;
+    if (typeof result.remainingBalance === "number") remainingBalance = result.remainingBalance;
+  }
+
+  return { spec, cost: totalCost, remainingBalance };
 }
