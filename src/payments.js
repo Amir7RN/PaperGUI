@@ -11,11 +11,9 @@ export const PAYMENT = {
   // Handles are used ONLY to build the pay links below — never rendered as
   // visible text. Leave a field "" to hide that button.
   venmo: "Amirreza-Naseri",   // Venmo username (no leading @)
-  cashapp: "",                // Cash App $Cashtag WITHOUT the $ — find it in the
-                              // Cash App app under your profile (e.g. "amir7").
-                              // NOTE: "AVB73M" is NOT a valid cashtag (404).
-  paypal: "",                 // PayPal.me name (paypal.me/<name>) — accepts
-                              // debit/credit cards from guests, no account needed.
+  cashapp: "AVN73M",          // Cash App $Cashtag WITHOUT the $
+  paypal: "A9R4N",            // PayPal.me name (paypal.me/A9R4N) — accepts
+                              // debit/credit cards from guests, no account needed
 
   // Suggested amounts (USD). $1 of credit ≈ one Advanced paper.
   amounts: [5, 10, 20],
