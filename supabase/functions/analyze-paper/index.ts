@@ -75,7 +75,7 @@ Deno.serve(async (req) => {
     return json(400, { error: "Invalid JSON body." });
   }
 
-  const { pdfBase64, tierId, hints, phase, contextSpec } = body || {};
+  const { pdfBase64, tierId, hints, phase, contextSpec, repair } = body || {};
   if (!pdfBase64 || typeof pdfBase64 !== "string") {
     return json(400, { error: "Missing pdfBase64." });
   }
@@ -154,10 +154,24 @@ Deno.serve(async (req) => {
           "It must validate against this JSON Schema:\n" +
           JSON.stringify(schema);
 
+        // Validation feedback from the client's quality gate: the previous
+        // attempt's generated code was test-run and failed (flat lines, dead
+        // sliders, broken panels). Feed the exact problems back.
+        const repairBlock =
+          repair && typeof repair === "string"
+            ? "\n\nYOUR PREVIOUS ATTEMPT WAS REJECTED BY AUTOMATED VALIDATION. " +
+              "Your generated code was executed and failed these checks:\n" +
+              repair.slice(0, 4000) +
+              "\nRegenerate correctly: every flagged block/panel/demo needs real, " +
+              "visibly varying dynamics with sliders wired into the math. " +
+              "Flat or constant output is a hard failure."
+            : "";
+
         const prompt =
           SYSTEM_PROMPT +
           hintsBlock(hints) +
           (phase ? phaseInstruction(phase, contextSpec) : "") +
+          repairBlock +
           schemaBlock;
 
         const requestParams = {

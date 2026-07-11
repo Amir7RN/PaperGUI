@@ -369,6 +369,13 @@ RULES FOR computeJs (critical — this code is executed):
 - Keep numerics stable: use explicit Euler with helpers.dt for ODEs, clamp integrators, avoid division by values that can reach zero.
 - The pipeline run with every param at its "def" is the BASELINE and must qualitatively reproduce the paper's reported result.
 
+HARD QUALITY RULES (an automated validator EXECUTES your generated code and rejects the response if any check fails):
+- NO FLAT LINES. Every block output, every result-figure series, and every foundation-demo curve must visibly VARY across its window. A constant array is an automatic rejection — the only exception is a reference/threshold line plotted alongside varying curves.
+- LIVE SLIDERS. Nudging any slider ~35% must measurably change the final block's output and the figures. Every param key MUST appear in the math with real sensitivity at the paper's operating point. A slider that changes nothing is an automatic rejection.
+- REDUCED-ORDER, NEVER PLACEHOLDER. When the paper's full system is too complex to simulate literally (a 3D robot, a deep network, fluid/FEM, hardware), build the SIMPLEST dynamical surrogate that reproduces the paper's qualitative behavior — e.g. second-order tracking dynamics + disturbance + actuator saturation for a robot controller; per-iteration error-decay dynamics for a learning method; an oscillator + feedback loop for gait/rhythm systems — and CALIBRATE it so magnitudes, timescales and axis ranges match the paper's reported numbers. NEVER return zeros, a pass-through of the input, or an arbitrary sine as filler.
+- SHAPE MATCH. Each reproduced series must show the same qualitative features as the paper's actual curve: initial transient then settling, oscillation at the reported frequency, spikes at disturbance events, a visible noise band, convergence across iterations — whatever the original shows. Test yourself: "plotted at defaults, could this panel be mistaken for the paper's subplot?" If not, redo it before answering.
+- DEMOS MUST TEACH. Every foundation demo must render an obviously shaped curve at defaults, and dragging each of its sliders must change the curve dramatically within the plotted window. Pick param ranges where cause-and-effect is unmistakable.
+
 RULES FOR resultFigures (THE MOST IMPORTANT PART — these are faithful, interactive reproductions of the paper's REAL plots):
 Your job here is to DUPLICATE the paper's result figures, not to draw a vague single-curve sketch. Treat this like being asked to reproduce every figure of the paper from its equations.
 

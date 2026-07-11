@@ -69,8 +69,10 @@ function fallbackTier(tier) {
   return MODEL_TIERS.find((t) => t.id === FALLBACK_ORDER[i + 1]) || null;
 }
 
-/** One phase call: streams NDJSON progress, returns {spec, cost, remainingBalance}. */
-async function runPhase(pdfBase64, tier, hints, phase, contextSpec, token, report) {
+/** One phase call: streams NDJSON progress, returns {spec, cost, remainingBalance}.
+ *  `repair` is an optional list of validation problems from a previous
+ *  attempt, fed back to the analyzer so it regenerates correctly. */
+async function runPhase(pdfBase64, tier, hints, phase, contextSpec, token, report, repair = null) {
   const res = await fetch(`${functionsUrl}/analyze-paper`, {
     method: "POST",
     headers: {
@@ -78,7 +80,7 @@ async function runPhase(pdfBase64, tier, hints, phase, contextSpec, token, repor
       Authorization: `Bearer ${token}`,
       apikey: supabaseAnonKey,
     },
-    body: JSON.stringify({ pdfBase64, tierId: tier.id, hints, phase: phase.id, contextSpec }),
+    body: JSON.stringify({ pdfBase64, tierId: tier.id, hints, phase: phase.id, contextSpec, repair }),
   });
 
   if (!res.ok || !res.body) {
@@ -145,7 +147,7 @@ async function runPhase(pdfBase64, tier, hints, phase, contextSpec, token, repor
  * onProgress({pct,label}) is called as the request advances.
  * Returns { spec, cost, remainingBalance }.
  */
-export async function analyzePaper(pdfBase64, onProgress, tier = getModelTier(), hints = null) {
+export async function analyzePaper(pdfBase64, onProgress, tier = getModelTier(), hints = null, validators = null) {
   const report = (pct, label) => onProgress?.({ pct, label });
 
   if (!functionsUrl) {
@@ -184,6 +186,38 @@ export async function analyzePaper(pdfBase64, onProgress, tier = getModelTier(),
         report(phase.from, `${phase.title} — took too long, retrying on the ${fb.label} level…`);
         result = await runPhase(pdfBase64, fb, hints, phase, contextSpec, token, report);
       }
+
+      // Quality gate: test-run the generated code. If it produces flat lines,
+      // dead sliders, or broken panels, regenerate this phase ONCE with the
+      // exact problems fed back to the analyzer.
+      const validator = validators?.[phase.id];
+      if (validator) {
+        const candidate = { ...spec };
+        for (const k of phase.keys) {
+          if (result.spec?.[k] !== undefined) candidate[k] = result.spec[k];
+        }
+        let problems = null;
+        try { problems = validator(candidate); } catch { /* audit crash ≠ analysis failure */ }
+        if (problems) {
+          report(phase.from, `${phase.title} — failed the quality check, regenerating…`);
+          try {
+            const retry = await runPhase(pdfBase64, tier, hints, phase, contextSpec, token, report, problems);
+            const candidate2 = { ...spec };
+            for (const k of phase.keys) {
+              if (retry.spec?.[k] !== undefined) candidate2[k] = retry.spec[k];
+            }
+            let problems2 = null;
+            try { problems2 = validator(candidate2); } catch { /* keep retry */ }
+            // Prefer the retry unless it is measurably worse than the original.
+            const count = (s) => (s ? s.split("\n").length : 0);
+            if (count(problems2) <= count(problems)) {
+              retry.cost = (retry.cost || 0) + (result.cost || 0);
+              result = retry;
+            }
+          } catch { /* retry failed — keep the original attempt */ }
+        }
+      }
+
       phaseCache.set(cacheId, result);
     }
 

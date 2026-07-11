@@ -245,3 +245,103 @@ export function buildRows(spec, helpers, baseOut, actOut) {
   }
   return rows;
 }
+
+/* ---------------- quality audit (anti-garbage validation) ----------------
+ * The analyzer's generated code can "run" while modeling nothing — constant
+ * arrays plot as flat lines, sliders that aren't wired into the math change
+ * nothing, and drift stays 0.0% because baseline and modified are equally
+ * dead. These audits test-run the generated code and return a list of
+ * human-readable problems; the client feeds them back to the analyzer for
+ * one automatic regeneration of the failing phase.
+ */
+
+function signalSpan(arr) {
+  let lo = Infinity, hi = -Infinity;
+  for (const v of arr) { if (v < lo) lo = v; if (v > hi) hi = v; }
+  return hi - lo;
+}
+
+/** Audit the methodology pipeline: constant block outputs and dead sliders. */
+export function auditPipeline(spec, compiled, helpers, defaults) {
+  const problems = [];
+  const base = runSpec(spec, compiled, defaults, helpers);
+  if (base.error) { problems.push(`the pipeline fails at baseline: ${base.error}`); return problems; }
+
+  for (const b of spec.blocks) {
+    const out = base.outputs[b.key];
+    if (out && signalSpan(out) < 1e-9) {
+      problems.push(`block "${b.key}" (${b.title}) returns a CONSTANT array — it models nothing and plots as a flat line`);
+    }
+  }
+
+  // Slider responsiveness: nudge every param ~35% toward its max and require
+  // the final block's output to change.
+  const nudged = { ...defaults };
+  for (const b of spec.blocks) {
+    for (const p of b.params || []) {
+      const target = p.def + (p.max - p.def) * 0.35;
+      nudged[p.key] = Number.isFinite(target) && target !== p.def ? target : p.def * 1.35 + 0.01;
+    }
+  }
+  const alt = runSpec(spec, compiled, nudged, helpers);
+  if (!alt.error) {
+    const fk = spec.blocks[spec.blocks.length - 1].key;
+    const a = base.outputs[fk] || [], c = alt.outputs[fk] || [];
+    let diff = 0;
+    for (let i = 0; i < a.length; i++) diff = Math.max(diff, Math.abs(a[i] - c[i]));
+    if (diff / Math.max(1e-9, signalSpan(a)) < 1e-6) {
+      problems.push(`moving the sliders does not change the final block "${fk}" output at all — the params are not actually used in the math`);
+    }
+  }
+  return problems;
+}
+
+/** Audit reproduced result figures: non-compiling, erroring, or flat panels. */
+export function auditResultFiguresQuality(spec, compiled, helpers, defaults) {
+  const problems = [];
+  const figCompiled = compileResultFigures(spec);
+  const base = runSpec(spec, compiled, defaults, helpers);
+  if (base.error) return problems; // pipeline problems are reported by auditPipeline
+  const fh = makeFigureHelpers(spec, compiled, helpers, defaults);
+
+  (spec.resultFigures || []).forEach((fig, fi) => {
+    (fig.panels || []).forEach((panel, pi) => {
+      const id = `${fi}:${pi}`;
+      const where = `${fig.figureLabel || `figure ${fi + 1}`} panel "${panel.subplotLabel || pi + 1}"`;
+      if (figCompiled.errors[id]) { problems.push(`${where} does not compile: ${figCompiled.errors[id]}`); return; }
+      const r = runResultPanel(figCompiled.fns[id], base.outputs, defaults, fh);
+      if (r.error) { problems.push(`${where} fails at runtime: ${r.error}`); return; }
+      const flat = r.series.every((s) => signalSpan(s.data) < 1e-9);
+      if (flat) problems.push(`${where} plots as FLAT/CONSTANT lines (every series is constant) — not a real reproduction of the paper's curves`);
+    });
+  });
+  return problems;
+}
+
+/** Audit foundation demos: non-compiling, erroring, or flat/empty output. */
+export function auditFoundations(spec) {
+  const problems = [];
+  (spec.foundations || []).forEach((f) => {
+    const d = f.demo;
+    if (!d) return;
+    let fn;
+    try {
+      // eslint-disable-next-line no-new-func
+      fn = new Function("params", "helpers", d.computeJs);
+    } catch (e) { problems.push(`foundation "${f.title}" demo does not compile: ${e.message}`); return; }
+    const h = buildHelpers({ T: d.T || 1, dt: d.dt || 1 });
+    const p = Object.fromEntries((d.params || []).map((pp) => [pp.key, pp.def]));
+    let res;
+    try { res = fn(p, h); } catch (e) { problems.push(`foundation "${f.title}" demo errors when run: ${e.message}`); return; }
+    if (d.kind === "frames") {
+      if (!res || !Array.isArray(res.frames) || res.frames.length < 2) {
+        problems.push(`foundation "${f.title}" frames demo returns no usable frames`);
+      }
+    } else {
+      const live = res && Array.isArray(res.series) &&
+        res.series.some((s) => Array.isArray(s.data) && s.data.length > 3 && signalSpan(s.data.filter(Number.isFinite)) > 1e-9);
+      if (!live) problems.push(`foundation "${f.title}" chart demo plots flat or empty — it must show a clearly varying curve that responds to its sliders`);
+    }
+  });
+  return problems;
+}

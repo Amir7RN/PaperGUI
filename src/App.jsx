@@ -20,7 +20,10 @@ import { SAMPLE_SPEC } from "./samplePaper.js";
 import { SAMPLE_SPEC_2 } from "./samplePaper2.js";
 import { analyzePaper, MODEL_TIERS, getModelTier, setModelTier } from "./api.js";
 import { fileToBase64, renderPdfRegions } from "./pdf.js";
-import { compileSpec, buildHelpers, defaultsFromSpec, runSpec, validateResultFigures } from "./engine.js";
+import {
+  compileSpec, buildHelpers, defaultsFromSpec, runSpec, validateResultFigures,
+  auditPipeline, auditResultFiguresQuality, auditFoundations,
+} from "./engine.js";
 import { authEnabled, onAuthChange, signOut, getBalance, saveAnalysis } from "./supabase.js";
 
 const BG_URL = `${import.meta.env.BASE_URL}Background.png`;
@@ -479,7 +482,27 @@ export default function App() {
       const arrayBuffer = await file.arrayBuffer();
       const base64 = await fileToBase64(file);
 
-      const { spec: newSpec, remainingBalance } = await analyzePaper(base64, setProgress, tier, hints);
+      // Quality gate per phase: test-run the generated code and reject
+      // flat/dead output, feeding the exact problems back for one automatic
+      // regeneration. Each validator returns a problem list or null.
+      const asNote = (probs) => (probs && probs.length ? probs.join("\n") : null);
+      const validators = {
+        overview: (s) => asNote(auditFoundations(s)),
+        method: (s) => {
+          try {
+            const h = buildHelpers(s.protocol);
+            return asNote(auditPipeline(s, compileSpec(s), h, defaultsFromSpec(s)));
+          } catch { return null; }
+        },
+        results: (s) => {
+          try {
+            const h = buildHelpers(s.protocol);
+            return asNote(auditResultFiguresQuality(s, compileSpec(s), h, defaultsFromSpec(s)));
+          } catch { return null; }
+        },
+      };
+
+      const { spec: newSpec, remainingBalance } = await analyzePaper(base64, setProgress, tier, hints, validators);
       if (typeof remainingBalance === "number") setBalance(remainingBalance);
 
       setProgress({ pct: 86, label: "Cropping figures from the paper…" });
