@@ -1,6 +1,6 @@
 /**
  * The bundled sample paper, expressed in the same PaperSpec format that the
- * Claude analyzer produces — so the generic engine and workspace are exercised
+ * AI analyzer produces — so the generic engine and workspace are exercised
  * end-to-end even before any PDF is uploaded.
  */
 

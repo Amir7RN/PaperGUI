@@ -29,7 +29,7 @@ export const MODEL_TIERS = [
     // is what makes Opus-quality reproduction possible here at all.
     model: "claude-opus-4-8",
     speed: "fast",
-    blurb: "Opus at 2.5× speed — deepest, most faithful reproduction (2× cost)",
+    blurb: "Deepest, most faithful reproduction — best for dense, math-heavy papers (premium)",
     adaptive: true,
     effort: "high",
     priceIn: 10.0,

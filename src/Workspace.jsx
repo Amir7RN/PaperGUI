@@ -1,6 +1,6 @@
 /**
  * Generic interactive workspace, driven entirely by a PaperSpec object —
- * either the bundled sample or one extracted from an uploaded PDF by Claude.
+ * either the bundled sample or one extracted from an uploaded PDF by the AI.
  *
  *  - Concept-figure primer (static images/SVG + plain-language explanations)
  *  - Methodology pipeline: one card per block, equation + live sliders

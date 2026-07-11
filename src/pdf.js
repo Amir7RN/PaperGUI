@@ -1,5 +1,5 @@
 /**
- * PDF utilities: base64 encoding for the Claude API, and page rendering
+ * PDF utilities: base64 encoding for the model API, and page rendering
  * (via pdf.js) so concept figures identified by the analyzer can be shown
  * as static images above the interactive pipeline.
  */
@@ -9,7 +9,7 @@ import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
 
-/** File -> base64 string without newlines (Claude requires none). */
+/** File -> base64 string without newlines (the model API requires none). */
 export async function fileToBase64(file) {
   const buf = await file.arrayBuffer();
   const bytes = new Uint8Array(buf);

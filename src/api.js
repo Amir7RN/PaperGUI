@@ -1,7 +1,7 @@
 /**
- * Claude-powered paper analysis.
+ * AI-powered paper analysis.
  *
- * The actual Anthropic API call happens server-side in the `analyze-paper`
+ * The actual model API call happens server-side in the `analyze-paper`
  * Supabase Edge Function — this file just authenticates the request (via the
  * signed-in user's Supabase session) and streams progress back into the UI.
  * There is no API key here and none in the browser at all: it lives only as

@@ -2,8 +2,8 @@
  * App shell: landing page -> (sample | upload+analyze) -> workspace.
  *
  * The landing page starts empty by design: the reader either loads the bundled
- * sample paper or uploads a PDF, which is analyzed in-browser by Claude
- * (claude-opus-4-8) into a PaperSpec that drives the generic workspace.
+ * sample paper or uploads a PDF, which is analyzed by the AI service into a
+ * PaperSpec that drives the generic workspace.
  */
 
 import React, { useState, useRef, useCallback, useEffect } from "react";
@@ -277,7 +277,7 @@ function Landing({
             },
             {
               n: "2",
-              title: "Claude rebuilds it",
+              title: "AI rebuilds it",
               body: "Figures explained, method on sliders, result plots recreated as code.",
             },
             {
@@ -405,7 +405,7 @@ function Landing({
 
         <p className="mt-8 flex max-w-xl items-center gap-1.5 text-center text-[11px] text-slate-400">
           <FileText size={12} className="shrink-0" />
-          Your PDF passes through our analysis service to Claude and is not kept; only the
+          Your PDF passes through our AI analysis service and is not kept; only the
           finished interactive analysis is saved — privately, to your own library.
         </p>
       </main>
