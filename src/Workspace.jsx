@@ -826,6 +826,314 @@ function ConclusionBox({ drift, conclusion, baseM, actM, modifiedCount }) {
   );
 }
 
+/* ---------------- mac-style lab window ---------------- */
+
+function LabWindow({ title, accent, pages, activeId, onSelect, children }) {
+  return (
+    <div className="overflow-hidden rounded-2xl border border-slate-300/70 bg-white/95 shadow-2xl backdrop-blur">
+      {/* title bar */}
+      <div className="flex items-center gap-3 border-b border-slate-200/80 bg-gradient-to-b from-slate-100 to-slate-50 px-4 py-2.5">
+        <div className="flex items-center gap-1.5" aria-hidden="true">
+          <span className="h-3 w-3 rounded-full bg-[#ff5f57] shadow-inner" />
+          <span className="h-3 w-3 rounded-full bg-[#febc2e] shadow-inner" />
+          <span className="h-3 w-3 rounded-full bg-[#28c840] shadow-inner" />
+        </div>
+        <span className="flex-1 truncate text-center text-xs font-semibold text-slate-600">{title}</span>
+        <span className="w-14" />
+      </div>
+
+      <div className="flex flex-col lg:flex-row">
+        {/* sidebar */}
+        <nav
+          aria-label={`${title} pages`}
+          className="flex shrink-0 gap-1 overflow-x-auto border-b border-slate-200/70 bg-slate-50/80 p-2 lg:w-56 lg:flex-col lg:overflow-x-visible lg:border-b-0 lg:border-r"
+        >
+          {pages.map((p) => {
+            const selected = p.id === activeId;
+            return (
+              <button
+                key={p.id}
+                onClick={() => onSelect(p.id)}
+                aria-current={selected ? "page" : undefined}
+                className={`shrink-0 rounded-lg px-3 py-2 text-left text-xs transition lg:w-full ${
+                  selected
+                    ? `${accent} font-semibold text-white shadow-md`
+                    : "text-slate-600 hover:bg-white hover:shadow-sm"
+                }`}
+              >
+                <span className="block truncate">{p.label}</span>
+                {p.sub && (
+                  <span className={`block truncate text-[10px] ${selected ? "text-white/75" : "text-slate-400"}`}>
+                    {p.sub}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </nav>
+
+        {/* content */}
+        <div className="min-h-[380px] min-w-0 flex-1 p-4">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- animated pipeline flow diagram ---------------- */
+
+function FlowDiagram({ blocks, activeKey, onSelect }) {
+  const BW = 148, BH = 64, GAP = 56;
+  const width = blocks.length * BW + (blocks.length - 1) * GAP + 24;
+  const height = 120;
+  const y = 26;
+
+  return (
+    <div className="overflow-x-auto">
+      <style>{`
+        @keyframes flowdash { to { stroke-dashoffset: -20; } }
+        .flow-arrow { stroke-dasharray: 6 6; animation: flowdash 0.7s linear infinite; }
+      `}</style>
+      <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} role="img"
+        aria-label="Signal flow through the method's pipeline">
+        <defs>
+          <marker id="fd-arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#64748b" />
+          </marker>
+        </defs>
+        {blocks.map((b, i) => {
+          const x = 12 + i * (BW + GAP);
+          const selected = b.key === activeKey;
+          const cx1 = x + BW, cx2 = x + BW + GAP;
+          return (
+            <g key={b.key}>
+              {i < blocks.length - 1 && (
+                <>
+                  <line x1={cx1 + 2} y1={y + BH / 2} x2={cx2 - 4} y2={y + BH / 2}
+                    stroke="#64748b" strokeWidth="1.6" className="flow-arrow" markerEnd="url(#fd-arr)" />
+                  <circle r="4" fill="#2a78d6">
+                    <animateMotion dur="1.6s" repeatCount="indefinite"
+                      path={`M ${cx1 + 2} ${y + BH / 2} L ${cx2 - 6} ${y + BH / 2}`} />
+                  </circle>
+                </>
+              )}
+              <g
+                onClick={() => onSelect?.(b.key)}
+                style={{ cursor: "pointer" }}
+                role="button" aria-label={`Open ${b.title}`}
+              >
+                <rect x={x} y={y} width={BW} height={BH} rx="12"
+                  fill={selected ? "#eff6ff" : "white"}
+                  stroke={selected ? "#2a78d6" : "#cbd5e1"}
+                  strokeWidth={selected ? 2 : 1.2}
+                  className="transition-all"
+                />
+                {selected && (
+                  <rect x={x} y={y} width={BW} height={BH} rx="12" fill="none"
+                    stroke="#93c5fd" strokeWidth="5" opacity="0.35" />
+                )}
+                <text x={x + BW / 2} y={y + 24} textAnchor="middle" fontSize="10.5" fontWeight="700"
+                  fill={selected ? "#1d4ed8" : "#0f172a"}>
+                  Step {i}
+                </text>
+                <foreignObject x={x + 6} y={y + 30} width={BW - 12} height={BH - 34}>
+                  <div xmlns="http://www.w3.org/1999/xhtml"
+                    style={{ fontSize: "9px", lineHeight: "1.15", color: "#475569", textAlign: "center", overflow: "hidden" }}>
+                    {b.title}
+                  </div>
+                </foreignObject>
+              </g>
+              <text x={x + BW / 2} y={y + BH + 18} textAnchor="middle" fontSize="9" fill="#94a3b8">
+                {i === 0 ? "input" : i === blocks.length - 1 ? "→ headline result" : ""}
+              </text>
+            </g>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
+/* ---------------- concept lab window ---------------- */
+
+function ConceptLab({ spec, params, defaults, setParam, rows, compiled, pinnedT, onPin, onInfo, onInspect }) {
+  const [pageId, setPageId] = useState("overview");
+  const pages = [
+    { id: "overview", label: "Overview", sub: "the whole pipeline, animated" },
+    ...spec.blocks.map((b, i) => ({ id: b.key, label: `Step ${i} · ${b.title.split("—")[0].trim()}`, sub: b.params.map((p) => p.sym).join("  ") })),
+  ];
+  const block = spec.blocks.find((b) => b.key === pageId);
+  const idx = spec.blocks.findIndex((b) => b.key === pageId);
+
+  return (
+    <LabWindow
+      title={`Concept Lab — ${spec.meta.title.slice(0, 60)}${spec.meta.title.length > 60 ? "…" : ""}`}
+      accent="bg-blue-600"
+      pages={pages}
+      activeId={pageId}
+      onSelect={setPageId}
+    >
+      {pageId === "overview" ? (
+        <div>
+          <p className="mb-3 max-w-3xl text-[13px] leading-relaxed text-slate-600">
+            The method as a signal chain: each box is one step of the paper's pipeline, and the
+            moving dots are the signal flowing through it. <strong>Click a box</strong> (or a page on
+            the left) to open that step — its equation in plain language, its dials, and its live plot.
+          </p>
+          <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3">
+            <FlowDiagram blocks={spec.blocks} activeKey={null} onSelect={setPageId} />
+          </div>
+          <p className="mt-3 text-[11px] leading-relaxed text-slate-400">{spec.protocol.description}</p>
+        </div>
+      ) : block ? (
+        <div className="grid gap-4 xl:grid-cols-5">
+          <div className="min-w-0 xl:col-span-2">
+            <div className="mb-2 rounded-lg border border-slate-200 bg-slate-50/60 p-2">
+              <FlowDiagram blocks={spec.blocks} activeKey={block.key} onSelect={setPageId} />
+            </div>
+            <div className="mb-1 flex items-start justify-between gap-2">
+              <h3 className="text-sm font-bold text-slate-900">{block.title}</h3>
+              <InfoButton onClick={() => onInfo(block.key)} label={`Theory and code for ${block.title}`} />
+            </div>
+            <Eq>{block.equation}</Eq>
+            <p className="mt-2 text-[12.5px] leading-relaxed text-slate-600">{block.theory}</p>
+            {compiled.errors[block.key] && (
+              <div className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[11px] text-red-700">
+                {compiled.errors[block.key]}
+              </div>
+            )}
+            <div className="mt-3 rounded-xl border border-blue-100 bg-blue-50/50 px-3 py-2">
+              <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-blue-500">
+                Turn the dials — the plot reacts instantly
+              </div>
+              {block.params.map((p) => (
+                <ParamSlider key={p.key} def={p} value={params[p.key]} onChange={setParam} />
+              ))}
+              {!block.params.length && (
+                <p className="text-[11px] text-slate-400">This step has no tunable coefficients.</p>
+              )}
+            </div>
+          </div>
+          <div className="min-w-0 xl:col-span-3">
+            <ChartCard
+              title={`Step ${idx} output · baseline vs. yours`}
+              blockKey={block.key}
+              rows={rows}
+              tMax={spec.protocol.T}
+              height={300}
+              pinnedT={pinnedT}
+              onPin={onPin}
+              onInfo={onInfo}
+              onInspect={onInspect}
+            />
+            <p className="mt-2 text-[11px] text-slate-400">
+              Dashed gray = the paper's published setting · solid blue = your current dials. Right-click
+              any point for exact values and deltas.
+            </p>
+          </div>
+        </div>
+      ) : null}
+    </LabWindow>
+  );
+}
+
+/* ---------------- results lab window ---------------- */
+
+function ResultsLab({ spec, pipelineCompiled, helpers, baseOutputs, actOutputs, defaults, params, setParam, onOpenFig }) {
+  const figs = spec.resultFigures || [];
+  const [pageId, setPageId] = useState(figs[0]?.figureLabel || "");
+  const [showParams, setShowParams] = useState(false);
+
+  const compiled = useMemo(() => compileResultFigures(spec), [spec]);
+  const baseFigHelpers = useMemo(() => makeFigureHelpers(spec, pipelineCompiled, helpers, defaults), [spec, pipelineCompiled, helpers, defaults]);
+  const actFigHelpers  = useMemo(() => makeFigureHelpers(spec, pipelineCompiled, helpers, params), [spec, pipelineCompiled, helpers, params]);
+
+  const figIndex = figs.findIndex((f) => f.figureLabel === pageId);
+  const fig = figs[figIndex];
+
+  const runs = useMemo(() => {
+    if (!fig) return [];
+    return (fig.panels || []).map((panel, pi) => {
+      const fn = compiled.fns[`${figIndex}:${pi}`];
+      return {
+        base: runResultPanel(fn, baseOutputs, defaults, baseFigHelpers),
+        act:  runResultPanel(fn, actOutputs, params, actFigHelpers),
+      };
+    });
+  }, [fig, figIndex, compiled, baseOutputs, actOutputs, defaults, params, baseFigHelpers, actFigHelpers]);
+
+  if (!figs.length) return null;
+  const allParams = spec.blocks.flatMap((b) => b.params);
+
+  return (
+    <LabWindow
+      title="Results Lab — the paper's figures, live"
+      accent="bg-emerald-600"
+      pages={figs.map((f) => ({ id: f.figureLabel, label: `${f.figureLabel} · ${f.title.slice(0, 34)}${f.title.length > 34 ? "…" : ""}`, sub: `${f.panels?.length || 0} subplot${(f.panels?.length || 0) === 1 ? "" : "s"}` }))}
+      activeId={pageId}
+      onSelect={setPageId}
+    >
+      {fig && (
+        <div>
+          <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
+            <div className="min-w-0">
+              <h3 className="text-sm font-bold text-slate-900">{fig.figureLabel} — {fig.title}</h3>
+              <p className="mt-1 max-w-3xl text-[12.5px] leading-relaxed text-slate-600">{fig.explanation}</p>
+            </div>
+            <button
+              onClick={() => setShowParams(!showParams)}
+              className={`flex shrink-0 items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition ${
+                showParams ? "border-emerald-300 bg-emerald-50 text-emerald-700" : "border-slate-200 bg-white text-slate-600 hover:border-emerald-300"
+              }`}
+            >
+              <SlidersHorizontal size={13} /> Tune parameters
+            </button>
+          </div>
+
+          {showParams && (
+            <div className="mb-3 grid gap-x-6 rounded-xl border border-emerald-100 bg-emerald-50/40 px-4 py-2 sm:grid-cols-2 lg:grid-cols-3">
+              {allParams.map((p) => (
+                <ParamSlider key={p.key} def={p} value={params[p.key]} onChange={setParam} />
+              ))}
+            </div>
+          )}
+
+          <div className="grid gap-4 xl:grid-cols-5">
+            <div className="xl:col-span-2">
+              <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                Original figure from the paper · click to enlarge
+              </div>
+              {fig.image ? (
+                <button onClick={() => onOpenFig({ title: `${fig.figureLabel} — ${fig.title}`, image: fig.image, explanation: fig.explanation })}
+                  className="block w-full overflow-hidden rounded-lg border border-slate-200 bg-white transition hover:shadow-lg">
+                  <img src={fig.image} alt={`${fig.figureLabel} from the paper`} className="w-full" loading="lazy" />
+                </button>
+              ) : fig.svg ? (
+                <div className="overflow-hidden rounded-lg border border-slate-200 bg-white p-2"
+                  dangerouslySetInnerHTML={{ __html: fig.svg }} />
+              ) : (
+                <div className="flex min-h-[120px] items-center justify-center rounded-lg border border-dashed border-slate-200 px-3 text-center text-[11px] text-slate-400">
+                  {fig.page ? <>{fig.figureLabel} on page {fig.page} — crop unavailable</> : "No source figure available"}
+                </div>
+              )}
+            </div>
+
+            <div className="xl:col-span-3">
+              <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                Interactive reproduction · solid = your run, dashed = paper baseline
+              </div>
+              <div className={`grid gap-3 ${(fig.panels?.length || 0) > 1 ? "md:grid-cols-2" : ""}`}>
+                {(fig.panels || []).map((panel, pi) => (
+                  <PanelChart key={pi} panel={panel} baseRun={runs[pi]?.base} actRun={runs[pi]?.act} />
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </LabWindow>
+  );
+}
+
 /* ---------------- main workspace ---------------- */
 
 export default function Workspace({ spec, onBack, onSignOut }) {
@@ -951,86 +1259,43 @@ export default function Workspace({ spec, onBack, onSignOut }) {
           <section aria-label="Foundations from prior work">
             <SectionHeader
               num={2} tone="amber" icon={Landmark}
-              title="The wheels it doesn't reinvent"
-              sub="Core ideas this paper borrows from earlier work — mini-lessons you need before its own contribution makes sense."
+              title="Background you need first"
+              sub="Key ideas from earlier work that this paper builds on — quick lessons before the new contribution makes sense."
             />
             <Foundations foundations={spec.foundations} />
           </section>
         ) : null}
 
-        {/* ===== 3 · the paper's own method, interactive ===== */}
+        {/* ===== 3 · concept lab window ===== */}
         <section aria-label="The paper's contribution">
           <SectionHeader
             num={3} tone="blue" icon={GitBranch}
-            title="What this paper actually proposes"
-            sub="The methodology as a live pipeline: every coefficient on a slider, every stage plotted against the authors' baseline."
+            title="Learn the method by playing"
+            sub="An app-style lab: pick a step of the pipeline on the left, watch the animated signal flow, turn its dials and see the plot react — plain language throughout."
           />
-
-          {/* cursor status row */}
-          <div className="mb-3 flex flex-wrap items-center gap-3 text-xs text-slate-500">
-            <span className="flex items-center gap-1.5">
-              {pinnedT != null ? <Pin size={13} className="text-slate-700" /> : <PinOff size={13} />}
-              {pinnedT != null
-                ? <>Global cursor pinned at <strong className="tabular-nums text-slate-700">t = {fmt(pinnedT, 2)}</strong> across all plots — click that point again to unpin.</>
-                : "Hover any plot for a synchronized crosshair · click to pin a global cursor · right-click a point to inspect deltas & local stats."}
-            </span>
-            {pinnedT != null && (
-              <button
-                onClick={() => setPinnedT(null)}
-                className="rounded border border-slate-300 px-2 py-0.5 text-[11px] hover:bg-white"
-              >
-                Unpin
-              </button>
-            )}
-          </div>
-
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
-            <div className="lg:col-span-2">
-              {spec.blocks.map((block, i) => (
-                <MethodBlock
-                  key={block.key}
-                  step={i}
-                  block={block}
-                  params={params}
-                  onChange={setParam}
-                  onInfo={setInfoKey}
-                  isLast={i === spec.blocks.length - 1}
-                  error={compiled.errors[block.key]}
-                />
-              ))}
-              <p className="mt-2 px-1 text-[11px] leading-relaxed text-slate-400">
-                {spec.protocol.description}
-              </p>
-            </div>
-
-            <div className="flex flex-col gap-4 lg:col-span-3">
-              {spec.blocks.map((block, i) => (
-                <ChartCard
-                  key={block.key}
-                  title={`${String.fromCharCode(65 + i)} · ${block.title}`}
-                  blockKey={block.key}
-                  rows={rows}
-                  tMax={spec.protocol.T}
-                  height={i === spec.blocks.length - 1 ? 240 : 180}
-                  pinnedT={pinnedT}
-                  onPin={togglePin}
-                  onInfo={setInfoKey}
-                  onInspect={setInspect}
-                />
-              ))}
-            </div>
-          </div>
+          <ConceptLab
+            spec={spec}
+            params={params}
+            defaults={defaults}
+            setParam={setParam}
+            rows={rows}
+            compiled={compiled}
+            pinnedT={pinnedT}
+            onPin={togglePin}
+            onInfo={setInfoKey}
+            onInspect={setInspect}
+          />
         </section>
 
-        {/* ===== 4 · the paper's real result figures ===== */}
+        {/* ===== 4 · results lab window ===== */}
         {spec.resultFigures?.length ? (
           <section aria-label="Reproduced result figures">
             <SectionHeader
               num={4} tone="emerald" icon={LineChartIcon}
               title="The results, recreated and alive"
-              sub="The paper's own result figures — every subplot, every curve — recomputed from the method above. Solid = your run, dashed = the authors' baseline. Every slider reshapes them."
+              sub="Pick any of the paper's result figures on the left: the original beside its interactive reproduction — every subplot, every curve — reshaping as you tune the parameters."
             />
-            <ResultFigures
+            <ResultsLab
               spec={spec}
               pipelineCompiled={compiled}
               helpers={helpers}
@@ -1038,6 +1303,8 @@ export default function Workspace({ spec, onBack, onSignOut }) {
               actOutputs={active.outputs}
               defaults={defaults}
               params={params}
+              setParam={setParam}
+              onOpenFig={setLightbox}
             />
           </section>
         ) : null}

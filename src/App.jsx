@@ -156,34 +156,34 @@ function HintsPanel({ hints, onHints, disabled }) {
       {open && (
         <div className="grid gap-3 border-t border-slate-100 px-4 py-3 sm:grid-cols-2">
           <label className="text-xs text-slate-600">
-            <span className="mb-1 block font-medium">Field / domain</span>
+            <span className="mb-1 block font-medium">What field is this paper from?</span>
             <input
               value={hints.domain} onChange={set("domain")} disabled={disabled}
-              placeholder="e.g. legged robotics, signal processing, epidemiology"
+              placeholder="e.g. biology, economics, machine learning, physics…"
               className="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs focus:border-blue-400 focus:outline-none"
             />
           </label>
           <label className="text-xs text-slate-600">
-            <span className="mb-1 block font-medium">Figures to prioritize</span>
+            <span className="mb-1 block font-medium">Which figures or results matter most to you?</span>
             <input
               value={hints.focus} onChange={set("focus")} disabled={disabled}
-              placeholder="e.g. reproduce Figs 4–11 exactly, especially Fig 6"
+              placeholder="e.g. the main comparison figure; Figures 3–7; Table 2"
               className="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs focus:border-blue-400 focus:outline-none"
             />
           </label>
           <label className="text-xs text-slate-600 sm:col-span-2">
-            <span className="mb-1 block font-medium">What drives the system / experimental setup</span>
+            <span className="mb-1 block font-medium">How was the study run? (inputs, conditions, what changes over time)</span>
             <input
               value={hints.signal} onChange={set("signal")} disabled={disabled}
-              placeholder="e.g. periodic walking gait at ~1.2 s per cycle; step command at t = 2 s; push disturbance mid-trial"
+              placeholder="e.g. repeated trials; a treatment applied halfway; groups compared under different doses / settings"
               className="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs focus:border-blue-400 focus:outline-none"
             />
           </label>
           <label className="text-xs text-slate-600 sm:col-span-2">
-            <span className="mb-1 block font-medium">Anything else the analyzer should know</span>
+            <span className="mb-1 block font-medium">Anything else that would help?</span>
             <textarea
               value={hints.notes} onChange={set("notes")} disabled={disabled} rows={2}
-              placeholder="key equations or gains you care about, reported numbers to match, what you want to understand…"
+              placeholder="numbers the paper reports that the recreation should match, terms you'd like explained, what you're hoping to learn…"
               className="w-full resize-y rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs focus:border-blue-400 focus:outline-none"
             />
           </label>

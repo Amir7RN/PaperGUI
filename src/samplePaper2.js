@@ -16,10 +16,17 @@
  * paper's reported per-joint values (Kₛ, Λ, Γ, σ), scaled by the sliders.
  */
 
-/* ---- shared prelude injected into every figure kernel (has params, helpers) ---- */
+/* ---- shared prelude injected into every figure kernel (has params, helpers) ----
+ * Phase structure calibrated to the paper's recorded traces: the robot STANDS
+ * until ≈2 s, WALKS until ≈T−1.5 s, then stands again — visible in Figs 4/6.  */
 const SIM = `
 const w = 2 * Math.PI / params.gaitPeriod;
 const P = Math.max(1, Math.round(params.gaitPeriod / helpers.dt));
+const walkOn = 2.0, walkOff = helpers.T - 1.5;
+function walkWin(t) {
+  const sg = (x) => 1 / (1 + Math.exp(-x / 0.12));
+  return sg(t - walkOn) * sg(walkOff - t);
+}
 // per-joint gait amplitude/phase + paper gains (one leg, 6 joints)
 const JOINTS = [
   { name: "hip yaw",     amp: 0.06, ph: 0.0, Ks: 46, Lam: 300, Gam: 20, sig: 0.3, d: 0.9 },
@@ -32,7 +39,10 @@ const JOINTS = [
 const KsN = 55, GamN = 25, LamN = 430, WEIGHT = 647;
 function gaitRef(j) {
   const a = new Array(helpers.n);
-  for (let i = 0; i < helpers.n; i++) a[i] = params.stepScale * j.amp * Math.sin(w * helpers.t[i] + j.ph);
+  for (let i = 0; i < helpers.n; i++) {
+    const t = helpers.t[i];
+    a[i] = walkWin(t) * params.stepScale * j.amp * Math.sin(w * (t - walkOn) + j.ph);
+  }
   return a;
 }
 // repetitive-learning tracking of one joint under model uncertainty (Eqs 43-49)
@@ -45,9 +55,11 @@ function rlcJoint(j, terrain, push) {
   const qd = gaitRef(j), q = new Array(helpers.n), e = new Array(helpers.n);
   let ef = 0;
   for (let i = 0; i < helpers.n; i++) {
-    let d = params.distAmp * (1 + 1.2 * terrain) *
-            (j.d * Math.sin(w * helpers.t[i] + j.ph + 0.7) + (0.10 + 0.5 * terrain) * helpers.noise[i]);
-    if (push) d += push * Math.exp(-Math.pow(helpers.t[i] - helpers.T * 0.5, 2) / 0.03);
+    const t = helpers.t[i];
+    const gate = 0.12 + 0.88 * walkWin(t);                  // uncertainty mostly during walking
+    let d = gate * params.distAmp * (1 + 1.2 * terrain) *
+            (j.d * Math.sin(w * (t - walkOn) + j.ph + 0.7) + (0.10 + 0.5 * terrain) * helpers.noise[i]);
+    if (push) d += push * Math.exp(-Math.pow(t - helpers.T * 0.5, 2) / 0.03);
     u[i] = i >= P ? u[i - P] + g * eMem[i - P] : 0;         // repetitive update (disturbance units)
     const resid = d - u[i];
     eMem[i] = resid;                                        // memory accumulates the residual
@@ -57,26 +69,41 @@ function rlcJoint(j, terrain, push) {
   }
   return { qd, q, e };
 }
+// CoM height, calibrated to the recorded profile: flat while standing, a noisy
+// dip band while walking (p2p < 0.03 indoor, ~0.05 on grass), settle after.
 function comTraj(terrain) {
   const des = new Array(helpers.n), act = new Array(helpers.n);
-  const p2p = 0.016 + 0.05 * terrain;                       // ~0.022 indoor .. ~0.05 outdoor
+  const p2p = 0.016 + 0.05 * terrain;
   const lr = 1 - 0.25 * Math.min(1, params.learnGain);
   for (let i = 0; i < helpers.n; i++) {
+    const t = helpers.t[i];
+    const win = walkWin(t);
     des[i] = params.comHeight;
-    const osc = (p2p / 2) * Math.sin(2 * w * helpers.t[i] + 0.5) + (0.002 + 0.018 * terrain) * helpers.noise[i];
-    const settle = helpers.t[i] < 1 ? 0.004 * (1 - helpers.t[i]) : 0;
-    act[i] = params.comHeight + osc * lr - settle;
+    const osc = (p2p / 2) * (0.8 * Math.sin(2 * w * (t - walkOn) + 0.5)
+              + 0.45 * Math.sin(5.1 * w * (t - walkOn) + 1.9))
+              + (0.003 + 0.02 * terrain) * helpers.noise[i];
+    const dip = -0.35 * p2p; // walking rides slightly below the set-point
+    act[i] = params.comHeight + win * (osc + dip) * lr + (1 - win) * 0.0006 * helpers.noise[i];
   }
   return { des, act };
 }
+// vertical GRF, calibrated to the recorded profile: ~half the weight per foot
+// while standing, then sharp per-step pulses that drop to 0 during swing.
 function grf(side, terrain) {
-  const shift = side === "L" ? 0 : 0.5, win = 0.62, f = new Array(helpers.n);
+  const shift = side === "L" ? 0 : 0.5, duty = 0.60, f = new Array(helpers.n);
+  const standL = 0.53 * WEIGHT, standR = 0.47 * WEIGHT;
   for (let i = 0; i < helpers.n; i++) {
-    let ph = ((helpers.t[i] / params.gaitPeriod) + shift) % 1; if (ph < 0) ph += 1;
-    let val = 5;
-    if (ph < win) { const s = Math.sin(Math.PI * ph / win); val = Math.max(5, WEIGHT * Math.pow(s, 0.7)); }
-    val += terrain * 80 * helpers.noise[i] * (side === "L" ? 1 : -1);
-    f[i] = helpers.clamp(val, 5, 650);
+    const t = helpers.t[i];
+    const win = walkWin(t);
+    let ph = (((t - walkOn) / params.gaitPeriod) + shift) % 1; if (ph < 0) ph += 1;
+    let stepF = 0;
+    if (ph < duty) {
+      const s = Math.sin(Math.PI * ph / duty);
+      stepF = WEIGHT * (0.55 + 0.45 * Math.pow(s, 0.6));    // loaded stance, 0.55W..1W
+      stepF += (30 + terrain * 90) * helpers.noise[i];      // contact irregularity
+    }
+    const stand = side === "L" ? standL : standR;
+    f[i] = helpers.clamp((1 - win) * stand + win * stepF, 0, 650);
   }
   return f;
 }
@@ -150,6 +177,10 @@ const svgComGrf = `<svg viewBox="0 0 300 90" xmlns="http://www.w3.org/2000/svg" 
 
 const IN = 0.12, OUT = 0.55; // internal terrain for indoor / outdoor scenarios
 
+/* real figure crops extracted from the paper's PDF (scripts/extract-figs.mjs) */
+const BASE = (typeof import.meta !== "undefined" && import.meta.env) ? import.meta.env.BASE_URL : "/";
+const FIG = (name) => `${BASE}figs/${name}.png`;
+
 export const SAMPLE_SPEC_2 = {
   meta: {
     title:
@@ -182,6 +213,7 @@ export const SAMPLE_SPEC_2 = {
   conceptFigures: [
     {
       title: "Fig. 1 — Humanoid model & centroidal quantities",
+      image: FIG("dl-fig1"),
       explanation:
         "The 1.85 m, 66 kg humanoid and the quantities the method reasons about: the center of mass " +
         "(CoM), the centroidal linear and angular momentum, and the ground reaction forces (GRFs) at " +
@@ -207,6 +239,7 @@ export const SAMPLE_SPEC_2 = {
     },
     {
       title: "Fig. 2 — Planning + control framework",
+      image: FIG("dl-fig2"),
       explanation:
         "The two-layer pipeline. A whole-body planner solves an optimization for dynamically " +
         "consistent CoM trajectories and desired GRFs. A whole-body controller tracks them at the " +
@@ -347,8 +380,14 @@ return out;`,
     return s * 0.60 * np.sin(2*np.pi*t/Tg + 1.6)`,
       computeJs: `
 const w = 2 * Math.PI / params.gaitPeriod;
+const walkOn = 2.0, walkOff = helpers.T - 1.5;
+const sg = (x) => 1 / (1 + Math.exp(-x / 0.12));
 const out = new Array(helpers.n);
-for (let i = 0; i < helpers.n; i++) out[i] = params.stepScale * 0.60 * Math.sin(w * helpers.t[i] + 1.6);
+for (let i = 0; i < helpers.n; i++) {
+  const t = helpers.t[i];
+  const win = sg(t - walkOn) * sg(walkOff - t);
+  out[i] = win * params.stepScale * 0.60 * Math.sin(w * (t - walkOn) + 1.6);
+}
 return out;`,
     },
     {
@@ -401,6 +440,8 @@ return out;`,
     return q`,
       computeJs: `
 const w = 2 * Math.PI / params.gaitPeriod;
+const walkOn = 2.0, walkOff = helpers.T - 1.5;
+const sg = (x) => 1 / (1 + Math.exp(-x / 0.12));
 const P = Math.max(1, Math.round(params.gaitPeriod / helpers.dt));
 const Aeff = 0.045 * 55 / (48 * params.Ks);
 let g = params.learnGain * (30 / 25) * 0.35; if (g > 0.9) g = 0.9;
@@ -408,9 +449,11 @@ const filt = Math.exp(-(3 * (500 * params.Lam) / 430) * helpers.dt);
 const u = new Array(helpers.n).fill(0), eMem = new Array(helpers.n).fill(0);
 const out = new Array(helpers.n); let ef = 0;
 for (let i = 0; i < helpers.n; i++) {
-  const qd = params.stepScale * 0.60 * Math.sin(w * helpers.t[i] + 1.6);
+  const t = helpers.t[i];
+  const win = sg(t - walkOn) * sg(walkOff - t);
+  const qd = win * params.stepScale * 0.60 * Math.sin(w * (t - walkOn) + 1.6);
   u[i] = i >= P ? u[i - P] + g * eMem[i - P] : 0;
-  const resid = input[i] - u[i];
+  const resid = (0.12 + 0.88 * win) * input[i] - u[i];
   eMem[i] = resid;
   ef = ef * filt + Aeff * resid * (1 - filt);
   out[i] = qd + ef;
@@ -420,7 +463,7 @@ return out;`,
   ],
   resultFigures: [
     {
-      figureLabel: "Fig. 4", page: 10, title: "Left-leg joint tracking, indoor flat-ground walking",
+      figureLabel: "Fig. 4", page: 10, image: FIG("dl-fig4"), title: "Left-leg joint tracking, indoor flat-ground walking",
       explanation:
         "The six left-leg joint angles (solid) tracking their periodic gait references (dashed) during " +
         "steady indoor walking. Errors stay small and bounded across all joints. Raise the learning " +
@@ -429,7 +472,7 @@ return out;`,
       svg: svgTrack, panels: trackPanels(IN, 0),
     },
     {
-      figureLabel: "Fig. 5", page: 10, title: "Left-leg joint tracking errors, indoor walking",
+      figureLabel: "Fig. 5", page: 10, image: FIG("dl-fig5"), title: "Left-leg joint tracking errors, indoor walking",
       explanation:
         "Per-joint tracking error e(t) for the indoor case. The repetitive-learning term drives the " +
         "periodic component down within the first gait cycles, leaving a small bounded residual (mostly " +
@@ -437,7 +480,7 @@ return out;`,
       svg: svgErr, panels: errorPanels(IN),
     },
     {
-      figureLabel: "Fig. 6", page: 11, title: "CoM height and ground reaction forces, indoor walking",
+      figureLabel: "Fig. 6", page: 11, image: FIG("dl-fig6"), title: "CoM height and ground reaction forces, indoor walking",
       explanation:
         "Left: the CoM height held near the desired 1.045 m (error < 0.018 m during walking). Right: the " +
         "vertical ground reaction forces of the two feet, alternating with the gait and peaking near the " +
@@ -445,7 +488,7 @@ return out;`,
       svg: svgComGrf, panels: comGrfPanels(IN),
     },
     {
-      figureLabel: "Fig. 7", page: 11, title: "Tracking under an external push disturbance",
+      figureLabel: "Fig. 7", page: 11, image: FIG("dl-fig7"), title: "Tracking under an external push disturbance",
       explanation:
         "A transient external push is applied mid-walk. The hip-pitch and knee joints deviate at the " +
         "instant of the push, then the controller rejects it and tracking recovers — the disturbance-" +
@@ -467,7 +510,7 @@ return { series: [ { label: "reference", data: r.qd }, { label: "actual", data: 
       ],
     },
     {
-      figureLabel: "Fig. 9", page: 12, title: "Left-leg joint tracking, outdoor uneven grass",
+      figureLabel: "Fig. 9", page: 12, image: FIG("dl-fig9"), title: "Left-leg joint tracking, outdoor uneven grass",
       explanation:
         "The same six joints on uneven outdoor grass. Tracking remains stable but the errors fluctuate " +
         "more than indoors because of irregular ground contact — visible as the noisier gap between " +
@@ -475,7 +518,7 @@ return { series: [ { label: "reference", data: r.qd }, { label: "actual", data: 
       svg: svgTrack, panels: trackPanels(OUT, 0),
     },
     {
-      figureLabel: "Fig. 10", page: 12, title: "Left-leg joint tracking errors, outdoor walking",
+      figureLabel: "Fig. 10", page: 12, image: FIG("dl-fig10"), title: "Left-leg joint tracking errors, outdoor walking",
       explanation:
         "Outdoor per-joint errors. Larger, noisier fluctuations than Fig. 5 reflect terrain-induced " +
         "disturbances, yet they remain bounded and stable — the robustness claim of the paper. Compare " +
@@ -483,7 +526,7 @@ return { series: [ { label: "reference", data: r.qd }, { label: "actual", data: 
       svg: svgErr, panels: errorPanels(OUT),
     },
     {
-      figureLabel: "Fig. 11", page: 12, title: "CoM height and GRF, outdoor uneven grass",
+      figureLabel: "Fig. 11", page: 12, image: FIG("dl-fig11"), title: "CoM height and GRF, outdoor uneven grass",
       explanation:
         "Outdoor CoM and GRF. The CoM-height peak-to-peak fluctuation grows to roughly 0.05 m (versus " +
         "below 0.03 m indoors) from grass compliance and height irregularity, and the foot forces show " +
