@@ -19,8 +19,10 @@ import {
   Info, RotateCcw, BookOpen, X, FlaskConical, SlidersHorizontal,
   Activity, GitBranch, Pin, PinOff, FileText, Code2, Sigma, Waves, Cpu,
   ChevronRight, TriangleAlert, CircleCheck, CircleAlert, ArrowLeft, Image as ImageIcon, LogOut,
-  Landmark, Maximize2, Lightbulb, LineChart as LineChartIcon,
+  Landmark, Maximize2, Lightbulb, LineChart as LineChartIcon, LayoutTemplate,
 } from "lucide-react";
+import LayoutEditor from "./LayoutEditor.jsx";
+import { loadLayout, layoutStyle, sectionByKey } from "./layout.js";
 import {
   buildHelpers, defaultsFromSpec, compileSpec, runSpec,
   driftPercent, summaryMetrics, buildRows,
@@ -164,15 +166,18 @@ const SECTION_TONES = {
 function SectionHeader({ num, tone, icon: IconCmp, title, sub }) {
   const t = SECTION_TONES[tone];
   return (
-    <div className="mb-4 mt-10 flex items-start gap-3">
-      <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${t.badge} text-sm font-bold text-white shadow-md ring-4 ${t.ring}`}>
+    <div className="mb-4 flex items-start gap-3" style={{ marginTop: "var(--sec-gap, 40px)" }}>
+      <div
+        className={`flex shrink-0 items-center justify-center rounded-xl ${t.badge} font-bold text-white shadow-md ring-4 ${t.ring}`}
+        style={{ width: "var(--sec-badge, 36px)", height: "var(--sec-badge, 36px)", fontSize: "calc(var(--sec-badge, 36px) * 0.4)" }}
+      >
         {num}
       </div>
       <div className="min-w-0">
-        <h2 className={`flex items-center gap-2 text-base font-bold text-slate-900`}>
+        <h2 className="flex items-center gap-2 font-bold text-slate-900" style={{ fontSize: "var(--sec-head, 16px)" }}>
           <IconCmp size={16} className={t.text} /> {title}
         </h2>
-        <p className="mt-0.5 text-xs leading-relaxed text-slate-500">{sub}</p>
+        <p className="mt-0.5 leading-relaxed text-slate-500" style={{ fontSize: "var(--sec-sub, 12px)" }}>{sub}</p>
       </div>
     </div>
   );
@@ -291,7 +296,7 @@ function Foundations({ foundations }) {
           </div>
           <div className="px-4 py-3">
             {f.equation ? <Eq>{f.equation}</Eq> : null}
-            <p className={`text-[13px] leading-relaxed text-slate-600 ${f.equation ? "mt-2.5" : ""}`}>{f.concept}</p>
+            <p className={`leading-relaxed text-slate-600 ${f.equation ? "mt-2.5" : ""}`} style={{ fontSize: "var(--found-text, 13px)" }}>{f.concept}</p>
             <div className="mt-3 flex items-start gap-2 rounded-lg bg-amber-50/70 px-3 py-2">
               <Lightbulb size={13} className="mt-0.5 shrink-0 text-amber-600" />
               <p className="text-[12px] leading-relaxed text-amber-900">
@@ -623,7 +628,7 @@ function ResultFigureTooltip({ active, payload, label, xLabel, legend }) {
 }
 
 /** One subplot: original is shown once per figure, so this is just the chart. */
-function PanelChart({ panel, baseRun, actRun }) {
+function PanelChart({ panel, baseRun, actRun, height = 170 }) {
   const { rows } = useMemo(() => buildPanelRows(baseRun, actRun), [baseRun, actRun]);
   const err = actRun?.error || baseRun?.error;
   const nSeries = (actRun?.series || baseRun?.series || []).length;
@@ -647,7 +652,7 @@ function PanelChart({ panel, baseRun, actRun }) {
       {err ? (
         <div className="rounded border border-red-200 bg-red-50 px-2 py-2 text-[11px] text-red-700">{err}</div>
       ) : (
-        <ResponsiveContainer width="100%" height={170}>
+        <ResponsiveContainer width="100%" height={height}>
           <LineChart data={rows} margin={{ top: 6, right: 10, bottom: 2, left: -12 }}>
             <CartesianGrid stroke={C.grid} strokeWidth={1} vertical={false} />
             <XAxis
@@ -830,7 +835,8 @@ function ConclusionBox({ drift, conclusion, baseM, actM, modifiedCount }) {
 
 function LabWindow({ title, accent, pages, activeId, onSelect, children }) {
   return (
-    <div className="overflow-hidden rounded-2xl border border-slate-300/70 bg-white/95 shadow-2xl backdrop-blur">
+    <div className="overflow-hidden rounded-2xl border border-slate-300/70 bg-white/95 shadow-2xl backdrop-blur"
+      style={{ borderRadius: "var(--card-radius, 16px)" }}>
       {/* title bar */}
       <div className="flex items-center gap-3 border-b border-slate-200/80 bg-gradient-to-b from-slate-100 to-slate-50 px-4 py-2.5">
         <div className="flex items-center gap-1.5" aria-hidden="true">
@@ -955,7 +961,8 @@ function FlowDiagram({ blocks, activeKey, onSelect }) {
 
 /* ---------------- concept lab window ---------------- */
 
-function ConceptLab({ spec, params, defaults, setParam, rows, compiled, pinnedT, onPin, onInfo, onInspect }) {
+function ConceptLab({ spec, params, defaults, setParam, rows, compiled, pinnedT, onPin, onInfo, onInspect, layout }) {
+  const chartH = layout?.numeric?.conceptChartH ?? 300;
   const [pageId, setPageId] = useState("overview");
   const pages = [
     { id: "overview", label: "Overview", sub: "the whole pipeline, animated" },
@@ -995,7 +1002,7 @@ function ConceptLab({ spec, params, defaults, setParam, rows, compiled, pinnedT,
               <InfoButton onClick={() => onInfo(block.key)} label={`Theory and code for ${block.title}`} />
             </div>
             <Eq>{block.equation}</Eq>
-            <p className="mt-2 text-[12.5px] leading-relaxed text-slate-600">{block.theory}</p>
+            <p className="mt-2 leading-relaxed text-slate-600" style={{ fontSize: "var(--concept-text, 12.5px)" }}>{block.theory}</p>
             {compiled.errors[block.key] && (
               <div className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[11px] text-red-700">
                 {compiled.errors[block.key]}
@@ -1019,7 +1026,7 @@ function ConceptLab({ spec, params, defaults, setParam, rows, compiled, pinnedT,
               blockKey={block.key}
               rows={rows}
               tMax={spec.protocol.T}
-              height={300}
+              height={chartH}
               pinnedT={pinnedT}
               onPin={onPin}
               onInfo={onInfo}
@@ -1038,10 +1045,11 @@ function ConceptLab({ spec, params, defaults, setParam, rows, compiled, pinnedT,
 
 /* ---------------- results lab window ---------------- */
 
-function ResultsLab({ spec, pipelineCompiled, helpers, baseOutputs, actOutputs, defaults, params, setParam, onOpenFig }) {
+function ResultsLab({ spec, pipelineCompiled, helpers, baseOutputs, actOutputs, defaults, params, setParam, onOpenFig, layout }) {
   const figs = spec.resultFigures || [];
   const [pageId, setPageId] = useState(figs[0]?.figureLabel || "");
   const [showParams, setShowParams] = useState(false);
+  const panelH = layout?.numeric?.panelChartH ?? 170;
 
   const compiled = useMemo(() => compileResultFigures(spec), [spec]);
   const baseFigHelpers = useMemo(() => makeFigureHelpers(spec, pipelineCompiled, helpers, defaults), [spec, pipelineCompiled, helpers, defaults]);
@@ -1077,7 +1085,7 @@ function ResultsLab({ spec, pipelineCompiled, helpers, baseOutputs, actOutputs, 
           <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
             <div className="min-w-0">
               <h3 className="text-sm font-bold text-slate-900">{fig.figureLabel} — {fig.title}</h3>
-              <p className="mt-1 max-w-3xl text-[12.5px] leading-relaxed text-slate-600">{fig.explanation}</p>
+              <p className="mt-1 max-w-3xl leading-relaxed text-slate-600" style={{ fontSize: "var(--result-text, 12.5px)" }}>{fig.explanation}</p>
             </div>
             <button
               onClick={() => setShowParams(!showParams)}
@@ -1104,7 +1112,8 @@ function ResultsLab({ spec, pipelineCompiled, helpers, baseOutputs, actOutputs, 
               </div>
               {fig.image ? (
                 <button onClick={() => onOpenFig({ title: `${fig.figureLabel} — ${fig.title}`, image: fig.image, explanation: fig.explanation })}
-                  className="block w-full overflow-hidden rounded-lg border border-slate-200 bg-white transition hover:shadow-lg">
+                  className="block w-full overflow-hidden rounded-lg border border-slate-200 bg-white transition hover:shadow-lg"
+                  style={{ maxWidth: "var(--result-orig-max, 520px)" }}>
                   <img src={fig.image} alt={`${fig.figureLabel} from the paper`} className="w-full" loading="lazy" />
                 </button>
               ) : fig.svg ? (
@@ -1123,7 +1132,7 @@ function ResultsLab({ spec, pipelineCompiled, helpers, baseOutputs, actOutputs, 
               </div>
               <div className={`grid gap-3 ${(fig.panels?.length || 0) > 1 ? "md:grid-cols-2" : ""}`}>
                 {(fig.panels || []).map((panel, pi) => (
-                  <PanelChart key={pi} panel={panel} baseRun={runs[pi]?.base} actRun={runs[pi]?.act} />
+                  <PanelChart key={pi} panel={panel} baseRun={runs[pi]?.base} actRun={runs[pi]?.act} height={panelH} />
                 ))}
               </div>
             </div>
@@ -1147,6 +1156,9 @@ export default function Workspace({ spec, onBack, onSignOut }) {
   const [pinnedT, setPinnedT] = useState(null);
   const [inspect, setInspect] = useState(null);
   const [lightbox, setLightbox] = useState(null);
+  const [layout, setLayout] = useState(loadLayout);
+  const [editorOpen, setEditorOpen] = useState(false);
+  const sec = useCallback((k) => sectionByKey(layout, k), [layout]);
 
   useEffect(() => { setParams(defaults); setPinnedT(null); }, [defaults]);
 
@@ -1175,23 +1187,23 @@ export default function Workspace({ spec, onBack, onSignOut }) {
   const infoBlock = spec.blocks.find((b) => b.key === infoKey) || null;
 
   return (
-    <div className="min-h-screen pb-16" style={{ fontFamily: "system-ui, -apple-system, 'Segoe UI', sans-serif" }}>
+    <div className="min-h-screen pb-16" style={{ fontFamily: "system-ui, -apple-system, 'Segoe UI', sans-serif", ...layoutStyle(layout) }}>
       {/* ===== header ===== */}
       <header className="border-b border-slate-200/70 bg-white/85 backdrop-blur">
-        <div className="mx-auto max-w-7xl px-4 py-5 sm:px-6">
+        <div className="mx-auto px-4 py-5 sm:px-6" style={{ maxWidth: "var(--content-max, 1280px)" }}>
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="min-w-0 max-w-3xl">
               <div className="mb-1 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-blue-600">
                 <FlaskConical size={13} /> Interactive Paper Playground
               </div>
-              <h1 className="text-lg font-bold leading-snug text-slate-900 sm:text-xl">
+              <h1 className="font-bold leading-snug text-slate-900" style={{ fontSize: "var(--title-size, 22px)" }}>
                 {spec.meta.title}
               </h1>
-              <p className="mt-1 text-xs text-slate-500">
+              <p className="mt-1 text-slate-500" style={{ fontSize: "var(--author-size, 12px)" }}>
                 {spec.meta.authors}
                 {spec.meta.venue ? <> · <span className="italic">{spec.meta.venue}</span></> : null}
               </p>
-              <p className="mt-2 text-[13px] leading-relaxed text-slate-600">{spec.meta.abstract}</p>
+              <p className="mt-2 leading-relaxed text-slate-600" style={{ fontSize: "var(--abstract-size, 13px)" }}>{spec.meta.abstract}</p>
             </div>
 
             <div className="flex shrink-0 flex-col gap-2">
@@ -1206,6 +1218,12 @@ export default function Workspace({ spec, onBack, onSignOut }) {
                 className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-600 shadow-sm hover:border-blue-300 hover:text-blue-700"
               >
                 <BookOpen size={14} /> View original references
+              </button>
+              <button
+                onClick={() => setEditorOpen(true)}
+                className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-600 shadow-sm hover:border-blue-300 hover:text-blue-700"
+              >
+                <LayoutTemplate size={14} /> Edit layout
               </button>
               <button
                 onClick={() => { setParams(defaults); setPinnedT(null); }}
@@ -1227,7 +1245,7 @@ export default function Workspace({ spec, onBack, onSignOut }) {
         </div>
       </header>
 
-      <main className="mx-auto max-w-7xl px-4 pt-4 sm:px-6">
+      <main className="mx-auto px-4 pt-4 sm:px-6" style={{ maxWidth: "var(--content-max, 1280px)" }}>
         <ConclusionBox
           drift={drift}
           conclusion={spec.conclusion}
@@ -1243,58 +1261,45 @@ export default function Workspace({ spec, onBack, onSignOut }) {
         )}
 
         {/* ===== 1 · concept figures (clickable → fullscreen) ===== */}
-        {spec.conceptFigures?.length ? (
+        {spec.conceptFigures?.length && sec("concept").on ? (
           <section aria-label="Concept primer">
-            <SectionHeader
-              num={1} tone="violet" icon={ImageIcon}
-              title="The idea, in pictures"
-              sub="The paper's own introductory figures, cropped and explained. Click any figure to open it fullscreen with its full explanation."
-            />
+            <SectionHeader num={1} tone="violet" icon={ImageIcon} title={sec("concept").title} sub={sec("concept").sub} />
             <ConceptFigures figures={spec.conceptFigures} onOpen={setLightbox} />
           </section>
         ) : null}
 
         {/* ===== 2 · foundations (borrowed core ideas) ===== */}
-        {spec.foundations?.length ? (
+        {spec.foundations?.length && sec("foundations").on ? (
           <section aria-label="Foundations from prior work">
-            <SectionHeader
-              num={2} tone="amber" icon={Landmark}
-              title="Background you need first"
-              sub="Key ideas from earlier work that this paper builds on — quick lessons before the new contribution makes sense."
-            />
+            <SectionHeader num={2} tone="amber" icon={Landmark} title={sec("foundations").title} sub={sec("foundations").sub} />
             <Foundations foundations={spec.foundations} />
           </section>
         ) : null}
 
         {/* ===== 3 · concept lab window ===== */}
-        <section aria-label="The paper's contribution">
-          <SectionHeader
-            num={3} tone="blue" icon={GitBranch}
-            title="Learn the method by playing"
-            sub="An app-style lab: pick a step of the pipeline on the left, watch the animated signal flow, turn its dials and see the plot react — plain language throughout."
-          />
-          <ConceptLab
-            spec={spec}
-            params={params}
-            defaults={defaults}
-            setParam={setParam}
-            rows={rows}
-            compiled={compiled}
-            pinnedT={pinnedT}
-            onPin={togglePin}
-            onInfo={setInfoKey}
-            onInspect={setInspect}
-          />
-        </section>
+        {sec("method").on ? (
+          <section aria-label="The paper's contribution">
+            <SectionHeader num={3} tone="blue" icon={GitBranch} title={sec("method").title} sub={sec("method").sub} />
+            <ConceptLab
+              spec={spec}
+              params={params}
+              defaults={defaults}
+              setParam={setParam}
+              rows={rows}
+              compiled={compiled}
+              pinnedT={pinnedT}
+              onPin={togglePin}
+              onInfo={setInfoKey}
+              onInspect={setInspect}
+              layout={layout}
+            />
+          </section>
+        ) : null}
 
         {/* ===== 4 · results lab window ===== */}
-        {spec.resultFigures?.length ? (
+        {spec.resultFigures?.length && sec("results").on ? (
           <section aria-label="Reproduced result figures">
-            <SectionHeader
-              num={4} tone="emerald" icon={LineChartIcon}
-              title="The results, recreated and alive"
-              sub="Pick any of the paper's result figures on the left: the original beside its interactive reproduction — every subplot, every curve — reshaping as you tune the parameters."
-            />
+            <SectionHeader num={4} tone="emerald" icon={LineChartIcon} title={sec("results").title} sub={sec("results").sub} />
             <ResultsLab
               spec={spec}
               pipelineCompiled={compiled}
@@ -1305,6 +1310,7 @@ export default function Workspace({ spec, onBack, onSignOut }) {
               params={params}
               setParam={setParam}
               onOpenFig={setLightbox}
+              layout={layout}
             />
           </section>
         ) : null}
@@ -1314,6 +1320,7 @@ export default function Workspace({ spec, onBack, onSignOut }) {
       <ReferencesDrawer references={spec.references} open={refsOpen} onClose={() => setRefsOpen(false)} />
       <Inspector inspect={inspect} rows={rows} onClose={() => setInspect(null)} />
       <Lightbox fig={lightbox} onClose={() => setLightbox(null)} />
+      <LayoutEditor open={editorOpen} layout={layout} onChange={setLayout} onClose={() => setEditorOpen(false)} />
     </div>
   );
 }
