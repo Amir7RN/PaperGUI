@@ -15,6 +15,7 @@ import {
 import Workspace from "./Workspace.jsx";
 import Auth from "./Auth.jsx";
 import Library from "./Library.jsx";
+import BuyCredits from "./BuyCredits.jsx";
 import { SAMPLE_SPEC } from "./samplePaper.js";
 import { SAMPLE_SPEC_2 } from "./samplePaper2.js";
 import { analyzePaper, MODEL_TIERS, getModelTier, setModelTier } from "./api.js";
@@ -181,7 +182,7 @@ function HintsPanel({ hints, onHints, disabled }) {
 
 function Landing({
   onSample, onUpload, busy, progress, error, tier, onTier, balance, hints, onHints,
-  authOn, signedIn, onSignIn, onSignUp, onSignOut, onOpenLibrary,
+  authOn, signedIn, onSignIn, onSignUp, onSignOut, onOpenLibrary, onBuyCredits,
 }) {
   const fileRef = useRef(null);
   const requireAuthToUpload = authOn && !signedIn;
@@ -198,6 +199,12 @@ function Landing({
             {signedIn ? (
               <>
                 <BalanceBadge balance={balance} />
+                <button
+                  onClick={onBuyCredits}
+                  className="flex items-center gap-1.5 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 hover:border-emerald-400"
+                >
+                  <Wallet size={14} /> Add credit
+                </button>
                 <button
                   onClick={onOpenLibrary}
                   className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white/80 px-3 py-1.5 text-xs font-medium text-slate-600 hover:border-blue-300 hover:text-blue-700"
@@ -336,7 +343,7 @@ function Landing({
                   library so reopening it never costs credit again.
                 </>
               ) : signedIn && balance !== null && balance <= 0 ? (
-                "You've used your free analysis credit — try the ready-made examples instead."
+                "You're out of analysis credit — use the Add credit button above, or try the ready-made examples."
               ) : (
                 <>
                   Pick a PDF from your local drive — synced OneDrive / Google Drive folders work too.
@@ -425,6 +432,7 @@ export default function App() {
   const [authReady, setAuthReady] = useState(!authEnabled);
   const [authOpen, setAuthOpen] = useState(null); // null | "signin" | "signup"
   const [libraryOpen, setLibraryOpen] = useState(false);
+  const [buyOpen, setBuyOpen] = useState(false);
   useEffect(() => {
     if (!authEnabled) return;
     const unsub = onAuthChange((s) => { setSession(s); setAuthReady(true); });
@@ -449,7 +457,7 @@ export default function App() {
     setError("");
 
     if (balance !== null && balance <= 0) {
-      setError("You've used up your free analysis credit.");
+      setError("You're out of analysis credit — use the Add credit button to top up.");
       return;
     }
     if (file.size > MAX_PDF_MB * 1024 * 1024) {
@@ -541,6 +549,9 @@ export default function App() {
       onOpen={(s) => { setSpec(s); setLibraryOpen(false); }}
     />
   );
+  const buyModal = buyOpen && (
+    <BuyCredits onClose={() => setBuyOpen(false)} email={session?.user?.email} />
+  );
 
   if (spec) {
     return (
@@ -554,6 +565,7 @@ export default function App() {
         />
         {authModal}
         {libraryModal}
+        {buyModal}
       </>
     );
   }
@@ -578,9 +590,11 @@ export default function App() {
         onSignUp={() => setAuthOpen("signup")}
         onSignOut={signOut}
         onOpenLibrary={() => setLibraryOpen(true)}
+        onBuyCredits={() => setBuyOpen(true)}
       />
       {authModal}
       {libraryModal}
+      {buyModal}
     </>
   );
 }

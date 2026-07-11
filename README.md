@@ -125,6 +125,17 @@ VITE_SUPABASE_ANON_KEY=eyJ...
 
 ### Operational notes
 
+- **Selling credit (manual Venmo / Cash App flow):** fill in your handles in
+  `src/payments.js` (they're empty by default, which hides the option) and push.
+  The **Add credit** button then shows buyers your handle and tells them to put
+  their account email in the payment note. When a payment arrives, apply it:
+  ```sql
+  update public.credits set balance_usd = balance_usd + 10.00
+  where user_id = (select id from auth.users where email = 'buyer@example.com');
+  ```
+  Price your margin into the amounts (e.g. sell $10 of "credit" that costs you
+  ~$7 of Anthropic usage). Later, replace with Stripe Payment Links if you want
+  it automated.
 - **Top up or reset a user's balance:** in the SQL Editor,
   `update public.credits set balance_usd = 1.00 where user_id = '<uuid>';`
   (find the uuid via `select id, email from auth.users where email = '...';`).

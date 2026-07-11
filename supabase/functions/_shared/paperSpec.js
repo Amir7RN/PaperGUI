@@ -23,17 +23,17 @@ export const MODEL_TIERS = [
   {
     id: "advanced",
     label: "Advanced",
-    // NOT Opus: the hosting platform hard-kills every function call at 150s,
-    // and Opus's output speed (~60 tok/s) cannot finish a ~10K-token analysis
-    // stage inside that window — it timed out on real papers and wasted the
-    // caller's money. Sonnet 5 at high effort is the deepest analysis that
-    // physically fits.
-    model: "claude-sonnet-5",
-    blurb: "Deepest analysis that fits the server — for dense, math-heavy papers",
+    // Opus 4.8 in FAST MODE (beta): same model, ~2.5x output speed, 2x price.
+    // Standard-speed Opus (~60 tok/s) cannot finish a ~10K-token analysis
+    // stage inside the platform's 150s kill window — fast mode (~150 tok/s)
+    // is what makes Opus-quality reproduction possible here at all.
+    model: "claude-opus-4-8",
+    speed: "fast",
+    blurb: "Opus at 2.5× speed — deepest, most faithful reproduction (2× cost)",
     adaptive: true,
     effort: "high",
-    priceIn: 3.0,
-    priceOut: 15.0,
+    priceIn: 10.0,
+    priceOut: 50.0,
   },
   {
     id: "standard",

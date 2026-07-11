@@ -61,30 +61,7 @@ Deno.serve(async (req) => {
   }
   const userId = userData.user.id;
 
-  // --- 2. Check balance ----------------------------------------------------
-  let { data: credit } = await admin
-    .from("credits")
-    .select("balance_usd")
-    .eq("user_id", userId)
-    .maybeSingle();
-
-  if (!credit) {
-    // Fallback in case the signup trigger hasn't run yet (race on brand-new accounts).
-    const { data: inserted } = await admin
-      .from("credits")
-      .insert({ user_id: userId })
-      .select("balance_usd")
-      .single();
-    credit = inserted;
-  }
-
-  if (!credit || Number(credit.balance_usd) <= 0) {
-    return json(402, {
-      error: "You've used up your free analysis credit. Contact the site owner if you'd like more.",
-    });
-  }
-
-  // --- 3. Parse and validate the request body ------------------------------
+  // --- 2. Parse and validate the request body ------------------------------
   let body;
   try {
     body = await req.json();
@@ -106,6 +83,35 @@ Deno.serve(async (req) => {
     return json(400, { error: "The results phase requires the pipeline from the method phase." });
   }
   const tier = tierById(tierId) || MODEL_TIERS[0];
+
+  // --- 3. Check balance ----------------------------------------------------
+  let { data: credit } = await admin
+    .from("credits")
+    .select("balance_usd")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (!credit) {
+    // Fallback in case the signup trigger hasn't run yet (race on brand-new accounts).
+    const { data: inserted } = await admin
+      .from("credits")
+      .insert({ user_id: userId })
+      .select("balance_usd")
+      .single();
+    credit = inserted;
+  }
+
+  // The FIRST phase of a run requires positive credit; later phases may
+  // overdraw a few dollars so a run that already spent money always
+  // completes instead of dying half-paid. The negative balance simply
+  // blocks the NEXT run until the account is topped up.
+  const balance = credit ? Number(credit.balance_usd) : 0;
+  const isContinuation = phase === "method" || phase === "results";
+  if (!credit || (isContinuation ? balance <= -5 : balance <= 0)) {
+    return json(402, {
+      error: "You've used up your analysis credit. Add credit to analyze more papers.",
+    });
+  }
 
   const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
   if (!apiKey) {
@@ -145,7 +151,7 @@ Deno.serve(async (req) => {
           (phase ? phaseInstruction(phase, contextSpec) : "") +
           schemaBlock;
 
-        const anthropicStream = client.messages.stream({
+        const requestParams = {
           model: tier.model,
           max_tokens: maxTokens,
           ...(tier.adaptive ? { thinking: { type: "adaptive" } } : {}),
@@ -165,7 +171,17 @@ Deno.serve(async (req) => {
               ],
             },
           ],
-        });
+        };
+
+        // Fast mode (Opus 4.8): ~2.5x output speed at 2x price — the only way
+        // Opus fits the platform's 150s window. Beta endpoint + flag required.
+        const anthropicStream = tier.speed === "fast"
+          ? client.beta.messages.stream({
+              ...requestParams,
+              speed: "fast",
+              betas: ["fast-mode-2026-02-01"],
+            })
+          : client.messages.stream(requestParams);
 
         // Supabase kills the whole function at 150s of wall clock (free plan),
         // which the client sees as a silent disconnect. Abort the Anthropic
