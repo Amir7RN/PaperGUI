@@ -202,10 +202,11 @@ Deno.serve(async (req) => {
           response = await anthropicStream.finalMessage();
         } catch (streamErr) {
           if (timedOut) {
-            throw new Error(
-              "This stage of the analysis exceeded the server's time limit. " +
-              "Try again on a faster level (Basic or Fast), or with a shorter paper."
+            const e = new Error(
+              "This stage of the analysis exceeded the server's time limit."
             );
+            e.code = "timeout";
+            throw e;
           }
           throw streamErr;
         } finally {
@@ -242,7 +243,7 @@ Deno.serve(async (req) => {
 
         send({ type: "result", spec, cost, remainingBalance: newBalance });
       } catch (err) {
-        send({ type: "error", message: err?.message || String(err) });
+        send({ type: "error", message: err?.message || String(err), code: err?.code || null });
       } finally {
         controller.close();
       }

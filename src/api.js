@@ -45,6 +45,30 @@ const PHASES = [
     keys: ["resultFigures"] },
 ];
 
+/* Completed phases are cached for the session (keyed by document), so a
+ * failed or retried analysis NEVER re-pays for stages that already
+ * succeeded — retrying resumes where it left off. */
+const phaseCache = new Map();
+
+/** Cheap stable key for a base64 document (sampled — full hashing of a
+ *  30MB string on the main thread isn't worth it for a session cache). */
+function docKey(pdfBase64) {
+  const n = pdfBase64.length;
+  let h = 0;
+  for (let i = 0; i < n; i += Math.max(1, Math.floor(n / 512))) {
+    h = ((h << 5) - h + pdfBase64.charCodeAt(i)) | 0;
+  }
+  return `${n}:${h}`;
+}
+
+/** Next-faster tier to fall back to when a phase times out. */
+const FALLBACK_ORDER = ["advanced", "standard", "basic", "fast"];
+function fallbackTier(tier) {
+  const i = FALLBACK_ORDER.indexOf(tier.id);
+  if (i === -1 || i === FALLBACK_ORDER.length - 1) return null;
+  return MODEL_TIERS.find((t) => t.id === FALLBACK_ORDER[i + 1]) || null;
+}
+
 /** One phase call: streams NDJSON progress, returns {spec, cost, remainingBalance}. */
 async function runPhase(pdfBase64, tier, hints, phase, contextSpec, token, report) {
   const res = await fetch(`${functionsUrl}/analyze-paper`, {
@@ -68,6 +92,7 @@ async function runPhase(pdfBase64, tier, hints, phase, contextSpec, token, repor
   let buffer = "";
   let result = null;
   let errorMessage = null;
+  let errorCode = null;
 
   while (true) {
     const { done, value } = await reader.read();
@@ -91,16 +116,24 @@ async function runPhase(pdfBase64, tier, hints, phase, contextSpec, token, repor
         result = event;
       } else if (event.type === "error") {
         errorMessage = event.message;
+        errorCode = event.code || null;
       }
     }
   }
 
-  if (errorMessage) throw new Error(errorMessage);
+  if (errorMessage) {
+    const e = new Error(errorMessage);
+    e.code = errorCode;
+    throw e;
+  }
   if (!result) {
-    throw new Error(
-      `The connection dropped during the "${phase.title}" stage — the server likely hit its ` +
-      "time limit. Try again on a faster level (Basic or Fast), or with a shorter paper."
+    // A silent disconnect is almost always the platform's 150s kill —
+    // treat it like a timeout so the caller's fallback retry kicks in.
+    const e = new Error(
+      `The connection dropped during the "${phase.title}" stage — the server hit its time limit.`
     );
+    e.code = "timeout";
+    throw e;
   }
   return result;
 }
@@ -129,11 +162,31 @@ export async function analyzePaper(pdfBase64, onProgress, tier = getModelTier(),
   const spec = {};
   let totalCost = 0;
   let remainingBalance = null;
+  const key = docKey(pdfBase64);
 
   for (const phase of PHASES) {
-    const contextSpec =
-      phase.id === "results" ? { protocol: spec.protocol, blocks: spec.blocks } : null;
-    const result = await runPhase(pdfBase64, tier, hints, phase, contextSpec, token, report);
+    const cacheId = `${key}:${phase.id}`;
+    let result = phaseCache.get(cacheId);
+
+    if (result) {
+      // Already produced in a previous (failed or retried) run — free.
+      report(phase.to, `${phase.title} — already done, reusing it (no charge)`);
+    } else {
+      const contextSpec =
+        phase.id === "results" ? { protocol: spec.protocol, blocks: spec.blocks } : null;
+      try {
+        result = await runPhase(pdfBase64, tier, hints, phase, contextSpec, token, report);
+      } catch (err) {
+        // A timed-out stage automatically retries once on the next-faster
+        // level, so one slow stage doesn't waste the whole (paid) run.
+        const fb = err?.code === "timeout" ? fallbackTier(tier) : null;
+        if (!fb) throw err;
+        report(phase.from, `${phase.title} — took too long, retrying on the ${fb.label} level…`);
+        result = await runPhase(pdfBase64, fb, hints, phase, contextSpec, token, report);
+      }
+      phaseCache.set(cacheId, result);
+    }
+
     // Copy only this phase's expected fields — without strict structured
     // outputs the model occasionally emits stray extra keys.
     for (const k of phase.keys) {

@@ -23,16 +23,17 @@ export const MODEL_TIERS = [
   {
     id: "advanced",
     label: "Advanced",
-    model: "claude-opus-4-8",
-    blurb: "Deepest analysis — best for dense, math-heavy papers",
+    // NOT Opus: the hosting platform hard-kills every function call at 150s,
+    // and Opus's output speed (~60 tok/s) cannot finish a ~10K-token analysis
+    // stage inside that window — it timed out on real papers and wasted the
+    // caller's money. Sonnet 5 at high effort is the deepest analysis that
+    // physically fits.
+    model: "claude-sonnet-5",
+    blurb: "Deepest analysis that fits the server — for dense, math-heavy papers",
     adaptive: true,
-    // "medium" (not "high"): the hosting platform hard-kills the analysis
-    // function at ~400s of wall clock, and Opus at high effort regularly
-    // thinks past that on dense papers. Medium keeps Opus-quality output
-    // while reliably finishing inside the window.
-    effort: "medium",
-    priceIn: 5.0,
-    priceOut: 25.0,
+    effort: "high",
+    priceIn: 3.0,
+    priceOut: 15.0,
   },
   {
     id: "standard",
