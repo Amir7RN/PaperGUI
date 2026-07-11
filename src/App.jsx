@@ -182,7 +182,7 @@ function HintsPanel({ hints, onHints, disabled }) {
 
 function Landing({
   onSample, onUpload, busy, progress, error, tier, onTier, balance, hints, onHints,
-  authOn, signedIn, onSignIn, onSignUp, onSignOut, onOpenLibrary, onBuyCredits,
+  authOn, signedIn, onSignIn, onSignUp, onSignOut, onOpenLibrary, onBuyCredits, owner,
 }) {
   const fileRef = useRef(null);
   const requireAuthToUpload = authOn && !signedIn;
@@ -198,13 +198,21 @@ function Landing({
           <div className="flex items-center gap-2">
             {signedIn ? (
               <>
-                <BalanceBadge balance={balance} />
-                <button
-                  onClick={onBuyCredits}
-                  className="flex items-center gap-1.5 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 hover:border-emerald-400"
-                >
-                  <Wallet size={14} /> Add credit
-                </button>
+                {owner ? (
+                  <span className="flex items-center gap-1.5 rounded-lg border border-violet-300 bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-700">
+                    <Wallet size={14} /> Owner · unlimited
+                  </span>
+                ) : (
+                  <>
+                    <BalanceBadge balance={balance} />
+                    <button
+                      onClick={onBuyCredits}
+                      className="flex items-center gap-1.5 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 hover:border-emerald-400"
+                    >
+                      <Wallet size={14} /> Add credit
+                    </button>
+                  </>
+                )}
                 <button
                   onClick={onOpenLibrary}
                   className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white/80 px-3 py-1.5 text-xs font-medium text-slate-600 hover:border-blue-300 hover:text-blue-700"
@@ -456,7 +464,7 @@ export default function App() {
   const handleUpload = useCallback(async (file) => {
     setError("");
 
-    if (balance !== null && balance <= 0) {
+    if (!isOwnerUser(session) && balance !== null && balance <= 0) {
       setError("You're out of analysis credit — use the Add credit button to top up.");
       return;
     }
@@ -591,6 +599,7 @@ export default function App() {
         onSignOut={signOut}
         onOpenLibrary={() => setLibraryOpen(true)}
         onBuyCredits={() => setBuyOpen(true)}
+        owner={isOwnerUser(session)}
       />
       {authModal}
       {libraryModal}

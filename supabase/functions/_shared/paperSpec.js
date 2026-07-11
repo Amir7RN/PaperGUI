@@ -31,7 +31,11 @@ export const MODEL_TIERS = [
     speed: "fast",
     blurb: "Deepest, most faithful reproduction — best for dense, math-heavy papers (premium)",
     adaptive: true,
-    effort: "high",
+    // medium effort keeps each analysis phase inside the hosting platform's
+    // 150s kill window even on dense papers. Fast mode alone at high effort
+    // can still overrun on big papers; medium + fast is the reliable combo
+    // that keeps this the top-quality (Opus) tier without timing out.
+    effort: "medium",
     priceIn: 10.0,
     priceOut: 50.0,
   },

@@ -1,17 +1,21 @@
 /**
  * Manual top-up configuration.
  *
- * Venmo / Cash App have no public API a static site could safely use, so
- * top-ups are manual: the buyer pays via a deep link (their handle is only
+ * Venmo / Cash App / PayPal have no public API a static site could safely use,
+ * so top-ups are manual: the buyer pays via a deep link (their handle is only
  * ever inside the link URL, never shown on the page) and puts their account
- * email in the payment note, then the owner adds credit with one SQL
- * statement (README → Operational notes → "Selling credit").
+ * email in the payment note, then the owner adds credit with one SQL statement
+ * (README → Operational notes → "Selling credit").
  */
 export const PAYMENT = {
-  // Handles are used ONLY to build the pay links below — they are never
-  // rendered as visible text. Leave a field "" to hide that button.
+  // Handles are used ONLY to build the pay links below — never rendered as
+  // visible text. Leave a field "" to hide that button.
   venmo: "Amirreza-Naseri",   // Venmo username (no leading @)
-  cashapp: "AVB73M",          // Cash App cashtag (no leading $)
+  cashapp: "",                // Cash App $Cashtag WITHOUT the $ — find it in the
+                              // Cash App app under your profile (e.g. "amir7").
+                              // NOTE: "AVB73M" is NOT a valid cashtag (404).
+  paypal: "",                 // PayPal.me name (paypal.me/<name>) — accepts
+                              // debit/credit cards from guests, no account needed.
 
   // Suggested amounts (USD). $1 of credit ≈ one Advanced paper.
   amounts: [5, 10, 20],
@@ -20,9 +24,9 @@ export const PAYMENT = {
   turnaround: "within a few hours",
 };
 
-export const paymentsConfigured = Boolean(PAYMENT.venmo || PAYMENT.cashapp);
+export const paymentsConfigured = Boolean(PAYMENT.venmo || PAYMENT.cashapp || PAYMENT.paypal);
 
-/** Venmo web-pay deep link with the amount and note (account email) prefilled. */
+/** Venmo web-pay deep link with amount + note (account email) prefilled. */
 export function venmoLink(amount, note) {
   if (!PAYMENT.venmo) return null;
   const p = new URLSearchParams({
@@ -34,9 +38,14 @@ export function venmoLink(amount, note) {
   return `https://venmo.com/?${p.toString()}`;
 }
 
-/** Cash App pay link with the amount prefilled (guests can pay by debit/credit
- *  card here without a Cash App account). */
+/** Cash App pay link with amount prefilled. */
 export function cashappLink(amount) {
   if (!PAYMENT.cashapp) return null;
   return `https://cash.app/$${PAYMENT.cashapp}/${amount}`;
+}
+
+/** PayPal.me link — the debit/credit-card route (guest checkout, no account). */
+export function cardLink(amount) {
+  if (!PAYMENT.paypal) return null;
+  return `https://www.paypal.com/paypalme/${PAYMENT.paypal}/${amount}`;
 }

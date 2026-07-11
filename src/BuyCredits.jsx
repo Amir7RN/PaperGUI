@@ -9,7 +9,7 @@
 
 import React, { useState } from "react";
 import { X, Wallet, Copy, Check, CircleDollarSign, CreditCard } from "lucide-react";
-import { PAYMENT, paymentsConfigured, venmoLink, cashappLink } from "./payments.js";
+import { PAYMENT, paymentsConfigured, venmoLink, cashappLink, cardLink } from "./payments.js";
 
 function EmailChip({ text }) {
   const [copied, setCopied] = useState(false);
@@ -43,11 +43,12 @@ export default function BuyCredits({ onClose, email }) {
   const note = email || "";
   const venmo = venmoLink(amount, note);
   const cash = cashappLink(amount);
+  const card = cardLink(amount);
 
   const methods = [
     venmo && { key: "venmo", label: "Pay with Venmo", href: venmo, cls: "border-[#008CFF] bg-[#008CFF] text-white hover:brightness-95", icon: <VenmoMark /> },
     cash && { key: "cashapp", label: "Pay with Cash App", href: cash, cls: "border-[#00D632] bg-[#00D632] text-white hover:brightness-95", icon: <CashMark /> },
-    cash && { key: "card", label: "Pay with debit / credit card", href: cash, cls: "border-slate-300 bg-white text-slate-800 hover:border-slate-400", icon: <CreditCard size={16} /> },
+    card && { key: "card", label: "Pay with debit / credit card", href: card, cls: "border-slate-300 bg-white text-slate-800 hover:border-slate-400", icon: <CreditCard size={16} /> },
   ].filter(Boolean);
 
   return (

@@ -61,6 +61,12 @@ Deno.serve(async (req) => {
   }
   const userId = userData.user.id;
 
+  // The owner (OWNER_EMAIL secret, comma-separated) gets unlimited analysis:
+  // no balance requirement and no cost deduction.
+  const ownerEmails = (Deno.env.get("OWNER_EMAIL") || "")
+    .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+  const isOwner = ownerEmails.includes((userData.user.email || "").toLowerCase());
+
   // --- 2. Parse and validate the request body ------------------------------
   let body;
   try {
@@ -84,33 +90,36 @@ Deno.serve(async (req) => {
   }
   const tier = tierById(tierId) || MODEL_TIERS[0];
 
-  // --- 3. Check balance ----------------------------------------------------
-  let { data: credit } = await admin
-    .from("credits")
-    .select("balance_usd")
-    .eq("user_id", userId)
-    .maybeSingle();
-
-  if (!credit) {
-    // Fallback in case the signup trigger hasn't run yet (race on brand-new accounts).
-    const { data: inserted } = await admin
+  // --- 3. Check balance (owner is exempt) ----------------------------------
+  let credit = null;
+  if (!isOwner) {
+    ({ data: credit } = await admin
       .from("credits")
-      .insert({ user_id: userId })
       .select("balance_usd")
-      .single();
-    credit = inserted;
-  }
+      .eq("user_id", userId)
+      .maybeSingle());
 
-  // The FIRST phase of a run requires positive credit; later phases may
-  // overdraw a few dollars so a run that already spent money always
-  // completes instead of dying half-paid. The negative balance simply
-  // blocks the NEXT run until the account is topped up.
-  const balance = credit ? Number(credit.balance_usd) : 0;
-  const isContinuation = phase === "method" || phase === "results";
-  if (!credit || (isContinuation ? balance <= -5 : balance <= 0)) {
-    return json(402, {
-      error: "You've used up your analysis credit. Add credit to analyze more papers.",
-    });
+    if (!credit) {
+      // Fallback in case the signup trigger hasn't run yet (race on brand-new accounts).
+      const { data: inserted } = await admin
+        .from("credits")
+        .insert({ user_id: userId })
+        .select("balance_usd")
+        .single();
+      credit = inserted;
+    }
+
+    // The FIRST phase of a run requires positive credit; later phases may
+    // overdraw a few dollars so a run that already spent money always
+    // completes instead of dying half-paid. The negative balance simply
+    // blocks the NEXT run until the account is topped up.
+    const balance = credit ? Number(credit.balance_usd) : 0;
+    const isContinuation = phase === "method" || phase === "results";
+    if (!credit || (isContinuation ? balance <= -5 : balance <= 0)) {
+      return json(402, {
+        error: "You've used up your analysis credit. Add credit to analyze more papers.",
+      });
+    }
   }
 
   const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
@@ -249,15 +258,18 @@ Deno.serve(async (req) => {
           throw new Error("The analyzer's response could not be parsed. Try again.");
         }
 
-        // --- 5. Meter and deduct the real cost -----------------------------
+        // --- 5. Meter and deduct the real cost (owner is never charged) ----
         const cost = usageCostUsd(tier, response.usage);
-        const newBalance = Number(credit.balance_usd) - cost;
-        await admin
-          .from("credits")
-          .update({ balance_usd: newBalance, updated_at: new Date().toISOString() })
-          .eq("user_id", userId);
+        let newBalance = null;
+        if (!isOwner && credit) {
+          newBalance = Number(credit.balance_usd) - cost;
+          await admin
+            .from("credits")
+            .update({ balance_usd: newBalance, updated_at: new Date().toISOString() })
+            .eq("user_id", userId);
+        }
 
-        send({ type: "result", spec, cost, remainingBalance: newBalance });
+        send({ type: "result", spec, cost: isOwner ? 0 : cost, remainingBalance: newBalance });
       } catch (err) {
         send({ type: "error", message: err?.message || String(err), code: err?.code || null });
       } finally {
