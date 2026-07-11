@@ -1495,7 +1495,7 @@ function ResultsLab({ spec, pipelineCompiled, helpers, baseOutputs, actOutputs, 
 
 /* ---------------- main workspace ---------------- */
 
-export default function Workspace({ spec, onBack, onSignOut }) {
+export default function Workspace({ spec, onBack, onSignOut, isOwner = false }) {
   const defaults = useMemo(() => defaultsFromSpec(spec), [spec]);
   const helpers  = useMemo(() => buildHelpers(spec.protocol), [spec]);
   const compiled = useMemo(() => compileSpec(spec), [spec]);
@@ -1513,7 +1513,9 @@ export default function Workspace({ spec, onBack, onSignOut }) {
   // free-form canvas ("PowerPoint mode")
   const canvasRef = useRef(null);
   const boxEls = useRef({});
-  const free = layout.freeMode;
+  // Non-owners never get free-layout mode (and can't be stranded in it by a
+  // stale localStorage flag, since they have no button to exit).
+  const free = isOwner && layout.freeMode;
 
   const registerBox = useCallback((id, el) => {
     if (el) boxEls.current[id] = el; else delete boxEls.current[id];
@@ -1624,20 +1626,25 @@ export default function Workspace({ spec, onBack, onSignOut }) {
               >
                 <BookOpen size={14} /> View original references
               </button>
-              <button
-                onClick={() => setEditorOpen(true)}
-                className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-600 shadow-sm hover:border-blue-300 hover:text-blue-700"
-              >
-                <LayoutTemplate size={14} /> Edit fonts &amp; sections
-              </button>
-              <button
-                onClick={toggleFree}
-                className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-medium shadow-sm ${
-                  free ? "border-blue-500 bg-blue-600 text-white hover:bg-blue-700" : "border-slate-200 bg-white text-slate-600 hover:border-blue-300 hover:text-blue-700"
-                }`}
-              >
-                <Move size={14} /> {free ? "Done arranging" : "Free layout (drag boxes)"}
-              </button>
+              {/* Owner-only design tools — hidden from regular visitors. */}
+              {isOwner && (
+                <>
+                  <button
+                    onClick={() => setEditorOpen(true)}
+                    className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-600 shadow-sm hover:border-blue-300 hover:text-blue-700"
+                  >
+                    <LayoutTemplate size={14} /> Edit fonts &amp; sections
+                  </button>
+                  <button
+                    onClick={toggleFree}
+                    className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-medium shadow-sm ${
+                      free ? "border-blue-500 bg-blue-600 text-white hover:bg-blue-700" : "border-slate-200 bg-white text-slate-600 hover:border-blue-300 hover:text-blue-700"
+                    }`}
+                  >
+                    <Move size={14} /> {free ? "Done arranging" : "Free layout (drag boxes)"}
+                  </button>
+                </>
+              )}
               <button
                 onClick={() => { setParams(defaults); setPinnedT(null); }}
                 disabled={modifiedCount === 0}

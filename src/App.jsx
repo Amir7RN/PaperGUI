@@ -26,6 +26,28 @@ const BG_URL = `${import.meta.env.BASE_URL}Background.png`;
 
 const MAX_PDF_MB = 32;
 
+/* ---------------- owner gate (design tools) ----------------
+ * The layout/design tools ("Edit fonts & sections", "Free layout") are for the
+ * site owner only, not regular visitors. Owner is recognized two ways:
+ *   1. Signed in with an email listed in VITE_OWNER_EMAIL (comma-separated).
+ *   2. A one-time unlock via ?owner=1 in the URL (persisted in localStorage);
+ *      ?owner=0 clears it. Handy for unlocking without a redeploy.
+ * These tools only edit the viewer's own localStorage, so this is a UI gate,
+ * not a security boundary. */
+const OWNER_EMAILS = (import.meta.env.VITE_OWNER_EMAIL || "")
+  .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+
+function isOwnerUser(session) {
+  try {
+    const flag = new URLSearchParams(window.location.search).get("owner");
+    if (flag === "1") localStorage.setItem("pp-owner", "1");
+    else if (flag === "0") localStorage.removeItem("pp-owner");
+    if (localStorage.getItem("pp-owner") === "1") return true;
+  } catch { /* storage/URL unavailable — fall through to email check */ }
+  const email = session?.user?.email?.toLowerCase() || "";
+  return OWNER_EMAILS.includes(email);
+}
+
 /* ---------------- credit balance badge ---------------- */
 
 function BalanceBadge({ balance }) {
@@ -495,6 +517,7 @@ export default function App() {
           spec={spec}
           onBack={() => setSpec(null)}
           onSignOut={authEnabled && session ? signOut : null}
+          isOwner={isOwnerUser(session)}
         />
         {authModal}
         {libraryModal}
