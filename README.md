@@ -8,11 +8,12 @@ baseline-vs-modified plots. Inspired by Wolfram Mathematica's slider-driven modu
 
 ## How it works
 
-1. **Sign up** — every visitor must create an account (email + password, with email
-   confirmation) before they can analyze a paper. New accounts get **$1.00 of free
-   analysis credit** — no API key, no payment info.
-2. **Landing page** — load a bundled sample paper (free, no credit used), or upload a PDF.
-3. **Analysis** — the PDF is sent to a **Supabase Edge Function**, which is the only place
+1. **Landing page** — anyone can open a bundled **sample paper** for free, no account
+   needed. Analyzing your **own** PDF requires a (free) account: sign in / sign up from the
+   box in the top-right corner. New accounts get **$1.00 of free analysis credit** — no API
+   key, no payment info. Every paper you analyze is saved to your account's **"My papers"**
+   library so you can reopen it later without spending credit again.
+2. **Analysis** — the PDF is sent to a **Supabase Edge Function**, which is the only place
    the Anthropic API key exists. It calls Claude at the level you pick on the landing page —
    **Advanced** `claude-opus-4-8` · **Standard** `claude-sonnet-5` ·
    **Basic** `claude-sonnet-4-6` · **Fast** `claude-haiku-4-5` (~100-page limit) — reads the
@@ -23,7 +24,7 @@ baseline-vs-modified plots. Inspired by Wolfram Mathematica's slider-driven modu
    each computed from the pipeline so sliders redraw them live. After the response comes
    back, the edge function computes its real USD cost from Anthropic's token usage and
    deducts it from your account's balance.
-4. **Workspace** — a generic engine runs the pipeline twice (author baseline + your
+3. **Workspace** — a generic engine runs the pipeline twice (author baseline + your
    slider state) and renders one synchronized chart per block. The Smart Conclusion box
    quantifies how far your modification has drifted from the paper's claim.
 
@@ -39,7 +40,7 @@ Browser (GitHub Pages)  →  Supabase Edge Function (analyze-paper)  →  Anthro
         │  (proves who you are)    │  never sent to the browser, never in the repo)
         ▼                          ▼
    credits table (RLS: read own row only) ←── written only by the edge function,
-                                                using the service_role key
+   analyses table (RLS: own rows only)         using the service_role key
 ```
 
 - The key is set once via `supabase secrets set` (below) and is never present in any
@@ -50,13 +51,18 @@ Browser (GitHub Pages)  →  Supabase Edge Function (analyze-paper)  →  Anthro
   There's no artificial "N requests" cap — it's metered spend, which is why an Advanced
   (Opus) analysis can burn the whole balance in one paper while Standard/Basic (Sonnet)
   typically stretches to ~2 papers, and Fast (Haiku) further than that.
-- Row-Level Security means a signed-in user can only ever *read* their own balance —
-  never write it. Only the edge function (via the `service_role` key, which lives in
-  Supabase's own secret store, not in this repo) can debit it.
+- Every finished analysis is written to the `analyses` table (the "My papers" library) so
+  it can be reopened for free. Row-Level Security scopes both tables to their owner: a
+  signed-in user can only read their own balance and their own saved papers, and can never
+  write the `credits` balance — only the edge function (via the `service_role` key, which
+  lives in Supabase's own secret store, not in this repo) can debit it.
 
 ## One-time setup
 
-You said you already have a Supabase project — here's what to configure in it.
+The landing page and the sample papers work with **no backend at all**. The steps below are
+what enable **sign-up and analyzing your own PDFs**. If any is missing you'll see errors
+like *"Invalid path specified in request URL"* (bad/empty `VITE_SUPABASE_URL`) or
+*"Could not find the table 'public.credits'"* (migrations not applied).
 
 ### 1. Require email confirmation (abuse prevention)
 
@@ -65,11 +71,17 @@ thing stopping someone from farming unlimited $1 credits with throwaway addresse
 not bulletproof (disposable-email services exist), but it's the right cheap first line of
 defense. Add CAPTCHA (**Authentication → Attack Protection**) later if you see abuse.
 
-### 2. Run the credits migration
+### 2. Run the database migrations
 
-**SQL Editor** → paste the contents of `supabase/migrations/20260711000000_credits.sql`
-→ Run. This creates the `credits` table, its Row-Level Security policy (read-own-row
-only), and a trigger that grants every new signup a $1.00 balance automatically.
+**SQL Editor** → paste the contents of each file in `supabase/migrations/`, **in filename
+order**, and Run:
+
+- `20260711000000_credits.sql` — the `credits` table, its read-own-row RLS policy, and a
+  trigger that grants every new signup a $1.00 balance automatically.
+- `20260711010000_analyses.sql` — the `analyses` table (the "My papers" library) with
+  per-owner insert/read/delete RLS.
+
+(Or, with the Supabase CLI: `supabase link --project-ref <ref>` then `supabase db push`.)
 
 ### 3. Deploy the edge function and set the API key secret
 
@@ -90,19 +102,21 @@ function automatically — you don't set those yourself.
 ### 4. Point the frontend at your project
 
 Copy the project's **URL** and **anon public key** (Project Settings → API → Project
-API keys) into **GitHub repo → Settings → Secrets and variables → Actions**:
+API keys) into **GitHub repo → Settings → Secrets and variables → Actions**. Paste the raw
+values — **no surrounding quotes, no trailing slash, no stray newline** (a malformed URL is
+what produces *"Invalid path specified in request URL"*):
 
-- `VITE_SUPABASE_URL`
-- `VITE_SUPABASE_ANON_KEY`
+- `VITE_SUPABASE_URL`  → `https://xxxx.supabase.co`
+- `VITE_SUPABASE_ANON_KEY`  → `eyJ...`
 
 The anon key is a **public** key by design — safe to ship in a static site; RLS is what
-actually protects the `credits` table. **Never** put the `service_role` key anywhere in
-this repo or its secrets — the edge function already has it via its own runtime env.
+actually protects the tables. **Never** put the `service_role` key anywhere in this repo or
+its GitHub secrets — the edge function already has it via its own runtime env.
 
 Re-run the deploy (push any commit, or **Actions → Deploy → Run workflow**) once both
-secrets are set — the sign-in gate and analysis flow are unusable without them.
+secrets are set.
 
-For local dev, put the same two values in a `.env` file (git-ignored):
+For local dev, put the same URL + anon key in a `.env` file (git-ignored):
 
 ```
 VITE_SUPABASE_URL=https://xxxx.supabase.co

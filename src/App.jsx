@@ -10,16 +10,17 @@ import React, { useState, useRef, useCallback, useEffect } from "react";
 import {
   FlaskConical, Upload, BookOpenCheck, Wallet,
   Loader2, TriangleAlert, FileText, Sparkles, SlidersHorizontal, LineChart, LogOut,
-  ChevronDown, Wand2, Landmark, Image as ImageIcon,
+  ChevronDown, Wand2, Landmark, Image as ImageIcon, LogIn, BookMarked,
 } from "lucide-react";
 import Workspace from "./Workspace.jsx";
 import Auth from "./Auth.jsx";
+import Library from "./Library.jsx";
 import { SAMPLE_SPEC } from "./samplePaper.js";
 import { SAMPLE_SPEC_2 } from "./samplePaper2.js";
 import { analyzePaper, MODEL_TIERS, getModelTier, setModelTier } from "./api.js";
 import { fileToBase64, renderPdfRegions } from "./pdf.js";
 import { compileSpec, buildHelpers, defaultsFromSpec, runSpec, validateResultFigures } from "./engine.js";
-import { authEnabled, onAuthChange, signOut, getBalance } from "./supabase.js";
+import { authEnabled, onAuthChange, signOut, getBalance, saveAnalysis } from "./supabase.js";
 
 const BG_URL = `${import.meta.env.BASE_URL}Background.png`;
 
@@ -156,8 +157,12 @@ function HintsPanel({ hints, onHints, disabled }) {
 
 /* ---------------- landing page ---------------- */
 
-function Landing({ onSample, onUpload, busy, progress, error, tier, onTier, balance, onSignOut, hints, onHints }) {
+function Landing({
+  onSample, onUpload, busy, progress, error, tier, onTier, balance, hints, onHints,
+  authOn, signedIn, onSignIn, onSignUp, onSignOut, onOpenLibrary,
+}) {
   const fileRef = useRef(null);
+  const requireAuthToUpload = authOn && !signedIn;
 
   return (
     <div className="flex min-h-screen flex-col" style={{ fontFamily: "system-ui, -apple-system, 'Segoe UI', sans-serif" }}>
@@ -168,15 +173,38 @@ function Landing({ onSample, onUpload, busy, progress, error, tier, onTier, bala
             Interactive Paper Playground
           </div>
           <div className="flex items-center gap-2">
-            <BalanceBadge balance={balance} />
-            {onSignOut && (
-              <button
-                onClick={onSignOut}
-                className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white/80 px-3 py-1.5 text-xs font-medium text-slate-600 hover:border-slate-300"
-              >
-                <LogOut size={14} /> Sign out
-              </button>
-            )}
+            {signedIn ? (
+              <>
+                <BalanceBadge balance={balance} />
+                <button
+                  onClick={onOpenLibrary}
+                  className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white/80 px-3 py-1.5 text-xs font-medium text-slate-600 hover:border-blue-300 hover:text-blue-700"
+                >
+                  <BookMarked size={14} /> My papers
+                </button>
+                <button
+                  onClick={onSignOut}
+                  className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white/80 px-3 py-1.5 text-xs font-medium text-slate-600 hover:border-slate-300"
+                >
+                  <LogOut size={14} /> Sign out
+                </button>
+              </>
+            ) : authOn ? (
+              <>
+                <button
+                  onClick={onSignIn}
+                  className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white/80 px-3 py-1.5 text-xs font-medium text-slate-600 hover:border-slate-300"
+                >
+                  <LogIn size={14} /> Sign in
+                </button>
+                <button
+                  onClick={onSignUp}
+                  className="flex items-center gap-1.5 rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-800"
+                >
+                  Sign up
+                </button>
+              </>
+            ) : null}
           </div>
         </div>
       </header>
@@ -239,8 +267,8 @@ function Landing({ onSample, onUpload, busy, progress, error, tier, onTier, bala
           </div>
 
           <button
-            onClick={() => fileRef.current?.click()}
-            disabled={busy || balance <= 0}
+            onClick={() => (requireAuthToUpload ? onSignUp() : fileRef.current?.click())}
+            disabled={busy || (signedIn && balance !== null && balance <= 0)}
             className="group relative flex flex-col items-start gap-2 overflow-hidden rounded-2xl border-2 border-dashed border-blue-300/70 bg-gradient-to-br from-white/95 to-blue-50/80 p-5 text-left shadow-sm backdrop-blur transition hover:-translate-y-0.5 hover:border-blue-400 hover:shadow-xl disabled:opacity-50"
           >
             <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-white shadow-md transition group-hover:scale-105">
@@ -248,7 +276,13 @@ function Landing({ onSample, onUpload, busy, progress, error, tier, onTier, bala
             </span>
             <span className="text-sm font-semibold text-slate-800">Analyze a new paper (PDF)</span>
             <span className="text-xs leading-relaxed text-slate-500">
-              {balance <= 0 ? (
+              {requireAuthToUpload ? (
+                <>
+                  <strong>Sign up free</strong> to analyze your own PDF — new accounts get
+                  $1.00 of analysis credit, and every paper you analyze is saved to your
+                  library so reopening it never costs credit again.
+                </>
+              ) : signedIn && balance !== null && balance <= 0 ? (
                 "You've used your free analysis credit — try the ready-made examples instead."
               ) : (
                 <>
@@ -328,16 +362,22 @@ export default function App() {
   const [balance, setBalance] = useState(null);
   const [hints, setHints] = useState({ domain: "", focus: "", signal: "", notes: "" });
 
-  // Auth: signup/sign-in is mandatory whenever Supabase is configured — there
-  // is no client-side API key anymore, so without a signed-in session the
-  // edge function has no account to bill and analysis simply can't run.
+  // Auth is optional for browsing: anyone can open the sample papers. An
+  // account is only required to analyze a new PDF (that spends credit and the
+  // edge function needs an account to bill). The sign-in/up UI lives in the
+  // landing page's top-right corner as a dismissible modal.
   const [session, setSession] = useState(null);
   const [authReady, setAuthReady] = useState(!authEnabled);
+  const [authOpen, setAuthOpen] = useState(null); // null | "signin" | "signup"
+  const [libraryOpen, setLibraryOpen] = useState(false);
   useEffect(() => {
     if (!authEnabled) return;
     const unsub = onAuthChange((s) => { setSession(s); setAuthReady(true); });
     return unsub;
   }, []);
+
+  // Close the sign-in modal automatically once a session is established.
+  useEffect(() => { if (session) setAuthOpen(null); }, [session]);
 
   // Refresh the credit balance whenever we get a session.
   useEffect(() => {
@@ -396,6 +436,13 @@ export default function App() {
       // so one bad subplot never blocks the whole workspace.
       newSpec.resultFigures = validateResultFigures(newSpec, compiled, helpers, defaults);
 
+      // Persist to the account's library so this paper can be reopened later
+      // for free instead of spending credit to re-analyze the same PDF.
+      if (authEnabled && session) {
+        setProgress({ pct: 98, label: "Saving to your library…" });
+        try { await saveAnalysis(newSpec); } catch { /* library save is best-effort */ }
+      }
+
       setProgress({ pct: 100, label: "Done" });
       setSpec(newSpec);
     } catch (e) {
@@ -404,7 +451,7 @@ export default function App() {
       setBusy(false);
       setProgress(null);
     }
-  }, [tier, hints, balance]);
+  }, [tier, hints, balance, session]);
 
   // Full-site background: fixed image layer + soft wash for legibility.
   const bgLayer = (
@@ -417,7 +464,8 @@ export default function App() {
     </div>
   );
 
-  // Auth gate
+  // While the auth session is still resolving, show a brief spinner so we don't
+  // flash the signed-out landing page to an already-signed-in user.
   if (authEnabled && !authReady) {
     return (
       <>
@@ -428,9 +476,16 @@ export default function App() {
       </>
     );
   }
-  if (authEnabled && !session) {
-    return (<>{bgLayer}<Auth /></>);
-  }
+
+  const authModal = authOpen && (
+    <Auth initialMode={authOpen} onClose={() => setAuthOpen(null)} />
+  );
+  const libraryModal = libraryOpen && (
+    <Library
+      onClose={() => setLibraryOpen(false)}
+      onOpen={(s) => { setSpec(s); setLibraryOpen(false); }}
+    />
+  );
 
   if (spec) {
     return (
@@ -439,8 +494,10 @@ export default function App() {
         <Workspace
           spec={spec}
           onBack={() => setSpec(null)}
-          onSignOut={authEnabled ? signOut : null}
+          onSignOut={authEnabled && session ? signOut : null}
         />
+        {authModal}
+        {libraryModal}
       </>
     );
   }
@@ -457,10 +514,17 @@ export default function App() {
         tier={tier}
         onTier={handleTier}
         balance={balance}
-        onSignOut={authEnabled ? signOut : null}
         hints={hints}
         onHints={setHints}
+        authOn={authEnabled}
+        signedIn={Boolean(session)}
+        onSignIn={() => setAuthOpen("signin")}
+        onSignUp={() => setAuthOpen("signup")}
+        onSignOut={signOut}
+        onOpenLibrary={() => setLibraryOpen(true)}
       />
+      {authModal}
+      {libraryModal}
     </>
   );
 }

@@ -1,14 +1,16 @@
 /**
- * Sign-in / sign-up gate. Rendered when Supabase auth is enabled and no user
- * is logged in. On success the parent re-renders with a session.
+ * Sign-in / sign-up modal. Opened from the landing page's top-right corner.
+ * Analysis (spending credit) requires an account, but the sample papers stay
+ * open to everyone — so this is a dismissible modal, not a hard gate. On a
+ * successful sign-in the parent's auth listener fires and closes it.
  */
 
 import React, { useState } from "react";
-import { FlaskConical, Loader2, TriangleAlert, MailCheck } from "lucide-react";
+import { FlaskConical, Loader2, TriangleAlert, MailCheck, X } from "lucide-react";
 import { signIn, signUp } from "./supabase.js";
 
-export default function Auth() {
-  const [mode, setMode] = useState("signin"); // signin | signup
+export default function Auth({ onClose, initialMode = "signin" }) {
+  const [mode, setMode] = useState(initialMode); // signin | signup
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -34,9 +36,24 @@ export default function Auth() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center px-4"
-      style={{ fontFamily: "system-ui, -apple-system, 'Segoe UI', sans-serif" }}>
-      <div className="w-full max-w-sm rounded-2xl border border-white/40 bg-white/85 p-6 shadow-xl backdrop-blur-md">
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/50 px-4 py-10 backdrop-blur-sm"
+      style={{ fontFamily: "system-ui, -apple-system, 'Segoe UI', sans-serif" }}
+      onClick={onClose}
+    >
+      <div
+        className="relative mt-8 w-full max-w-sm rounded-2xl border border-white/40 bg-white/95 p-6 shadow-2xl backdrop-blur-md"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {onClose && (
+          <button
+            onClick={onClose}
+            aria-label="Close"
+            className="absolute right-3 top-3 flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+          >
+            <X size={16} />
+          </button>
+        )}
         <div className="mb-5 flex flex-col items-center text-center">
           <div className="mb-2 flex h-11 w-11 items-center justify-center rounded-xl bg-blue-600 text-white">
             <FlaskConical size={22} />
