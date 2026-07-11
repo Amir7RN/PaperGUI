@@ -26,8 +26,9 @@ jobs:
       - run: npm ci
       - run: npm run build
         env:
-          # Set these as repository secrets to enable sign-in (Settings →
-          # Secrets and variables → Actions). Leave unset to run open access.
+          # Required — sign-in is mandatory and analysis is proxied through a
+          # Supabase Edge Function, so the site can't function without these.
+          # Set as repository secrets: Settings → Secrets and variables → Actions.
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
       - uses: actions/configure-pages@v5

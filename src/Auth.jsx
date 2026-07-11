@@ -47,6 +47,13 @@ export default function Auth() {
           </p>
         </div>
 
+        {mode === "signup" && !confirmSent && (
+          <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-[11px] leading-relaxed text-blue-800">
+            New accounts get <strong>$1.00 of free analysis credit</strong> — no API key or payment
+            needed. We'll email you a confirmation link before your account can be used.
+          </div>
+        )}
+
         {confirmSent ? (
           <div className="flex flex-col items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-6 text-center">
             <MailCheck size={26} className="text-emerald-600" />

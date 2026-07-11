@@ -8,7 +8,7 @@
 
 import React, { useState, useRef, useCallback, useEffect } from "react";
 import {
-  FlaskConical, Upload, BookOpenCheck, X, KeyRound, CircleCheck,
+  FlaskConical, Upload, BookOpenCheck, Wallet,
   Loader2, TriangleAlert, FileText, Sparkles, SlidersHorizontal, LineChart, LogOut,
   ChevronDown, Wand2, Landmark, Image as ImageIcon,
 } from "lucide-react";
@@ -16,74 +16,35 @@ import Workspace from "./Workspace.jsx";
 import Auth from "./Auth.jsx";
 import { SAMPLE_SPEC } from "./samplePaper.js";
 import { SAMPLE_SPEC_2 } from "./samplePaper2.js";
-import { analyzePaper, getApiKey, setApiKey, MODEL_TIERS, getModelTier, setModelTier } from "./api.js";
+import { analyzePaper, MODEL_TIERS, getModelTier, setModelTier } from "./api.js";
 import { fileToBase64, renderPdfRegions } from "./pdf.js";
 import { compileSpec, buildHelpers, defaultsFromSpec, runSpec, validateResultFigures } from "./engine.js";
-import { authEnabled, onAuthChange, signOut } from "./supabase.js";
+import { authEnabled, onAuthChange, signOut, getBalance } from "./supabase.js";
 
 const BG_URL = `${import.meta.env.BASE_URL}Background.png`;
 
 const MAX_PDF_MB = 32;
 
-/* ---------------- API key settings modal ---------------- */
+/* ---------------- credit balance badge ---------------- */
 
-function SettingsModal({ open, onClose, onSaved }) {
-  const [key, setKey] = useState("");
-  useEffect(() => { if (open) setKey(getApiKey()); }, [open]);
-  useEffect(() => {
-    const kill = (e) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", kill);
-    return () => window.removeEventListener("keydown", kill);
-  }, [onClose]);
-
-  if (!open) return null;
+function BalanceBadge({ balance }) {
+  if (balance === null) return null;
+  const low = balance <= 0;
+  const tight = !low && balance < 0.15;
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm" onClick={onClose}>
-      <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="flex items-center gap-2 text-base font-semibold text-slate-900">
-            <KeyRound size={16} /> Anthropic API key
-          </h2>
-          <button onClick={onClose} className="rounded-full p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700" aria-label="Close">
-            <X size={18} />
-          </button>
-        </div>
-
-        <p className="mb-3 text-[13px] leading-relaxed text-slate-600">
-          <strong>You only need to do this once.</strong> Paste your key below and it stays saved
-          in this browser — every future analysis uses it automatically. The key never leaves
-          your device except to contact the analysis service directly, and it is never shared or
-          uploaded anywhere else. Don't have a key yet? Create one at{" "}
-          <a href="https://platform.claude.com" target="_blank" rel="noreferrer" className="text-blue-600 underline">
-            platform.claude.com
-          </a>.
-        </p>
-
-        <input
-          type="password"
-          value={key}
-          onChange={(e) => setKey(e.target.value)}
-          placeholder="sk-ant-…"
-          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-400 focus:outline-none"
-          autoComplete="off"
-        />
-
-        <div className="mt-4 flex justify-end gap-2">
-          <button
-            onClick={() => { setApiKey(""); setKey(""); }}
-            className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50"
-          >
-            Clear stored key
-          </button>
-          <button
-            onClick={() => { setApiKey(key); onSaved?.(); onClose(); }}
-            className="rounded-lg bg-slate-800 px-4 py-2 text-xs font-medium text-white hover:bg-slate-700"
-          >
-            Save key
-          </button>
-        </div>
-      </div>
-    </div>
+    <span
+      className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium ${
+        low
+          ? "border-red-300 bg-red-50 text-red-700"
+          : tight
+          ? "border-amber-300 bg-amber-50 text-amber-800"
+          : "border-emerald-200 bg-emerald-50 text-emerald-700"
+      }`}
+      title="Your remaining analysis credit"
+    >
+      <Wallet size={14} />
+      {low ? "Out of credit" : `$${balance.toFixed(2)} credit left`}
+    </span>
   );
 }
 
@@ -195,7 +156,7 @@ function HintsPanel({ hints, onHints, disabled }) {
 
 /* ---------------- landing page ---------------- */
 
-function Landing({ onSample, onUpload, onSettings, busy, progress, error, tier, onTier, hasKey, onSignOut, hints, onHints }) {
+function Landing({ onSample, onUpload, busy, progress, error, tier, onTier, balance, onSignOut, hints, onHints }) {
   const fileRef = useRef(null);
 
   return (
@@ -207,17 +168,7 @@ function Landing({ onSample, onUpload, onSettings, busy, progress, error, tier, 
             Interactive Paper Playground
           </div>
           <div className="flex items-center gap-2">
-            <button
-              onClick={onSettings}
-              className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium ${
-                hasKey
-                  ? "border-emerald-200 bg-emerald-50 text-emerald-700 hover:border-emerald-300"
-                  : "border-amber-300 bg-amber-50 text-amber-800 hover:border-amber-400"
-              }`}
-            >
-              {hasKey ? <CircleCheck size={14} /> : <KeyRound size={14} />}
-              {hasKey ? "API key saved" : "Add API key (one-time)"}
-            </button>
+            <BalanceBadge balance={balance} />
             {onSignOut && (
               <button
                 onClick={onSignOut}
@@ -289,7 +240,7 @@ function Landing({ onSample, onUpload, onSettings, busy, progress, error, tier, 
 
           <button
             onClick={() => fileRef.current?.click()}
-            disabled={busy}
+            disabled={busy || balance <= 0}
             className="group relative flex flex-col items-start gap-2 overflow-hidden rounded-2xl border-2 border-dashed border-blue-300/70 bg-gradient-to-br from-white/95 to-blue-50/80 p-5 text-left shadow-sm backdrop-blur transition hover:-translate-y-0.5 hover:border-blue-400 hover:shadow-xl disabled:opacity-50"
           >
             <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-white shadow-md transition group-hover:scale-105">
@@ -297,9 +248,15 @@ function Landing({ onSample, onUpload, onSettings, busy, progress, error, tier, 
             </span>
             <span className="text-sm font-semibold text-slate-800">Analyze a new paper (PDF)</span>
             <span className="text-xs leading-relaxed text-slate-500">
-              Pick a PDF from your local drive — synced OneDrive / Google Drive folders work too.
-              The analyzer builds the full four-chapter walkthrough at the{" "}
-              <strong>{tier.label}</strong> level selected below.
+              {balance <= 0 ? (
+                "You've used your free analysis credit — try the ready-made examples instead."
+              ) : (
+                <>
+                  Pick a PDF from your local drive — synced OneDrive / Google Drive folders work too.
+                  The analyzer builds the full four-chapter walkthrough at the{" "}
+                  <strong>{tier.label}</strong> level selected below.
+                </>
+              )}
             </span>
           </button>
           <input
@@ -353,7 +310,7 @@ function Landing({ onSample, onUpload, onSettings, busy, progress, error, tier, 
         )}
 
         <p className="mt-8 flex items-center gap-1.5 text-[11px] text-slate-400">
-          <FileText size={12} /> Your paper is sent only to the analysis service, never stored on a server.
+          <FileText size={12} /> Your paper passes through our analysis service to Claude and is never stored.
         </p>
       </main>
     </div>
@@ -367,12 +324,13 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(null);
   const [error, setError] = useState("");
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [tier, setTier] = useState(getModelTier);
-  const [hasKey, setHasKey] = useState(() => !!getApiKey());
+  const [balance, setBalance] = useState(null);
   const [hints, setHints] = useState({ domain: "", focus: "", signal: "", notes: "" });
 
-  // Auth: when Supabase is configured, gate the app behind sign-in.
+  // Auth: signup/sign-in is mandatory whenever Supabase is configured — there
+  // is no client-side API key anymore, so without a signed-in session the
+  // edge function has no account to bill and analysis simply can't run.
   const [session, setSession] = useState(null);
   const [authReady, setAuthReady] = useState(!authEnabled);
   useEffect(() => {
@@ -380,6 +338,12 @@ export default function App() {
     const unsub = onAuthChange((s) => { setSession(s); setAuthReady(true); });
     return unsub;
   }, []);
+
+  // Refresh the credit balance whenever we get a session.
+  useEffect(() => {
+    if (!session) { setBalance(null); return; }
+    getBalance().then(setBalance);
+  }, [session]);
 
   const handleTier = useCallback((t) => {
     setTier(t);
@@ -389,9 +353,8 @@ export default function App() {
   const handleUpload = useCallback(async (file) => {
     setError("");
 
-    if (!getApiKey()) {
-      setSettingsOpen(true);
-      setError("Add your API key first — it's a one-time step. Then upload the paper again.");
+    if (balance !== null && balance <= 0) {
+      setError("You've used up your free analysis credit.");
       return;
     }
     if (file.size > MAX_PDF_MB * 1024 * 1024) {
@@ -405,7 +368,8 @@ export default function App() {
       const arrayBuffer = await file.arrayBuffer();
       const base64 = await fileToBase64(file);
 
-      const newSpec = await analyzePaper(base64, setProgress, tier, hints);
+      const { spec: newSpec, remainingBalance } = await analyzePaper(base64, setProgress, tier, hints);
+      if (typeof remainingBalance === "number") setBalance(remainingBalance);
 
       setProgress({ pct: 86, label: "Cropping figures from the paper…" });
       try {
@@ -440,7 +404,7 @@ export default function App() {
       setBusy(false);
       setProgress(null);
     }
-  }, [tier, hints]);
+  }, [tier, hints, balance]);
 
   // Full-site background: fixed image layer + soft wash for legibility.
   const bgLayer = (
@@ -487,21 +451,15 @@ export default function App() {
       <Landing
         onSample={(s) => setSpec(s)}
         onUpload={handleUpload}
-        onSettings={() => setSettingsOpen(true)}
         busy={busy}
         progress={progress}
         error={error}
         tier={tier}
         onTier={handleTier}
-        hasKey={hasKey}
+        balance={balance}
         onSignOut={authEnabled ? signOut : null}
         hints={hints}
         onHints={setHints}
-      />
-      <SettingsModal
-        open={settingsOpen}
-        onClose={() => { setSettingsOpen(false); setHasKey(!!getApiKey()); }}
-        onSaved={() => { setHasKey(!!getApiKey()); setError(""); }}
       />
     </>
   );

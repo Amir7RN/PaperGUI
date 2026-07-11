@@ -46,3 +46,32 @@ export async function signUp(email, password) {
 export async function signOut() {
   if (supabase) await supabase.auth.signOut();
 }
+
+/** The current session's access token, or "" if signed out — sent to the
+ *  analyze-paper edge function so it can identify the caller. */
+export async function getAccessToken() {
+  if (!supabase) return "";
+  const { data } = await supabase.auth.getSession();
+  return data.session?.access_token || "";
+}
+
+/** Remaining USD credit for the signed-in user (null if unknown/signed out). */
+export async function getBalance() {
+  if (!supabase) return null;
+  const { data: userData } = await supabase.auth.getUser();
+  if (!userData?.user) return null;
+  const { data, error } = await supabase
+    .from("credits")
+    .select("balance_usd")
+    .eq("user_id", userData.user.id)
+    .maybeSingle();
+  if (error || !data) return null;
+  return Number(data.balance_usd);
+}
+
+/** Base URL for this project's edge functions — every Supabase project
+ *  serves them at {PROJECT_URL}/functions/v1/{function-name}, so no
+ *  separate env var is needed. */
+export const functionsUrl = authEnabled ? `${url}/functions/v1` : "";
+
+export const supabaseAnonKey = anonKey || "";
