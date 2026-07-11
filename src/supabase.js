@@ -17,17 +17,24 @@
 import { createClient } from "@supabase/supabase-js";
 
 /**
- * Sanitize the project URL. Secrets pasted from the dashboard often arrive with
- * a trailing slash, surrounding quotes, or a stray newline — any of which makes
- * supabase-js build request paths like `https://x.supabase.co//auth/v1/signup`
- * and fail with "Invalid path specified in request URL". Strip all of that so
- * the value is always a clean origin: `https://xxxx.supabase.co`.
+ * Sanitize the project URL down to a bare origin (`https://xxxx.supabase.co`).
+ *
+ * The Supabase project URL must have NO path. Secrets are commonly pasted with
+ * a trailing slash, surrounding quotes, a stray newline, or — worst — an API
+ * path like `…/rest/v1` (copied from the REST endpoint box instead of the
+ * project URL). Any of these makes supabase-js build broken request paths such
+ * as `…/rest/v1/auth/v1/signup`, which the server rejects with
+ * "Invalid path specified in request URL". Collapsing to `URL.origin` strips the
+ * path, query, trailing slash, and quotes in one shot.
  */
 function cleanUrl(raw) {
   if (!raw) return "";
-  let u = String(raw).trim().replace(/^["']|["']$/g, "").trim();
-  u = u.replace(/\/+$/, ""); // drop trailing slashes
-  return u;
+  const u = String(raw).trim().replace(/^["']|["']$/g, "").trim();
+  try {
+    return new URL(u).origin; // protocol + host only, no path/slash/query
+  } catch {
+    return u.replace(/\/+$/, ""); // no protocol → best-effort trim
+  }
 }
 
 const url = cleanUrl(import.meta.env.VITE_SUPABASE_URL);
