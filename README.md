@@ -123,6 +123,21 @@ VITE_SUPABASE_URL=https://xxxx.supabase.co
 VITE_SUPABASE_ANON_KEY=eyJ...
 ```
 
+### Analysis quality vs. the hosting time limit
+
+Supabase Edge Functions are hard-killed at **150s** (free plan) / **400s** (Pro).
+The analyzer already splits each run into three shorter phases to fit, but the
+**Advanced (Opus)** tier is the tight one: at standard speed Opus only fits the
+150s free-tier window at **`effort: "low"`** (set in `MODEL_TIERS`, `_shared/paperSpec.js`).
+
+- **Free Supabase:** leave Advanced at `low`. If a phase still overruns, the
+  client auto-retries it on the next-faster tier so the run always completes.
+- **Supabase Pro (400s):** raise Advanced's `effort` to `"high"` for the
+  full-quality Opus reproduction — the reliable way to get the "wow" output.
+- **Fast mode** (`speed: "fast"`, ~2.5× faster Opus) is only usable if your
+  Anthropic org has fast-mode access; without it the API returns a 429
+  (`0 fast mode input tokens per minute`). It is not enabled here.
+
 ### Operational notes
 
 - **Selling credit (manual Venmo / Cash App flow):** fill in your handles in

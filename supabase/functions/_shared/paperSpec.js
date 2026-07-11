@@ -23,21 +23,18 @@ export const MODEL_TIERS = [
   {
     id: "advanced",
     label: "Advanced",
-    // Opus 4.8 in FAST MODE (beta): same model, ~2.5x output speed, 2x price.
-    // Standard-speed Opus (~60 tok/s) cannot finish a ~10K-token analysis
-    // stage inside the platform's 150s kill window — fast mode (~150 tok/s)
-    // is what makes Opus-quality reproduction possible here at all.
+    // Opus 4.8 — the highest-quality reproduction. Fast mode was removed:
+    // this org's Anthropic plan has a fast-mode limit of 0 (gated preview),
+    // so speed:"fast" 429s. At standard speed (~60 tok/s) Opus only fits the
+    // hosting platform's 150s kill window at LOW effort — that's the ceiling
+    // on Supabase's FREE tier. On Supabase PRO (400s window) raise this to
+    // "high" for the full-quality result (see README → analysis tiers).
     model: "claude-opus-4-8",
-    speed: "fast",
-    blurb: "Deepest, most faithful reproduction — best for dense, math-heavy papers (premium)",
+    blurb: "Deepest, most faithful reproduction — best for dense, math-heavy papers",
     adaptive: true,
-    // medium effort keeps each analysis phase inside the hosting platform's
-    // 150s kill window even on dense papers. Fast mode alone at high effort
-    // can still overrun on big papers; medium + fast is the reliable combo
-    // that keeps this the top-quality (Opus) tier without timing out.
-    effort: "medium",
-    priceIn: 10.0,
-    priceOut: 50.0,
+    effort: "low",
+    priceIn: 5.0,
+    priceOut: 25.0,
   },
   {
     id: "standard",
