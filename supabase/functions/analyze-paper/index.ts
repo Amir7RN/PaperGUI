@@ -21,6 +21,7 @@
 
 import Anthropic from "npm:@anthropic-ai/sdk@^0.68.0";
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { jsonrepair } from "npm:jsonrepair@3";
 import { MODEL_TIERS, SPEC_SCHEMA, SYSTEM_PROMPT, hintsBlock, tierById, usageCostUsd } from "../_shared/paperSpec.js";
 
 const CORS_HEADERS = {
@@ -118,11 +119,13 @@ Deno.serve(async (req) => {
         const outputConfig = {};
         if (tier.effort) outputConfig.effort = tier.effort;
 
-        const maxTokens = tier.id === "fast" ? 48000 : 96000;
+        const maxTokens = tier.id === "fast" ? 48000 : 64000;
 
         const schemaBlock =
           "\n\nOUTPUT FORMAT (critical):\n" +
           "Respond with ONLY one JSON object — no markdown fences, no commentary before or after. " +
+          "Valid JSON syntax: escape all newlines inside strings as \\n. " +
+          "Keep it focused: for dense papers prefer 3-4 result figures and 3-4 blocks over exhaustive coverage. " +
           "It must validate against this JSON Schema:\n" +
           JSON.stringify(SPEC_SCHEMA);
 
@@ -145,6 +148,15 @@ Deno.serve(async (req) => {
           ],
         });
 
+        // Supabase kills the whole function at its ~400s wall-clock limit,
+        // which the client sees as a silent disconnect. Abort the Anthropic
+        // stream ourselves a bit earlier so we can return a clear error.
+        let timedOut = false;
+        const deadline = setTimeout(() => {
+          timedOut = true;
+          try { anthropicStream.abort(); } catch { /* already done */ }
+        }, 330_000);
+
         let chars = 0;
         let lastUpdate = 0;
         let thinking = true;
@@ -166,7 +178,20 @@ Deno.serve(async (req) => {
           }
         });
 
-        const response = await anthropicStream.finalMessage();
+        let response;
+        try {
+          response = await anthropicStream.finalMessage();
+        } catch (streamErr) {
+          if (timedOut) {
+            throw new Error(
+              "The analysis exceeded the platform's time limit before finishing. " +
+              "Try the Standard or Fast level, or a shorter paper."
+            );
+          }
+          throw streamErr;
+        } finally {
+          clearTimeout(deadline);
+        }
 
         if (response.stop_reason === "refusal") {
           throw new Error("The analyzer declined to process this document.");
@@ -218,8 +243,9 @@ function json(status, body) {
 }
 
 /** Lenient JSON extraction: without structured outputs the model may wrap the
- *  object in ```json fences or add a stray sentence. Try direct parse first,
- *  then strip fences, then take the outermost {...} span. */
+ *  object in ```json fences, add a stray sentence, or emit slightly invalid
+ *  JSON (unescaped newlines, trailing commas). Try direct parse, then strip
+ *  fences, then the outermost {...} span, then jsonrepair as the last resort. */
 function parseSpecJson(text) {
   const raw = text.trim();
   try { return JSON.parse(raw); } catch { /* fall through */ }
@@ -229,8 +255,10 @@ function parseSpecJson(text) {
 
   const start = raw.indexOf("{");
   const end = raw.lastIndexOf("}");
-  if (start !== -1 && end > start) {
-    return JSON.parse(raw.slice(start, end + 1));
-  }
-  throw new Error("no JSON object found");
+  const sliced = start !== -1 && end > start ? raw.slice(start, end + 1) : unfenced;
+  try { return JSON.parse(sliced); } catch { /* fall through */ }
+
+  // jsonrepair fixes the common LLM syntax slips: literal newlines inside
+  // strings, trailing commas, single quotes, missing closing braces.
+  return JSON.parse(jsonrepair(sliced));
 }

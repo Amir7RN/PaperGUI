@@ -97,7 +97,13 @@ export async function analyzePaper(pdfBase64, onProgress, tier = getModelTier(),
   }
 
   if (errorMessage) throw new Error(errorMessage);
-  if (!result) throw new Error("The analyzer closed the connection without returning a result.");
+  if (!result) {
+    throw new Error(
+      "The connection to the analyzer dropped before it finished — this usually means the " +
+      "analysis ran longer than the server allows. Try again on the Standard or Fast level, " +
+      "or with a shorter paper. (No credit is charged for an unfinished analysis.)"
+    );
+  }
 
   return { spec: result.spec, cost: result.cost, remainingBalance: result.remainingBalance };
 }
