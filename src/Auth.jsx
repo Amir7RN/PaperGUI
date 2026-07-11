@@ -67,7 +67,7 @@ export default function Auth({ onClose, initialMode = "signin" }) {
         {mode === "signup" && !confirmSent && (
           <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-[11px] leading-relaxed text-blue-800">
             New accounts get <strong>$1.00 of free analysis credit</strong> — no API key or payment
-            needed. We'll email you a confirmation link before your account can be used.
+            needed. Every paper you analyze is saved to your library for free reopening.
           </div>
         )}
 

@@ -111,16 +111,26 @@ Deno.serve(async (req) => {
       send({ type: "progress", pct: 6, label: `${tier.label} analysis — reading the paper (text + figures)…` });
 
       try {
-        const outputConfig = { format: { type: "json_schema", schema: SPEC_SCHEMA } };
+        // NOTE: we deliberately do NOT use structured outputs (output_config.format
+        // with json_schema) here. SPEC_SCHEMA is large and deeply nested, and the
+        // API rejects it with "The compiled grammar is too large". Instead the
+        // schema is embedded in the prompt and the response is parsed leniently.
+        const outputConfig = {};
         if (tier.effort) outputConfig.effort = tier.effort;
 
         const maxTokens = tier.id === "fast" ? 48000 : 96000;
+
+        const schemaBlock =
+          "\n\nOUTPUT FORMAT (critical):\n" +
+          "Respond with ONLY one JSON object — no markdown fences, no commentary before or after. " +
+          "It must validate against this JSON Schema:\n" +
+          JSON.stringify(SPEC_SCHEMA);
 
         const anthropicStream = client.messages.stream({
           model: tier.model,
           max_tokens: maxTokens,
           ...(tier.adaptive ? { thinking: { type: "adaptive" } } : {}),
-          output_config: outputConfig,
+          ...(Object.keys(outputConfig).length ? { output_config: outputConfig } : {}),
           messages: [
             {
               role: "user",
@@ -129,7 +139,7 @@ Deno.serve(async (req) => {
                   type: "document",
                   source: { type: "base64", media_type: "application/pdf", data: pdfBase64 },
                 },
-                { type: "text", text: SYSTEM_PROMPT + hintsBlock(hints) },
+                { type: "text", text: SYSTEM_PROMPT + hintsBlock(hints) + schemaBlock },
               ],
             },
           ],
@@ -173,7 +183,7 @@ Deno.serve(async (req) => {
 
         let spec;
         try {
-          spec = JSON.parse(textBlock.text);
+          spec = parseSpecJson(textBlock.text);
         } catch {
           throw new Error("The analyzer's response could not be parsed. Try again.");
         }
@@ -205,4 +215,22 @@ function json(status, body) {
     status,
     headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
   });
+}
+
+/** Lenient JSON extraction: without structured outputs the model may wrap the
+ *  object in ```json fences or add a stray sentence. Try direct parse first,
+ *  then strip fences, then take the outermost {...} span. */
+function parseSpecJson(text) {
+  const raw = text.trim();
+  try { return JSON.parse(raw); } catch { /* fall through */ }
+
+  const unfenced = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
+  try { return JSON.parse(unfenced); } catch { /* fall through */ }
+
+  const start = raw.indexOf("{");
+  const end = raw.lastIndexOf("}");
+  if (start !== -1 && end > start) {
+    return JSON.parse(raw.slice(start, end + 1));
+  }
+  throw new Error("no JSON object found");
 }

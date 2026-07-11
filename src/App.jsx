@@ -260,6 +260,37 @@ function Landing({
           ))}
         </div>
 
+        {/* how it works */}
+        <div className="mt-8 grid w-full max-w-2xl grid-cols-1 gap-3 sm:grid-cols-3">
+          {[
+            {
+              n: "1",
+              title: "Drop in a paper",
+              body: "Any scientific PDF — engineering, biology, economics, physics…",
+            },
+            {
+              n: "2",
+              title: "Claude rebuilds it",
+              body: "Figures explained, method on sliders, result plots recreated as code.",
+            },
+            {
+              n: "3",
+              title: "Explore & perturb",
+              body: "Drag any coefficient and watch the paper's own figures reshape live.",
+            },
+          ].map((s) => (
+            <div key={s.n} className="flex items-start gap-3 rounded-2xl border border-slate-200/70 bg-white/80 px-4 py-3 shadow-sm backdrop-blur">
+              <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-900 text-[11px] font-bold text-white">
+                {s.n}
+              </span>
+              <span>
+                <span className="block text-xs font-semibold text-slate-800">{s.title}</span>
+                <span className="mt-0.5 block text-[11px] leading-relaxed text-slate-500">{s.body}</span>
+              </span>
+            </div>
+          ))}
+        </div>
+
         <div className="mt-8 grid w-full max-w-2xl gap-4 sm:grid-cols-2">
           <div className="flex flex-col gap-3">
             <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
@@ -365,8 +396,10 @@ function Landing({
           </div>
         )}
 
-        <p className="mt-8 flex items-center gap-1.5 text-[11px] text-slate-400">
-          <FileText size={12} /> Your paper passes through our analysis service to Claude and is never stored.
+        <p className="mt-8 flex max-w-xl items-center gap-1.5 text-center text-[11px] text-slate-400">
+          <FileText size={12} className="shrink-0" />
+          Your PDF passes through our analysis service to Claude and is not kept; only the
+          finished interactive analysis is saved — privately, to your own library.
         </p>
       </main>
     </div>
