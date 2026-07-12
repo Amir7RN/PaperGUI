@@ -386,7 +386,7 @@ function Landing({
        * Text/options at x:5% y:32px w:47.5% h:944px, video at x:59.5% y:72px
        * w:38% h:832px, both absolutely placed at lg+; single stacked column
        * below that (no arrange UI — this is now the permanent layout). */}
-      <main className="relative flex w-full flex-1 flex-col gap-10 px-4 py-10 sm:px-8 lg:block lg:h-[1020px] lg:px-10">
+      <main className="relative flex w-full flex-col gap-10 px-4 py-10 sm:px-8 lg:block lg:h-[1020px] lg:px-10">
         <div className="w-full lg:absolute lg:left-[5%] lg:top-[32px] lg:h-[944px] lg:w-[47.5%] lg:overflow-y-auto">
         <div className="flex w-full max-w-none flex-col items-start">
         <div className="mb-3 flex items-center gap-2 rounded-full border border-blue-200/60 bg-white/70 px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-blue-700 shadow-sm backdrop-blur">
