@@ -6,17 +6,20 @@
  * PaperSpec that drives the generic workspace.
  */
 
-import React, { useState, useRef, useCallback, useEffect } from "react";
+import React, { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import {
   FlaskConical, Upload, BookOpenCheck, Wallet,
   Loader2, TriangleAlert, FileText, Sparkles, SlidersHorizontal, LineChart, LogOut,
   ChevronDown, Wand2, Landmark, Image as ImageIcon, LogIn, BookMarked, Mail, MapPin,
+  Move, ClipboardCopy, Check, RotateCcw,
 } from "lucide-react";
 import Workspace from "./Workspace.jsx";
 import Auth from "./Auth.jsx";
 import Library from "./Library.jsx";
 import BuyCredits from "./BuyCredits.jsx";
 import ContactModal from "./ContactModal.jsx";
+import DesignBox from "./DesignBox.jsx";
+import { LANDING_BOX_IDS, loadLandingLayout, saveLandingLayout, resetLandingLayout } from "./landingLayout.js";
 import { SAMPLE_SPEC } from "./samplePaper.js";
 import { SAMPLE_SPEC_2 } from "./samplePaper2.js";
 import { analyzePaper, MODEL_TIERS, getModelTier, setModelTier } from "./api.js";
@@ -317,6 +320,72 @@ function Landing({
   const fileRef = useRef(null);
   const requireAuthToUpload = authOn && !signedIn;
 
+  // ---------------- owner-only "PowerPoint mode" for the two top boxes ----
+  // (text/options column + video column) — same drag/resize/copy-config
+  // mechanic as the analysis workspace's Layout Editor. Non-owners never see
+  // this and always get the normal responsive two-column grid.
+  const [landingLayout, setLandingLayout] = useState(loadLandingLayout);
+  const [copied, setCopied] = useState(false);
+  const canvasRef = useRef(null);
+  const boxEls = useRef({});
+  const free = owner && landingLayout.freeMode;
+
+  const registerBox = useCallback((id, el) => {
+    if (el) boxEls.current[id] = el; else delete boxEls.current[id];
+  }, []);
+
+  const setBox = useCallback((id, rect) => {
+    setLandingLayout((L) => {
+      const next = { ...L, boxes: { ...L.boxes, [id]: rect } };
+      saveLandingLayout(next);
+      return next;
+    });
+  }, []);
+
+  // Entering free mode freezes the current responsive positions as the
+  // starting point, so dragging begins from what's already on screen.
+  const toggleFree = useCallback(() => {
+    setLandingLayout((L) => {
+      if (L.freeMode) { const next = { ...L, freeMode: false }; saveLandingLayout(next); return next; }
+      const canvas = canvasRef.current?.getBoundingClientRect();
+      const fullW = document.documentElement.clientWidth || (canvas?.width ?? 1280);
+      const boxes = { ...L.boxes };
+      if (canvas) {
+        for (const [id, el] of Object.entries(boxEls.current)) {
+          if (!el || boxes[id]) continue; // keep any positions already saved
+          const r = el.getBoundingClientRect();
+          boxes[id] = {
+            x: +((r.left / fullW) * 100).toFixed(2),
+            y: Math.round(r.top - canvas.top),
+            w: +((r.width / fullW) * 100).toFixed(2),
+            h: Math.round(r.height),
+            font: 1,
+          };
+        }
+      }
+      const next = { ...L, freeMode: true, boxes };
+      saveLandingLayout(next);
+      return next;
+    });
+  }, []);
+
+  const canvasHeight = useMemo(() => {
+    if (!free) return undefined;
+    let max = 400;
+    for (const id of LANDING_BOX_IDS) {
+      const b = landingLayout.boxes[id];
+      if (b) max = Math.max(max, b.y + b.h);
+    }
+    return max + 60;
+  }, [free, landingLayout.boxes]);
+
+  const copyLandingConfig = async () => {
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(landingLayout, null, 2));
+      setCopied(true); setTimeout(() => setCopied(false), 1800);
+    } catch { /* clipboard blocked */ }
+  };
+
   return (
     <div className="flex min-h-screen flex-col" style={{ fontFamily: "system-ui, -apple-system, 'Segoe UI', sans-serif" }}>
       <header className="border-b border-slate-200/70 bg-white/80 backdrop-blur">
@@ -332,6 +401,16 @@ function Landing({
             >
               <Mail size={14} /> Contact
             </button>
+            {owner && (
+              <button
+                onClick={toggleFree}
+                className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium shadow-sm ${
+                  free ? "border-blue-500 bg-blue-600 text-white hover:bg-blue-700" : "border-slate-200 bg-white/80 text-slate-600 hover:border-blue-300 hover:text-blue-700"
+                }`}
+              >
+                <Move size={14} /> {free ? "Done arranging" : "Arrange page"}
+              </button>
+            )}
             {signedIn ? (
               <>
                 {owner ? (
@@ -382,8 +461,36 @@ function Landing({
         </div>
       </header>
 
-      <main className="grid w-full flex-1 gap-10 px-4 py-10 sm:px-8 lg:grid-cols-[minmax(0,1fr)_22rem] lg:px-10 xl:grid-cols-[minmax(0,1fr)_26rem]">
+      {free && (
+        <div className="fixed bottom-4 left-1/2 z-40 flex -translate-x-1/2 flex-wrap items-center justify-center gap-2 rounded-full border border-blue-300 bg-blue-600/95 px-4 py-2 text-[11px] font-medium text-white shadow-lg backdrop-blur">
+          <span>Arrange page · drag a box by its blue label · resize from the corner</span>
+          <button
+            onClick={() => setLandingLayout(resetLandingLayout())}
+            className="flex items-center gap-1 rounded-full bg-white/15 px-2 py-1 hover:bg-white/25"
+          >
+            <RotateCcw size={11} /> Reset
+          </button>
+          <button
+            onClick={copyLandingConfig}
+            className="flex items-center gap-1 rounded-full bg-white px-2 py-1 font-semibold text-blue-700 hover:bg-blue-50"
+          >
+            {copied ? <Check size={11} /> : <ClipboardCopy size={11} />}
+            {copied ? "Copied!" : "Copy layout"}
+          </button>
+        </div>
+      )}
+
+      <main
+        ref={canvasRef}
+        className={free ? "relative w-full p-0" : "grid w-full flex-1 gap-10 px-4 py-10 sm:px-8 lg:grid-cols-[minmax(0,1fr)_22rem] lg:px-10 xl:grid-cols-[minmax(0,1fr)_26rem]"}
+        style={free ? { height: canvasHeight, maxWidth: "none" } : undefined}
+      >
         {/* ---------- left rail: all controls (expanded) ---------- */}
+        <DesignBox
+          id="landing-text" label="Text & options"
+          mode={free ? "free" : "flow"} rect={landingLayout.boxes["landing-text"]}
+          onRect={setBox} register={registerBox}
+        >
         <div className="flex w-full max-w-3xl flex-col items-start">
         <div className="mb-3 flex items-center gap-2 rounded-full border border-blue-200/60 bg-white/70 px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-blue-700 shadow-sm backdrop-blur">
           <Sparkles size={13} /> Leave the PDF aside — work with the paper
@@ -555,11 +662,18 @@ function Landing({
           finished interactive analysis is saved — privately, to your own library.
         </p>
         </div>
+        </DesignBox>
 
         {/* ---------- right rail: demo video with synced explanations (half-size) ---------- */}
+        <DesignBox
+          id="landing-video" label="Demo video"
+          mode={free ? "free" : "flow"} rect={landingLayout.boxes["landing-video"]}
+          onRect={setBox} register={registerBox}
+        >
         <div className="min-w-0 self-start lg:sticky lg:top-6">
           <VideoShowcase />
         </div>
+        </DesignBox>
       </main>
 
       <SiteFooter onContact={onContact} />
