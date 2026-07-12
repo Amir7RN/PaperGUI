@@ -81,9 +81,9 @@ function BalanceBadge({ balance }) {
 
 /* ---------------- analysis model tier picker ---------------- */
 
-function TierPicker({ tier, onTier, disabled }) {
+function TierPicker({ tier, onTier, disabled, full }) {
   return (
-    <div className="mt-4 w-full max-w-3xl rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+    <div className={`mt-4 w-full ${full ? "max-w-none" : "max-w-3xl"} rounded-2xl border border-slate-200 bg-white p-4 shadow-sm`}>
       <div className="mb-2 flex items-baseline justify-between">
         <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
           Analysis level
@@ -122,12 +122,12 @@ function TierPicker({ tier, onTier, disabled }) {
 
 /* ---------------- analysis hints (optional guidance) ---------------- */
 
-function HintsPanel({ hints, onHints, disabled }) {
+function HintsPanel({ hints, onHints, disabled, full }) {
   const [open, setOpen] = useState(false);
   const set = (k) => (e) => onHints({ ...hints, [k]: e.target.value });
   const filled = ["domain", "focus", "signal", "notes"].filter((k) => hints[k]?.trim()).length;
   return (
-    <div className="mt-3 w-full max-w-3xl rounded-2xl border border-slate-200/80 bg-white/90 shadow-sm backdrop-blur">
+    <div className={`mt-3 w-full ${full ? "max-w-none" : "max-w-3xl"} rounded-2xl border border-slate-200/80 bg-white/90 shadow-sm backdrop-blur`}>
       <button
         onClick={() => setOpen(!open)}
         className="flex w-full items-center justify-between px-4 py-3 text-left"
@@ -386,6 +386,13 @@ function Landing({
     } catch { /* clipboard blocked */ }
   };
 
+  // In free/arranged mode the box itself IS the width constraint (the owner
+  // just resized it), so inner content must fill it edge-to-edge instead of
+  // capping at a fixed reading width — otherwise resizing the frame does
+  // nothing visible, which is exactly the bug being fixed here.
+  const wCls = free ? "max-w-none" : "max-w-3xl";
+  const wClsSm = free ? "max-w-none" : "max-w-2xl";
+
   return (
     <div className="flex min-h-screen flex-col" style={{ fontFamily: "system-ui, -apple-system, 'Segoe UI', sans-serif" }}>
       <header className="border-b border-slate-200/70 bg-white/80 backdrop-blur">
@@ -491,17 +498,17 @@ function Landing({
           mode={free ? "free" : "flow"} rect={landingLayout.boxes["landing-text"]}
           onRect={setBox} register={registerBox}
         >
-        <div className="flex w-full max-w-3xl flex-col items-start">
+        <div className={`flex w-full ${wCls} flex-col items-start`}>
         <div className="mb-3 flex items-center gap-2 rounded-full border border-blue-200/60 bg-white/70 px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-blue-700 shadow-sm backdrop-blur">
           <Sparkles size={13} /> Leave the PDF aside — work with the paper
         </div>
-        <h1 className="max-w-3xl text-left text-3xl font-extrabold leading-tight tracking-tight text-slate-900 sm:text-4xl">
+        <h1 className={`${wCls} text-left text-3xl font-extrabold leading-tight tracking-tight text-slate-900 sm:text-4xl`}>
           Turn any scientific paper into a{" "}
           <span className="bg-gradient-to-r from-blue-600 via-violet-600 to-emerald-600 bg-clip-text text-transparent">
             living, interactive lab
           </span>
         </h1>
-        <p className="mt-4 max-w-2xl text-left text-sm leading-relaxed text-slate-600">
+        <p className={`mt-4 ${wClsSm} text-left text-sm leading-relaxed text-slate-600`}>
           The analyzer walks you through a paper the way a good colleague would: the idea in
           pictures, the prior work it stands on, its own method with every coefficient on a
           slider, and its real result figures — recreated and reshaping live as you explore.
@@ -521,7 +528,7 @@ function Landing({
         </div>
 
         {/* how it works */}
-        <div className="mt-8 grid w-full max-w-3xl grid-cols-1 gap-3 sm:grid-cols-3">
+        <div className={`mt-8 grid w-full ${wCls} grid-cols-1 gap-3 sm:grid-cols-3`}>
           {[
             {
               n: "1",
@@ -551,7 +558,7 @@ function Landing({
           ))}
         </div>
 
-        <div className="mt-8 grid w-full max-w-3xl gap-4 sm:grid-cols-2">
+        <div className={`mt-8 grid w-full ${wCls} gap-4 sm:grid-cols-2`}>
           <div className="flex flex-col gap-3">
             <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
               <BookOpenCheck size={14} className="text-blue-600" /> Try a ready-made example (no key needed)
@@ -619,12 +626,12 @@ function Landing({
           />
         </div>
 
-        <TierPicker tier={tier} onTier={onTier} disabled={busy} />
+        <TierPicker tier={tier} onTier={onTier} disabled={busy} full={free} />
 
-        <HintsPanel hints={hints} onHints={onHints} disabled={busy} />
+        <HintsPanel hints={hints} onHints={onHints} disabled={busy} full={free} />
 
         {busy && (
-          <div className="mt-6 w-full max-w-3xl rounded-xl border border-blue-200 bg-white/90 px-4 py-4 shadow-sm backdrop-blur">
+          <div className={`mt-6 w-full ${wCls} rounded-xl border border-blue-200 bg-white/90 px-4 py-4 shadow-sm backdrop-blur`}>
             <div className="flex items-center gap-3 text-sm text-blue-900">
               <Loader2 size={18} className="shrink-0 animate-spin" />
               <div className="min-w-0 flex-1">
@@ -647,7 +654,7 @@ function Landing({
         )}
 
         {error && !busy && (
-          <div className="mt-6 flex w-full max-w-3xl items-start gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+          <div className={`mt-6 flex w-full ${wCls} items-start gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800`}>
             <TriangleAlert size={18} className="mt-0.5 shrink-0" />
             <div>
               <div className="font-medium">Analysis failed</div>
@@ -656,7 +663,7 @@ function Landing({
           </div>
         )}
 
-        <p className="mt-8 flex max-w-2xl items-center gap-1.5 text-left text-[11px] text-slate-400">
+        <p className={`mt-8 flex ${wClsSm} items-center gap-1.5 text-left text-[11px] text-slate-400`}>
           <FileText size={12} className="shrink-0" />
           Your PDF passes through our AI analysis service and is not kept; only the
           finished interactive analysis is saved — privately, to your own library.

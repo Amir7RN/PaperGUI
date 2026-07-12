@@ -10,10 +10,17 @@ const STORAGE = "paper-playground-landing-layout";
 
 export const LANDING_BOX_IDS = ["landing-text", "landing-video"];
 
-/* x,w in % of canvas width; y,h in px; font is a text-scale multiplier. */
+/* x,w in % of canvas width; y,h in px; font is a text-scale multiplier.
+ * Flow (responsive grid) is still the default for every visitor — freeMode
+ * stays false here — but these box positions are the owner-approved
+ * "PowerPoint" arrangement, preloaded so clicking Arrange page starts from
+ * this exact layout instead of re-measuring the current flow positions. */
 export const DEFAULT_LANDING_LAYOUT = {
   freeMode: false,
-  boxes: {},
+  boxes: {
+    "landing-text":  { x: 5,    y: 32, w: 47.5, h: 944, font: 1.1 },
+    "landing-video": { x: 59.5, y: 72, w: 38,   h: 832, font: 1 },
+  },
 };
 
 export function loadLandingLayout() {
