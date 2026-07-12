@@ -77,18 +77,39 @@ function InfoButton({ onClick, label }) {
   );
 }
 
-function LegendRow({ items }) {
+/** When `onToggle` is given, each entry becomes a click target that hides/
+ *  shows its series — the cheapest way to make ANY multi-series chart feel
+ *  hands-on, including ones with zero sliders (reported-data explorers). */
+function LegendRow({ items, hidden, onToggle }) {
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-1 pb-1">
-      {items.map((it) => (
-        <span key={it.label} className="flex items-center gap-1.5 text-[11px] text-slate-500">
+      {items.map((it) => {
+        const isHidden = hidden?.has(it.key);
+        const dot = (
           <svg width="18" height="6" aria-hidden="true">
-            <line x1="0" y1="3" x2="18" y2="3" stroke={it.color} strokeWidth="2"
+            <line x1="0" y1="3" x2="18" y2="3" stroke={isHidden ? "#cbd5e1" : it.color} strokeWidth="2"
               strokeDasharray={it.dash || "none"} />
           </svg>
-          {it.label}
-        </span>
-      ))}
+        );
+        if (!onToggle) {
+          return (
+            <span key={it.label} className="flex items-center gap-1.5 text-[11px] text-slate-500">
+              {dot}{it.label}
+            </span>
+          );
+        }
+        return (
+          <button
+            key={it.label} type="button" onClick={() => onToggle(it.key)}
+            title={isHidden ? `Show ${it.label}` : `Hide ${it.label}`}
+            className={`flex items-center gap-1.5 rounded px-1 text-[11px] transition ${
+              isHidden ? "text-slate-300 line-through" : "text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+            }`}
+          >
+            {dot}{it.label}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -180,6 +201,73 @@ function SectionHeader({ num, tone, icon: IconCmp, title, sub }) {
           <IconCmp size={16} className={t.text} /> {title}
         </h2>
         <p className="mt-0.5 leading-relaxed text-slate-500" style={{ fontSize: "calc(var(--sec-sub, 12px) * var(--box-font-scale, 1))" }}>{sub}</p>
+      </div>
+    </div>
+  );
+}
+
+/** Sticky jump-to bar: a guide panel so reaching any section is one click,
+ *  not an endless scroll — and skipping a "nice but not urgent" section
+ *  (like the mind map) costs nothing. Highlights the section currently in
+ *  view via IntersectionObserver. */
+function SectionNav({ sections, conclusionLabel }) {
+  const [activeId, setActiveId] = useState(sections[0]?.id);
+  const barRef = useRef(null);
+
+  useEffect(() => {
+    const targets = sections
+      .map((s) => document.querySelector(`[data-box="${s.boxId}"]`))
+      .filter(Boolean);
+    if (!targets.length) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        const visible = entries.filter((e) => e.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
+        if (visible[0]) {
+          const id = sections.find((s) => document.querySelector(`[data-box="${s.boxId}"]`) === visible[0].target)?.id;
+          if (id) setActiveId(id);
+        }
+      },
+      { rootMargin: "-15% 0px -70% 0px", threshold: 0 }
+    );
+    targets.forEach((t) => io.observe(t));
+    return () => io.disconnect();
+  }, [sections]);
+
+  const jump = (boxId) => {
+    document.querySelector(`[data-box="${boxId}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  if (sections.length < 2) return null;
+  return (
+    <div ref={barRef} className="sticky top-0 z-30 border-b border-slate-200/70 bg-white/95 shadow-sm backdrop-blur">
+      <div className="mx-auto flex gap-1 overflow-x-auto px-4 py-2 sm:px-6" style={{ maxWidth: "var(--content-max, 1280px)" }}>
+        <button
+          onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+          className="mr-1 shrink-0 rounded-full border border-slate-200 px-2.5 py-1.5 text-[11px] font-medium text-slate-500 hover:border-slate-300 hover:text-slate-700"
+          title={conclusionLabel}
+        >
+          ↑ top
+        </button>
+        {sections.map((s, i) => {
+          const t = SECTION_TONES[s.tone];
+          const selected = activeId === s.id;
+          const Icon = s.icon;
+          return (
+            <button
+              key={s.id}
+              onClick={() => jump(s.boxId)}
+              className={`flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[11px] font-medium transition ${
+                selected ? `${t.badge} border-transparent text-white shadow-sm` : "border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50"
+              }`}
+            >
+              <span className={`flex h-4 w-4 items-center justify-center rounded-full text-[9px] font-bold ${selected ? "bg-white/25" : "bg-slate-100 text-slate-500"}`}>
+                {i + 1}
+              </span>
+              <Icon size={12} className={selected ? "text-white" : t.text} />
+              {s.navLabel}
+            </button>
+          );
+        })}
       </div>
     </div>
   );
@@ -282,48 +370,80 @@ function StoryPlayer({ story }) {
         @keyframes beatIn { from { opacity: 0; transform: translateY(14px) scale(0.985); } to { opacity: 1; transform: none; } }
         @keyframes beatIcon { 0% { opacity: 0; transform: scale(0.4) rotate(-8deg); } 60% { transform: scale(1.12); } 100% { opacity: 1; transform: none; } }
         @keyframes beatBar { from { width: 0%; } to { width: 100%; } }
+        @keyframes bgIconIn { from { opacity: 0; transform: scale(0.8) rotate(-6deg); } to { opacity: 0.08; transform: none; } }
       `}</style>
 
-      {/* tap-to-jump progress bars */}
-      <div className="absolute left-0 right-0 top-0 z-10 flex gap-1 px-3 pt-3">
-        {beats.map((b, i) => (
-          <button key={i} onClick={() => jump(i)} aria-label={`Story part ${i + 1}`}
-            className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/20">
-            <span
-              className="block h-full rounded-full"
-              style={{
-                background: BEAT_HUES[b.kind].bar,
-                width: i < idx ? "100%" : i > idx ? "0%" : undefined,
-                animation: i === idx && playing ? `beatBar ${DUR}ms linear forwards` : undefined,
-                animationName: i === idx && playing ? "beatBar" : undefined,
-                ...(i === idx && !playing ? { width: "100%" } : {}),
-              }}
-              key={`${i}-${cycle}-${i === idx}`}
-            />
-          </button>
-        ))}
+      {/* the story spine — a mini journey map (node per beat, connected by a
+          fill-as-you-go line) instead of flat progress bars. Same visual
+          language as the mind map below it, so the story reads as a diagram
+          building itself, not a stack of text cards. */}
+      <div className="relative z-10 flex items-center px-4 pt-4 sm:px-8">
+        {beats.map((b, i) => {
+          const BIcon = b.Icon;
+          const reached = i <= idx;
+          return (
+            <React.Fragment key={i}>
+              {i > 0 && (
+                <div className="relative h-0.5 flex-1 overflow-hidden rounded-full bg-white/15">
+                  <span
+                    className="absolute inset-y-0 left-0 rounded-full bg-white/80"
+                    style={{
+                      width: i - 1 < idx ? "100%" : "0%",
+                      animation: i - 1 === idx && playing ? `beatBar ${DUR}ms linear forwards` : undefined,
+                      ...(i - 1 === idx && !playing ? { width: "100%" } : {}),
+                    }}
+                    key={`${i}-${cycle}`}
+                  />
+                </div>
+              )}
+              <button
+                onClick={() => jump(i)}
+                aria-label={`Jump to: ${b.kicker}`}
+                title={b.kicker}
+                className={`relative z-10 flex shrink-0 items-center justify-center rounded-full border-2 transition-all duration-300 ${
+                  i === idx ? "h-8 w-8 shadow-lg" : "h-6 w-6"
+                }`}
+                style={{
+                  borderColor: BEAT_HUES[b.kind].bar,
+                  background: reached ? BEAT_HUES[b.kind].bar : "transparent",
+                }}
+              >
+                <BIcon size={i === idx ? 14 : 11} className={reached ? "text-white" : "text-white/40"} />
+              </button>
+            </React.Fragment>
+          );
+        })}
       </div>
 
       {/* the beat itself — re-keyed so the entrance animation replays */}
-      <div key={`${idx}-${cycle}`} className="flex min-h-[240px] flex-col items-center justify-center px-6 py-12 text-center sm:px-16"
-        style={{ animation: "beatIn 600ms cubic-bezier(0.22,1,0.36,1) both" }}>
-        <div className={`mb-3 flex h-12 w-12 items-center justify-center rounded-2xl ${hue.chip}`}
-          style={{ animation: "beatIcon 700ms cubic-bezier(0.34,1.56,0.64,1) both" }}>
-          <BeatIcon size={22} />
+      <div key={`${idx}-${cycle}`} className="relative flex min-h-[240px] flex-col items-center justify-center overflow-hidden px-6 py-10 text-center sm:px-16">
+        {/* oversized watermark icon — cheap depth cue so each beat reads as
+            a scene, not a paragraph */}
+        <BeatIcon
+          size={220}
+          className="pointer-events-none absolute -right-8 top-1/2 -translate-y-1/2 text-white sm:right-2"
+          style={{ animation: "bgIconIn 900ms ease-out both" }}
+          aria-hidden="true"
+        />
+        <div className="relative" style={{ animation: "beatIn 600ms cubic-bezier(0.22,1,0.36,1) both" }}>
+          <div className={`mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl ${hue.chip}`}
+            style={{ animation: "beatIcon 700ms cubic-bezier(0.34,1.56,0.64,1) both" }}>
+            <BeatIcon size={22} />
+          </div>
+          <div className={`mx-auto mb-2 w-fit rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-widest ${hue.chip}`}>
+            {beat.kicker}
+          </div>
+          {beat.headline && (
+            <h3 className="mb-2 max-w-2xl text-xl font-extrabold leading-snug text-white sm:text-2xl">{beat.headline}</h3>
+          )}
+          <p className={`max-w-2xl leading-relaxed text-slate-200 ${beat.headline ? "text-[14px]" : "text-lg font-medium sm:text-xl"}`}>
+            {beat.text}
+          </p>
         </div>
-        <div className={`mb-2 rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-widest ${hue.chip}`}>
-          {beat.kicker}
-        </div>
-        {beat.headline && (
-          <h3 className="mb-2 max-w-2xl text-xl font-extrabold leading-snug text-white sm:text-2xl">{beat.headline}</h3>
-        )}
-        <p className={`max-w-2xl leading-relaxed text-slate-200 ${beat.headline ? "text-[14px]" : "text-lg font-medium sm:text-xl"}`}>
-          {beat.text}
-        </p>
       </div>
 
       {/* controls */}
-      <div className="absolute bottom-3 left-0 right-0 z-10 flex items-center justify-center gap-2">
+      <div className="relative z-10 flex items-center justify-center gap-2 pb-3">
         <button onClick={() => jump(Math.max(0, idx - 1))} aria-label="Previous"
           className="rounded-full bg-white/10 p-2 text-white hover:bg-white/25"><ChevronLeft size={15} /></button>
         <button
@@ -350,24 +470,68 @@ const NODE_KINDS = {
   result:       { fill: "#e9f9f2", stroke: "#1baf7a", ink: "#064e3b", legend: "result" },
 };
 
+/* Fixed reading order left-to-right: problem/prior work feed the paper,
+ * the paper introduces its method, method delivers contributions and
+ * results. Laying nodes out in columns (a Sankey-style flow) instead of a
+ * wheel means edges mostly run short and rightward instead of criss-crossing
+ * the whole canvas — that's what was making the old radial map look like a
+ * plate of spaghetti. */
+const MM_COL = { problem: 0, prior: 0, paper: 1, method: 2, contribution: 3, result: 4 };
+const MM_COL_TITLE = ["Starting point", "The paper", "Method", "Contributions", "Results"];
+
 function MindMap({ mindmap }) {
   const [activeId, setActiveId] = useState(null);
   const nodes = mindmap?.nodes || [];
   const edges = mindmap?.edges || [];
   if (nodes.length < 2) return null;
 
-  const center = nodes.find((n) => n.kind === "paper") || nodes[0];
-  const ring = nodes.filter((n) => n !== center);
+  const NW = 160, NH = 56, COL_GAP = 84, ROW_GAP = 22, PAD = 20, TITLE_H = 22;
 
-  const W = 900, H = 470, cx = W / 2, cy = H / 2;
-  const NW = 150, NH = 54;
-  const rx = (W - NW) / 2 - 12, ry = (H - NH) / 2 - 12;
+  const { pos, colX, colCount, H } = useMemo(() => {
+    const cols = [[], [], [], [], []];
+    nodes.forEach((n) => cols[MM_COL[n.kind] ?? 2].push(n));
 
-  const pos = { [center.id]: { x: cx, y: cy } };
-  ring.forEach((n, i) => {
-    const a = (i / ring.length) * 2 * Math.PI - Math.PI / 2;
-    pos[n.id] = { x: cx + rx * Math.cos(a), y: cy + ry * Math.sin(a) };
-  });
+    // one barycenter pass, left→right then right→left, to untangle crossings
+    const orderOf = {};
+    cols.forEach((list) => list.forEach((n, i) => { orderOf[n.id] = i; }));
+    const neighborOrders = (id, dir) =>
+      edges
+        .filter((e) => (dir === "in" ? e.to === id : e.from === id))
+        .map((e) => orderOf[dir === "in" ? e.from : e.to])
+        .filter((v) => v != null);
+    const sweep = (range) => {
+      for (const ci of range) {
+        const dir = ci === 0 ? "out" : "in";
+        cols[ci] = cols[ci]
+          .map((n) => {
+            const ns = neighborOrders(n.id, dir);
+            const avg = ns.length ? ns.reduce((a, b) => a + b, 0) / ns.length : orderOf[n.id] ?? 0;
+            return { n, avg };
+          })
+          .sort((a, b) => a.avg - b.avg)
+          .map((x, i) => { orderOf[x.n.id] = i; return x.n; });
+      }
+    };
+    sweep([1, 2, 3, 4]);
+    sweep([3, 2, 1, 0]);
+
+    const activeCols = cols.map((c, i) => ({ i, c })).filter((x) => x.c.length);
+    const maxRows = Math.max(...cols.map((c) => c.length), 1);
+    const innerH = maxRows * NH + (maxRows - 1) * ROW_GAP;
+    const H = TITLE_H + PAD * 2 + innerH;
+
+    const pos = {}, colX = {};
+    activeCols.forEach(({ i, c }, ci) => {
+      const x = PAD + ci * (NW + COL_GAP) + NW / 2;
+      colX[i] = x;
+      const totalH = c.length * NH + (c.length - 1) * ROW_GAP;
+      const startY = TITLE_H + PAD + (innerH - totalH) / 2;
+      c.forEach((n, ri) => { pos[n.id] = { x, y: startY + ri * (NH + ROW_GAP) + NH / 2 }; });
+    });
+    return { pos, colX, colCount: activeCols.length, H };
+  }, [nodes, edges]);
+
+  const W = PAD * 2 + colCount * NW + (colCount - 1) * COL_GAP;
 
   const active = nodes.find((n) => n.id === activeId) || null;
 
@@ -375,7 +539,7 @@ function MindMap({ mindmap }) {
     <div className="rounded-2xl border border-slate-200/80 bg-white/90 p-4 shadow-sm backdrop-blur">
       <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
-          <Network size={13} className="text-rose-600" /> The whole paper, one map — click any node
+          <Network size={13} className="text-rose-600" /> The whole paper, one map — read left to right, click any node
         </div>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
           {Object.entries(NODE_KINDS).map(([k, v]) => (
@@ -391,22 +555,38 @@ function MindMap({ mindmap }) {
           @keyframes nodePop { from { opacity: 0; transform: scale(0.55); } to { opacity: 1; transform: none; } }
           @keyframes edgeDraw { to { stroke-dashoffset: 0; } }
           .mm-node { transform-box: fill-box; transform-origin: center; animation: nodePop 500ms cubic-bezier(0.34,1.56,0.64,1) both; cursor: pointer; }
-          .mm-edge { stroke-dasharray: 400; stroke-dashoffset: 400; animation: edgeDraw 900ms ease-out forwards; }
+          .mm-edge { stroke-dasharray: 500; stroke-dashoffset: 500; animation: edgeDraw 900ms ease-out forwards; }
         `}</style>
-        <svg width="100%" viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Concept map of the paper" style={{ minWidth: 640 }}>
+        <svg width="100%" viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Concept map of the paper" style={{ minWidth: Math.max(640, colCount * 190) }}>
+          <defs>
+            <marker id="mm-arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="#b9c2cf" />
+            </marker>
+          </defs>
+
+          {/* column headers — the reading order made explicit */}
+          {Object.entries(colX).map(([ci, x]) => (
+            <text key={ci} x={x} y={TITLE_H - 6} textAnchor="middle" fontSize="9.5" fontWeight="700"
+              fill="#94a3b8" style={{ textTransform: "uppercase", letterSpacing: "0.05em" }}>
+              {MM_COL_TITLE[ci]}
+            </text>
+          ))}
+
           {edges.map((e, i) => {
             const a = pos[e.from], b = pos[e.to];
             if (!a || !b) return null;
+            const dx = Math.max(28, (b.x - a.x) / 2);
+            const path = `M ${a.x + NW / 2} ${a.y} C ${a.x + NW / 2 + dx} ${a.y}, ${b.x - NW / 2 - dx} ${b.y}, ${b.x - NW / 2 - 6} ${b.y}`;
             const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
             return (
               <g key={i}>
-                <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="#cbd5e1" strokeWidth="1.5"
-                  className="mm-edge" style={{ animationDelay: `${150 + i * 80}ms` }} />
+                <path d={path} fill="none" stroke="#cbd5e1" strokeWidth="1.5"
+                  markerEnd="url(#mm-arr)" className="mm-edge" style={{ animationDelay: `${150 + i * 70}ms` }} />
                 {e.label ? (
                   <>
-                    <rect x={mx - 30} y={my - 9} width="60" height="16" rx="8" fill="white" opacity="0.9" />
+                    <rect x={mx - 28} y={my - 9} width="56" height="16" rx="8" fill="white" opacity="0.92" />
                     <text x={mx} y={my + 3} textAnchor="middle" fontSize="9" fill="#64748b" fontWeight="600">
-                      {e.label.slice(0, 14)}
+                      {e.label.slice(0, 13)}
                     </text>
                   </>
                 ) : null}
@@ -417,16 +597,16 @@ function MindMap({ mindmap }) {
             const p = pos[n.id];
             if (!p) return null;
             const k = NODE_KINDS[n.kind] || NODE_KINDS.method;
-            const isCenter = n === center;
-            const w = isCenter ? NW + 26 : NW, h = isCenter ? NH + 10 : NH;
+            const isCenter = n.kind === "paper";
+            const w = isCenter ? NW + 16 : NW, h = isCenter ? NH + 6 : NH;
             const selected = activeId === n.id;
             return (
-              <g key={n.id} className="mm-node" style={{ animationDelay: `${i * 90}ms` }}
+              <g key={n.id} className="mm-node" style={{ animationDelay: `${i * 70}ms` }}
                 onClick={() => setActiveId(selected ? null : n.id)} role="button" aria-label={n.label}>
-                <rect x={p.x - w / 2} y={p.y - h / 2} width={w} height={h} rx={h / 2}
+                <rect x={p.x - w / 2} y={p.y - h / 2} width={w} height={h} rx={12}
                   fill={k.fill} stroke={k.stroke} strokeWidth={selected ? 3 : 1.8} />
                 {selected && (
-                  <rect x={p.x - w / 2 - 3} y={p.y - h / 2 - 3} width={w + 6} height={h + 6} rx={(h + 6) / 2}
+                  <rect x={p.x - w / 2 - 3} y={p.y - h / 2 - 3} width={w + 6} height={h + 6} rx={14}
                     fill="none" stroke={k.stroke} strokeWidth="5" opacity="0.25" />
                 )}
                 <foreignObject x={p.x - w / 2 + 8} y={p.y - h / 2 + 6} width={w - 16} height={h - 12}>
@@ -897,17 +1077,44 @@ function PanelChart({ panel, baseRun, actRun, height = 170, onHover }) {
   const err = actRun?.error || baseRun?.error;
   const nSeries = (actRun?.series || baseRun?.series || []).length;
 
+  // One legend entry PER SERIES (not one for "yours" + a separate grey one
+  // for "paper's baseline") and the baseline keeps that series' OWN color,
+  // just dashed — with 2+ series, a flat grey for every baseline made it
+  // impossible to tell which dashed line paired with which solid one.
   const legend = [];
   for (let k = 0; k < nSeries; k++) {
     const name = (actRun?.series || baseRun?.series)[k]?.label || `series ${k + 1}`;
-    legend.push({ key: `a${k}`, label: name, color: SERIES_HUES[k % SERIES_HUES.length] });
-  }
-  for (let k = 0; k < nSeries; k++) {
-    const name = (baseRun?.series || actRun?.series)[k]?.label || `series ${k + 1}`;
-    legend.push({ key: `b${k}`, label: `${name} · baseline`, color: C.baseline, dash: "5 4" });
+    const color = SERIES_HUES[k % SERIES_HUES.length];
+    legend.push({ key: `a${k}`, pairKey: `s${k}`, label: name, color });
+    legend.push({ key: `b${k}`, pairKey: `s${k}`, label: `${name} · paper's value`, color, dash: "5 4" });
   }
 
+  const [hidden, setHidden] = useState(() => new Set());
+  useEffect(() => { setHidden(new Set()); }, [panel]);
+  const toggleSeries = useCallback((key) => {
+    const pairKey = legend.find((l) => l.key === key)?.pairKey || key;
+    setHidden((h) => {
+      const n = new Set(h);
+      const bothHidden = legend.filter((l) => l.pairKey === pairKey).every((l) => n.has(l.key));
+      legend.filter((l) => l.pairKey === pairKey).forEach((l) => (bothHidden ? n.delete(l.key) : n.add(l.key)));
+      return n;
+    });
+  }, [legend]);
+
+  const [readout, setReadout] = useState(null);
+  const [pinned, setPinned] = useState(null);
+  useEffect(() => { setPinned(null); }, [panel]);
+
+  const readAt = useCallback((state) => (!state?.activePayload?.length ? null : {
+    x: state.activeLabel,
+    rows: legend.filter((l) => !hidden.has(l.key)).map((l) => {
+      const p = state.activePayload.find((ap) => ap.dataKey === l.key);
+      return p ? { ...l, value: p.value } : null;
+    }).filter(Boolean),
+  }), [legend, hidden]);
+
   const handleMove = useCallback((state) => {
+    if (!pinned) setReadout(readAt(state));
     if (!onHover || !state?.activePayload?.length) return;
     onHover({
       subplot: panel.subplotLabel,
@@ -919,7 +1126,14 @@ function PanelChart({ panel, baseRun, actRun, height = 170, onHover }) {
         return p ? { ...l, value: p.value } : null;
       }).filter(Boolean),
     });
-  }, [onHover, panel, legend]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [onHover, panel, legend, pinned, readAt]); // eslint-disable-line react-hooks/exhaustive-deps
+  const handleClick = useCallback((state) => {
+    const r = readAt(state);
+    if (!r) return;
+    setPinned((prev) => (prev && prev.x === r.x ? null : r));
+  }, [readAt]);
+
+  const shown = pinned || readout;
 
   return (
     <div className="rounded-lg border border-slate-100 bg-white p-2">
@@ -939,7 +1153,7 @@ function PanelChart({ panel, baseRun, actRun, height = 170, onHover }) {
       ) : kind === "bar" ? (
         <ResponsiveContainer width="100%" height={height}>
           <BarChart data={rows} margin={{ top: 6, right: 10, bottom: 2, left: -12 }}
-            onMouseMove={handleMove}>
+            onMouseMove={handleMove} onClick={handleClick} style={{ cursor: "pointer" }}>
             <CartesianGrid stroke={C.grid} strokeWidth={1} vertical={false} />
             <XAxis
               dataKey={categories ? "_c" : "_i"} type="category"
@@ -952,7 +1166,7 @@ function PanelChart({ panel, baseRun, actRun, height = 170, onHover }) {
             />
             <Tooltip content={() => null} cursor={{ fill: "rgba(100,116,139,0.08)" }}
               isAnimationActive={false} />
-            {legend.map((l) => (
+            {legend.filter((l) => !hidden.has(l.key)).map((l) => (
               <Bar key={l.key} dataKey={l.key}
                 fill={l.dash ? "transparent" : l.color}
                 stroke={l.dash ? l.color : undefined}
@@ -965,7 +1179,7 @@ function PanelChart({ panel, baseRun, actRun, height = 170, onHover }) {
       ) : (
         <ResponsiveContainer width="100%" height={height}>
           <LineChart data={rows} margin={{ top: 6, right: 10, bottom: 2, left: -12 }}
-            onMouseMove={handleMove}>
+            onMouseMove={handleMove} onClick={handleClick} style={{ cursor: "pointer" }}>
             <CartesianGrid stroke={C.grid} strokeWidth={1} vertical={false} />
             <XAxis
               dataKey="_i" type="number" domain={["dataMin", "dataMax"]}
@@ -976,13 +1190,16 @@ function PanelChart({ panel, baseRun, actRun, height = 170, onHover }) {
               tick={{ fill: C.inkMuted, fontSize: 9 }} stroke="transparent"
               tickLine={false} width={42} tickFormatter={(v) => fmt(v, 1)}
             />
-            {/* cursor line only — values go to the readout box, never over the curves */}
+            {pinned != null && (
+              <ReferenceLine x={pinned.x} stroke={C.ink} strokeWidth={1.5} strokeDasharray="5 3" />
+            )}
+            {/* cursor line only — values go to the readout row right below, never over the curves */}
             <Tooltip
               content={() => null}
               cursor={{ stroke: C.inkMuted, strokeWidth: 1, strokeDasharray: "3 3" }}
               isAnimationActive={false}
             />
-            {legend.map((l) => (
+            {legend.filter((l) => !hidden.has(l.key)).map((l) => (
               <Line key={l.key} dataKey={l.key} stroke={l.color}
                 strokeWidth={kind === "scatter" ? 0 : 1.8}
                 dot={kind === "scatter" ? { r: 2.2, fill: l.color, strokeWidth: 0 } : false}
@@ -991,7 +1208,28 @@ function PanelChart({ panel, baseRun, actRun, height = 170, onHover }) {
           </LineChart>
         </ResponsiveContainer>
       )}
-      <LegendRow items={legend} />
+      <LegendRow items={legend} hidden={hidden} onToggle={toggleSeries} />
+      {/* the readout lives RIGHT HERE, under the plot that produced it — not
+          in a shared box elsewhere on the page, which is what made numbers
+          hard to trace back to a plot */}
+      <div className={`mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 rounded-md px-2 py-1 text-[11px] tabular-nums ${pinned ? "bg-slate-800 text-white" : "bg-slate-50 text-slate-500"}`}>
+        {shown ? (
+          <>
+            {pinned && <Pin size={10} className="shrink-0" />}
+            <span>{panel.xLabel} = <strong>{fmt(shown.x, 2)}</strong></span>
+            {shown.rows.map((r) => (
+              <span key={r.key}>
+                <span style={{ color: r.color }}>{r.label}:</span> <strong>{fmt(r.value)}</strong>
+              </span>
+            ))}
+            {pinned && (
+              <button onClick={() => setPinned(null)} className="ml-auto rounded-full bg-white/20 px-1.5 hover:bg-white/30" title="Unpin">✕</button>
+            )}
+          </>
+        ) : (
+          <span className="text-slate-400">hover for exact values, click to lock them</span>
+        )}
+      </div>
     </div>
   );
 }
@@ -1258,7 +1496,16 @@ function useDemo(demo) {
 function DemoChart({ demo }) {
   const { helpers, params, setParam, result } = useDemo(demo);
   const [readout, setReadout] = useState(null);
+  const [pinned, setPinned] = useState(null);
+  const [hidden, setHidden] = useState(() => new Set());
   const kind = demo.chartKind || "line";
+
+  // reset the click-to-pin / hide-series state whenever a different demo
+  // is loaded (e.g. switching pages in Foundations/Explorables Lab)
+  useEffect(() => { setPinned(null); setHidden(new Set()); }, [demo]);
+  const toggleSeries = useCallback((key) => {
+    setHidden((h) => { const n = new Set(h); n.has(key) ? n.delete(key) : n.add(key); return n; });
+  }, []);
 
   const { rows, legend, err, categories } = useMemo(() => {
     if (result.error) return { rows: [], legend: [], err: result.error, categories: null };
@@ -1276,16 +1523,25 @@ function DemoChart({ demo }) {
     return { rows, legend, err: null, categories: cats };
   }, [result, helpers]);
 
-  const handleMove = useCallback((state) => {
-    if (!state?.activePayload?.length) return;
-    setReadout({
-      x: state.activeLabel,
-      rows: legend.map((l) => {
+  const readAt = useCallback((state) => (!state?.activePayload?.length ? null : {
+    x: state.activeLabel,
+    rows: legend
+      .filter((l) => !hidden.has(l.key))
+      .map((l) => {
         const p = state.activePayload.find((ap) => ap.dataKey === l.key);
         return p ? { ...l, value: p.value } : null;
       }).filter(Boolean),
-    });
-  }, [legend]);
+  }), [legend, hidden]);
+
+  const handleMove = useCallback((state) => { if (!pinned) setReadout(readAt(state)); }, [readAt, pinned]);
+  const handleClick = useCallback((state) => {
+    const r = readAt(state);
+    if (!r) return;
+    setPinned((prev) => (prev && prev.x === r.x ? null : r));
+  }, [readAt]);
+
+  const shown = pinned || readout;
+  const noSliders = !demo.params?.length;
 
   return (
     <div>
@@ -1293,12 +1549,16 @@ function DemoChart({ demo }) {
         <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[11px] text-red-700">{err}</div>
       ) : (
         <div className="rounded-lg border border-slate-100 bg-white p-2">
-          <div className="mb-1 flex items-baseline justify-end px-1">
+          <div className="mb-1 flex items-baseline justify-between px-1">
+            <span className="text-[10px] font-medium text-slate-400">
+              {noSliders ? "click a point to lock in its exact value" : "drag the dials below, or click the plot to lock a reading"}
+            </span>
             <span className="text-[10px] text-slate-400">{demo.xLabel} → {demo.yLabel}</span>
           </div>
           <ResponsiveContainer width="100%" height={210}>
             {kind === "bar" || categories ? (
-              <BarChart data={rows} margin={{ top: 6, right: 10, bottom: 2, left: -8 }} onMouseMove={handleMove}>
+              <BarChart data={rows} margin={{ top: 6, right: 10, bottom: 2, left: -8 }}
+                onMouseMove={handleMove} onClick={handleClick} style={{ cursor: "pointer" }}>
                 <CartesianGrid stroke={C.grid} strokeWidth={1} vertical={false} />
                 <XAxis dataKey={categories ? "_c" : "_i"} type="category"
                   tick={{ fill: C.inkMuted, fontSize: 9 }} stroke={C.axis} tickLine={false}
@@ -1307,12 +1567,13 @@ function DemoChart({ demo }) {
                   tickLine={false} width={44} tickFormatter={(v) => fmt(v, 1)} />
                 <Tooltip content={() => null} cursor={{ fill: "rgba(100,116,139,0.08)" }}
                   isAnimationActive={false} />
-                {legend.map((l) => (
+                {legend.filter((l) => !hidden.has(l.key)).map((l) => (
                   <Bar key={l.key} dataKey={l.key} fill={l.color} isAnimationActive={false} />
                 ))}
               </BarChart>
             ) : (
-              <LineChart data={rows} margin={{ top: 6, right: 10, bottom: 2, left: -8 }} onMouseMove={handleMove}>
+              <LineChart data={rows} margin={{ top: 6, right: 10, bottom: 2, left: -8 }}
+                onMouseMove={handleMove} onClick={handleClick} style={{ cursor: "pointer" }}>
                 <CartesianGrid stroke={C.grid} strokeWidth={1} vertical={false} />
                 <XAxis dataKey="_i" type="number" domain={["dataMin", "dataMax"]}
                   tick={{ fill: C.inkMuted, fontSize: 9 }} stroke={C.axis} tickLine={false}
@@ -1322,7 +1583,10 @@ function DemoChart({ demo }) {
                 <Tooltip content={() => null}
                   cursor={{ stroke: C.inkMuted, strokeWidth: 1, strokeDasharray: "3 3" }}
                   isAnimationActive={false} />
-                {legend.map((l) => (
+                {pinned != null && (
+                  <ReferenceLine x={pinned.x} stroke={C.ink} strokeWidth={1.5} strokeDasharray="5 3" />
+                )}
+                {legend.filter((l) => !hidden.has(l.key)).map((l) => (
                   <Line key={l.key} dataKey={l.key} stroke={l.color}
                     strokeWidth={kind === "scatter" ? 0 : 2}
                     dot={kind === "scatter" ? { r: 2.4, fill: l.color, strokeWidth: 0 } : false}
@@ -1332,12 +1596,18 @@ function DemoChart({ demo }) {
             )}
           </ResponsiveContainer>
           <div className="flex flex-wrap items-center justify-between gap-2 px-1 pb-1">
-            <LegendRow items={legend} />
-            <div className="rounded-md bg-slate-50 px-2 py-1 text-[11px] tabular-nums text-slate-600">
-              {readout
-                ? <>x = <strong>{fmt(readout.x, 2)}</strong>{readout.rows.map((r) => (
-                    <span key={r.key} className="ml-3"><span style={{ color: r.color }}>{r.label}:</span> <strong>{fmt(r.value)}</strong></span>
-                  ))}</>
+            <LegendRow items={legend} hidden={hidden} onToggle={toggleSeries} />
+            <div className={`flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] tabular-nums ${pinned ? "bg-slate-800 text-white" : "bg-slate-50 text-slate-600"}`}>
+              {shown
+                ? <>
+                    {pinned && <Pin size={10} className="shrink-0" />}
+                    x = <strong>{fmt(shown.x, 2)}</strong>{shown.rows.map((r) => (
+                      <span key={r.key} className="ml-3"><span style={{ color: pinned ? r.color : r.color }}>{r.label}:</span> <strong>{fmt(r.value)}</strong></span>
+                    ))}
+                    {pinned && (
+                      <button onClick={() => setPinned(null)} className="ml-2 rounded-full bg-white/20 px-1.5 hover:bg-white/30" title="Unpin">✕</button>
+                    )}
+                  </>
                 : <span className="text-slate-400">hover for values</span>}
             </div>
           </div>
@@ -2022,6 +2292,57 @@ export default function Workspace({ spec, onBack, onSignOut, isOwner = false }) 
 
   const infoBlock = spec.blocks.find((b) => b.key === infoKey) || null;
 
+  // One list drives both the sticky jump-to nav and the actual sections
+  // below, so a section that's off/empty just disappears from both places
+  // instead of leaving a numbering gap or a dead nav entry.
+  const sections = [
+    {
+      id: "story", boxId: "sec-story", boxLabel: "Story", navLabel: "Story", ariaLabel: "The paper's story",
+      show: !!spec.story && sec("story").on, tone: "rose", icon: Sparkles,
+      content: <StoryPlayer story={spec.story} />,
+    },
+    {
+      id: "mindmap", boxId: "sec-mindmap", boxLabel: "Mind map", navLabel: "Map", ariaLabel: "The paper as a concept map",
+      show: !!spec.mindmap?.nodes?.length && sec("mindmap").on, tone: "rose", icon: Network,
+      content: <MindMap mindmap={spec.mindmap} />,
+    },
+    {
+      id: "concept", boxId: "sec-concept", boxLabel: "Idea in pictures", navLabel: "Idea", ariaLabel: "Concept primer",
+      show: !!spec.conceptFigures?.length && sec("concept").on, tone: "violet", icon: ImageIcon,
+      content: <ConceptFigures figures={spec.conceptFigures} onOpen={setLightbox} />,
+    },
+    {
+      id: "foundations", boxId: "sec-foundations", boxLabel: "Background", navLabel: "Background", ariaLabel: "Foundations from prior work",
+      show: !!spec.foundations?.length && sec("foundations").on, tone: "amber", icon: Landmark,
+      content: <FoundationsLab foundations={spec.foundations} />,
+    },
+    {
+      id: "method", boxId: "sec-method", boxLabel: "Method lab", navLabel: "Method", ariaLabel: "The paper's contribution",
+      show: hasPipeline && sec("method").on, tone: "blue", icon: GitBranch,
+      content: (
+        <ConceptLab
+          spec={spec} params={params} defaults={defaults} setParam={setParam} rows={rows} compiled={compiled}
+          pinnedT={pinnedT} onPin={togglePin} onInfo={setInfoKey} onInspect={setInspect} layout={layout}
+        />
+      ),
+    },
+    {
+      id: "explorables", boxId: "sec-explorables", boxLabel: "Explorables lab", navLabel: "Explore", ariaLabel: "Interactive explorers derived from the paper's own equations and data",
+      show: !!spec.explorables?.length && sec("explorables").on, tone: "amber", icon: FlaskConical,
+      content: <ExplorablesLab explorables={spec.explorables} />,
+    },
+    {
+      id: "results", boxId: "sec-results", boxLabel: "Results lab", navLabel: "Results", ariaLabel: "The paper's result figures",
+      show: !!spec.resultFigures?.length && sec("results").on, tone: "emerald", icon: LineChartIcon,
+      content: (
+        <ResultsLab
+          spec={spec} pipelineCompiled={compiled} helpers={helpers} baseOutputs={baseline.outputs} actOutputs={active.outputs}
+          defaults={defaults} params={params} setParam={setParam} onOpenFig={setLightbox} layout={layout}
+        />
+      ),
+    },
+  ].filter((s) => s.show);
+
   return (
     <div className="min-h-screen pb-16" style={{ fontFamily: "system-ui, -apple-system, 'Segoe UI', sans-serif", ...layoutStyle(layout) }}>
       {/* ===== header ===== */}
@@ -2094,6 +2415,8 @@ export default function Workspace({ spec, onBack, onSignOut, isOwner = false }) 
         </div>
       </header>
 
+      {!free && <SectionNav sections={sections} conclusionLabel="Back to top" />}
+
       {free && (
         <div className="fixed bottom-4 left-1/2 z-40 -translate-x-1/2 rounded-full border border-blue-300 bg-blue-600/95 px-4 py-2 text-[11px] font-medium text-white shadow-lg backdrop-blur">
           Free layout · drag a box by its blue label · resize from the corner · A−/A+ scales text · saves automatically
@@ -2119,110 +2442,17 @@ export default function Workspace({ spec, onBack, onSignOut, isOwner = false }) 
           )}
         </DesignBox>
 
-        {(() => {
-          /* sections number themselves in visible order, so hiding one never leaves a gap */
-          let n = 0;
-          const num = () => ++n;
-          return (
-            <>
-              {/* ===== story · why this paper exists (animated player) ===== */}
-              {spec.story && sec("story").on ? (
-                <DesignBox id="sec-story" label="Story" mode={free ? "free" : "flow"} rect={layout.boxes["sec-story"]} onRect={setBox} register={registerBox}>
-                  <section aria-label="The paper's story">
-                    <SectionHeader num={num()} tone="rose" icon={Sparkles} title={sec("story").title} sub={sec("story").sub} />
-                    <StoryPlayer story={spec.story} />
-                  </section>
-                </DesignBox>
-              ) : null}
-
-              {/* ===== mindmap · the whole paper as one clickable map ===== */}
-              {spec.mindmap?.nodes?.length && sec("mindmap").on ? (
-                <DesignBox id="sec-mindmap" label="Mind map" mode={free ? "free" : "flow"} rect={layout.boxes["sec-mindmap"]} onRect={setBox} register={registerBox}>
-                  <section aria-label="The paper as a concept map">
-                    <SectionHeader num={num()} tone="rose" icon={Network} title={sec("mindmap").title} sub={sec("mindmap").sub} />
-                    <MindMap mindmap={spec.mindmap} />
-                  </section>
-                </DesignBox>
-              ) : null}
-
-              {/* ===== concept figures (clickable → fullscreen) ===== */}
-              {spec.conceptFigures?.length && sec("concept").on ? (
-                <DesignBox id="sec-concept" label="Idea in pictures" mode={free ? "free" : "flow"} rect={layout.boxes["sec-concept"]} onRect={setBox} register={registerBox}>
-                  <section aria-label="Concept primer">
-                    <SectionHeader num={num()} tone="violet" icon={ImageIcon} title={sec("concept").title} sub={sec("concept").sub} />
-                    <ConceptFigures figures={spec.conceptFigures} onOpen={setLightbox} />
-                  </section>
-                </DesignBox>
-              ) : null}
-
-              {/* ===== foundations (borrowed core ideas) ===== */}
-              {spec.foundations?.length && sec("foundations").on ? (
-                <DesignBox id="sec-foundations" label="Background" mode={free ? "free" : "flow"} rect={layout.boxes["sec-foundations"]} onRect={setBox} register={registerBox}>
-                  <section aria-label="Foundations from prior work">
-                    <SectionHeader num={num()} tone="amber" icon={Landmark} title={sec("foundations").title} sub={sec("foundations").sub} />
-                    <FoundationsLab foundations={spec.foundations} />
-                  </section>
-                </DesignBox>
-              ) : null}
-
-              {/* ===== method lab (only when an honest pipeline exists) ===== */}
-              {hasPipeline && sec("method").on ? (
-                <DesignBox id="sec-method" label="Method lab" mode={free ? "free" : "flow"} rect={layout.boxes["sec-method"]} onRect={setBox} register={registerBox}>
-                  <section aria-label="The paper's contribution">
-                    <SectionHeader num={num()} tone="blue" icon={GitBranch} title={sec("method").title} sub={sec("method").sub} />
-                    <ConceptLab
-                      spec={spec}
-                      params={params}
-                      defaults={defaults}
-                      setParam={setParam}
-                      rows={rows}
-                      compiled={compiled}
-                      pinnedT={pinnedT}
-                      onPin={togglePin}
-                      onInfo={setInfoKey}
-                      onInspect={setInspect}
-                      layout={layout}
-                    />
-                  </section>
-                </DesignBox>
-              ) : null}
-
-              {/* ===== explorables lab — the hands-on layer for EVERY paper:
-                   the paper's own equations on sliders, its own reported
-                   numbers as interactive charts. Runs whether or not a full
-                   pipeline exists (bonus explorers for pipeline papers). ===== */}
-              {spec.explorables?.length && sec("explorables").on ? (
-                <DesignBox id="sec-explorables" label="Explorables lab" mode={free ? "free" : "flow"} rect={layout.boxes["sec-explorables"]} onRect={setBox} register={registerBox}>
-                  <section aria-label="Interactive explorers derived from the paper's own equations and data">
-                    <SectionHeader num={num()} tone="amber" icon={FlaskConical} title={sec("explorables").title} sub={sec("explorables").sub} />
-                    <ExplorablesLab explorables={spec.explorables} />
-                  </section>
-                </DesignBox>
-              ) : null}
-
-              {/* ===== results lab ===== */}
-              {spec.resultFigures?.length && sec("results").on ? (
-                <DesignBox id="sec-results" label="Results lab" mode={free ? "free" : "flow"} rect={layout.boxes["sec-results"]} onRect={setBox} register={registerBox}>
-                  <section aria-label="The paper's result figures">
-                    <SectionHeader num={num()} tone="emerald" icon={LineChartIcon} title={sec("results").title} sub={sec("results").sub} />
-                    <ResultsLab
-                      spec={spec}
-                      pipelineCompiled={compiled}
-                      helpers={helpers}
-                      baseOutputs={baseline.outputs}
-                      actOutputs={active.outputs}
-                      defaults={defaults}
-                      params={params}
-                      setParam={setParam}
-                      onOpenFig={setLightbox}
-                      layout={layout}
-                    />
-                  </section>
-                </DesignBox>
-              ) : null}
-            </>
-          );
-        })()}
+        {/* sections come from the `sections` list built above — a hidden or
+            empty one just disappears from the array, so numbering never
+            leaves a gap and the nav bar always matches what's on screen. */}
+        {sections.map((s, i) => (
+          <DesignBox key={s.id} id={s.boxId} label={s.boxLabel} mode={free ? "free" : "flow"} rect={layout.boxes[s.boxId]} onRect={setBox} register={registerBox}>
+            <section aria-label={s.ariaLabel}>
+              <SectionHeader num={i + 1} tone={s.tone} icon={s.icon} title={sec(s.id).title} sub={sec(s.id).sub} />
+              {s.content}
+            </section>
+          </DesignBox>
+        ))}
       </main>
 
       <InfoModal block={infoBlock} onClose={() => setInfoKey(null)} />
