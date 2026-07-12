@@ -37,11 +37,11 @@ export function setModelTier(id) {
  * 2 and 3 re-read it at ~10% of the input price.
  */
 const PHASES = [
-  { id: "overview", title: "Idea & foundations", from: 3,  to: 34,
-    keys: ["meta", "conclusion", "references", "conceptFigures", "foundations"] },
-  { id: "method",   title: "Method pipeline",    from: 34, to: 67,
+  { id: "overview", title: "Story & foundations", from: 3,  to: 34,
+    keys: ["meta", "archetype", "story", "conclusion", "references", "conceptFigures", "foundations"] },
+  { id: "method",   title: "Method pipeline",     from: 34, to: 67,
     keys: ["protocol", "blocks"] },
-  { id: "results",  title: "Result figures",     from: 67, to: 99,
+  { id: "results",  title: "Result figures",      from: 67, to: 99,
     keys: ["resultFigures"] },
 ];
 
@@ -167,6 +167,16 @@ export async function analyzePaper(pdfBase64, onProgress, tier = getModelTier(),
   const key = docKey(pdfBase64);
 
   for (const phase of PHASES) {
+    // Archetype gate: papers whose method isn't honestly simulatable (measured
+    // data, theory, surveys…) get NO pipeline — skip the method phase entirely
+    // (it's free AND it prevents a fake simulation from ever being generated).
+    if (phase.id === "method" && spec.archetype && spec.archetype.pipelineFeasible === false) {
+      spec.protocol = { T: 1, dt: 1, description: "" };
+      spec.blocks = [];
+      report(phase.to, "Method pipeline — skipped: this paper's results are measured, not simulated");
+      continue;
+    }
+
     const cacheId = `${key}:${phase.id}`;
     let result = phaseCache.get(cacheId);
 
@@ -175,7 +185,11 @@ export async function analyzePaper(pdfBase64, onProgress, tier = getModelTier(),
       report(phase.to, `${phase.title} — already done, reusing it (no charge)`);
     } else {
       const contextSpec =
-        phase.id === "results" ? { protocol: spec.protocol, blocks: spec.blocks } : null;
+        phase.id === "results"
+          ? { protocol: spec.protocol, blocks: spec.blocks, archetype: spec.archetype }
+          : phase.id === "method"
+            ? { archetype: spec.archetype }
+            : null;
       try {
         result = await runPhase(pdfBase64, tier, hints, phase, contextSpec, token, report);
       } catch (err) {

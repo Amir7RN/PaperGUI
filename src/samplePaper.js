@@ -44,6 +44,45 @@ export const SAMPLE_SPEC = {
       "With the reported coefficients, the closed loop tracks a step command with under 9% " +
       "overshoot and settles within 2.1 s despite broadband measurement noise.",
   },
+  archetype: {
+    kind: "simulation-control",
+    pipelineFeasible: true,
+    reproductionAdvice:
+      "The method is a fully computable signal chain (filter → gain → PID loop); every result figure " +
+      "falls directly out of simulating it, so all figures are honestly reproducible.",
+  },
+  story: {
+    problem:
+      "Real sensors are noisy. Before a machine can act on a measured signal — a temperature, a position, " +
+      "a pressure — that signal has to be cleaned up and kept under control, even while random noise keeps " +
+      "kicking it around.",
+    gap:
+      "Classic recipes treat filtering and control as separate problems tuned separately. When the cleaned-up " +
+      "signal also feeds back into the loop as a disturbance, tuning one stage can silently break the other.",
+    contribution: [
+      {
+        headline: "One chain, tuned as a whole",
+        detail:
+          "The paper treats filter, saturating pre-shaper and PID controller as a single four-stage pipeline " +
+          "and reports one coefficient set that makes the whole chain behave — not four locally tuned pieces.",
+      },
+      {
+        headline: "Saturation as a feature, not a flaw",
+        detail:
+          "Instead of avoiding the saturating gain stage, the method uses its soft-limiting to keep noise " +
+          "spikes from ever reaching the plant at full strength.",
+      },
+      {
+        headline: "Robustness quantified across plant speeds",
+        detail:
+          "The same coefficients are stress-tested against slower and faster plants and swept over the " +
+          "proportional gain, mapping exactly where the design stays calm and where it starts to overshoot.",
+      },
+    ],
+    whyItMatters:
+      "One coefficient set that survives noise, saturation and plant variation means less hand-tuning in " +
+      "the lab — the recipe transfers instead of being re-derived for every rig.",
+  },
   conclusion:
     "With the published coefficients (α = 0.18, G = 1.6, Kp = 2.4, Ki = 1.1, Kd = 0.35), " +
     "the closed-loop system tracks the step command with low overshoot and fast settling, " +

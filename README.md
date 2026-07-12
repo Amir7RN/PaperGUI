@@ -1,8 +1,18 @@
 # Interactive Paper Playground (PaperGUI)
 
-Turn a static scientific paper (PDF) into a living, interactive computational dashboard —
-concept figures explained, methodology formulas on live sliders, and synchronized
-baseline-vs-modified plots. Inspired by Wolfram Mathematica's slider-driven modules.
+Turn a static scientific paper (PDF) into a visual dashboard you can trust enough to put
+the PDF away: the paper's story (problem → gap → contribution), its real figures cropped
+and explained with guided tours, the background it borrows taught interactively, and —
+only when the method is honestly simulatable — live slider-driven reproductions.
+
+**Design principle — trust over spectacle.** The analyzer first classifies each paper's
+*archetype* (simulation/control, algorithmic, empirical, statistical, theoretical, survey).
+Papers whose results are *measured* rather than *computed* get **no** fake simulation: the
+method-lab section disappears and every result figure is shown as the paper's own cropped
+figure with a guided-tour explanation. Interactive reproductions are opt-in per subplot,
+must match the original's chart type (line / bar / scatter — a histogram is never redrawn
+as a time series), are test-executed client-side, and any panel that fails or plots flat
+is silently dropped instead of shown.
 
 **Live site:** https://amir7rn.github.io/PaperGUI/
 
@@ -17,16 +27,20 @@ baseline-vs-modified plots. Inspired by Wolfram Mathematica's slider-driven modu
    the Anthropic API key exists. It calls Claude at the level you pick on the landing page —
    **Advanced** `claude-opus-4-8` · **Standard** `claude-sonnet-5` ·
    **Basic** `claude-sonnet-4-6` · **Fast** `claude-haiku-4-5` (~100-page limit) — reads the
-   text and figures, and returns a structured `PaperSpec`: metadata, references, cropped
-   concept figures (with plain-language explanations), 3–6 sequential methodology blocks
-   (equation + slider coefficients + Python/NumPy snippet + JS kernel), and **faithful
-   reproductions of the paper's real result figures** — every subplot and overlaid curve,
-   each computed from the pipeline so sliders redraw them live. After the response comes
-   back, the edge function computes its real USD cost from Anthropic's token usage and
-   deducts it from your account's balance.
+   text and figures, and returns a structured `PaperSpec`: the archetype classification,
+   the paper's story (problem / gap / contributions / why it matters), metadata,
+   references, cropped concept figures with plain-language explanations, interactive
+   foundations lessons, and every key result figure's page + bbox + guided tour. For
+   honestly simulatable papers it additionally produces 3–6 methodology blocks (equation +
+   slider coefficients + Python/NumPy snippet + JS kernel) and per-subplot reproductions
+   typed as line/bar/scatter to match the original. After the response comes back, the
+   edge function computes its real USD cost from Anthropic's token usage and deducts it
+   from your account's balance.
 3. **Workspace** — a generic engine runs the pipeline twice (author baseline + your
-   slider state) and renders one synchronized chart per block. The Smart Conclusion box
-   quantifies how far your modification has drifted from the paper's claim.
+   slider state) and renders one synchronized chart per block. The takeaway box states
+   the paper's conclusion plainly; if you move sliders it notes you're running your own
+   what-if next to the paper's setting (no internal drift/RMS metrics are shown to
+   readers — validation happens behind the scenes).
 
 ## Architecture — where the API key lives
 

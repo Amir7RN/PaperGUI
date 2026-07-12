@@ -44,12 +44,13 @@ export const NUMERIC_DEFS = [
   { key: "foundText",    group: "Foundations",  label: "Card text size",        cssVar: "--found-text",    unit: "px", min: 11,  max: 16,   step: 0.5, value: 13   },
 ];
 
-/* The four chapters — editable title + subtitle + on/off, like slides. */
+/* The chapters — editable title + subtitle + on/off, like slides. */
 export const DEFAULT_SECTIONS = [
+  { key: "story",       on: true, title: "Why this paper exists",       sub: "The story in plain language: the problem, what earlier work couldn't do, and exactly what this paper adds." },
   { key: "concept",     on: true, title: "The idea, in pictures",       sub: "The paper's own introductory figures, cropped and explained. Click any figure to open it fullscreen with its full explanation." },
   { key: "foundations", on: true, title: "Background you need first",   sub: "Key ideas from earlier work that this paper builds on — quick lessons before the new contribution makes sense." },
   { key: "method",      on: true, title: "Learn the method by playing", sub: "An app-style lab: pick a step of the pipeline on the left, watch the animated signal flow, turn its dials and see the plot react — plain language throughout." },
-  { key: "results",     on: true, title: "The results, recreated and alive", sub: "Pick any of the paper's result figures on the left: the original beside its interactive reproduction — every subplot, every curve — reshaping as you tune the parameters." },
+  { key: "results",     on: true, title: "The results, from the paper itself", sub: "Every key result figure, cropped from the PDF with a guided tour of what it shows — plus a live simulation wherever one can honestly be built." },
 ];
 
 /* Free-form canvas boxes: id -> { x,w in % of canvas width; y,h in px; font mult }.
@@ -83,7 +84,12 @@ export function loadLayout() {
     const saved = JSON.parse(raw);
     return {
       numeric: { ...DEFAULT_LAYOUT.numeric, ...(saved.numeric || {}) },
-      sections: DEFAULT_SECTIONS.map((d, i) => ({ ...d, ...(saved.sections?.[i] || {}) })),
+      // merge by KEY (not index) so newly added sections appear with their
+      // defaults instead of scrambling an older saved layout
+      sections: DEFAULT_SECTIONS.map((d) => ({
+        ...d,
+        ...(saved.sections?.find?.((s) => s.key === d.key) || {}),
+      })),
       freeMode: !!saved.freeMode,
       boxes: saved.boxes || {},
     };

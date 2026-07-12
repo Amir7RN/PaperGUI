@@ -12,7 +12,7 @@
 
 import React, { useState, useMemo, useRef, useCallback, useEffect } from "react";
 import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
+  LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ReferenceLine, ResponsiveContainer,
 } from "recharts";
 import {
@@ -20,13 +20,13 @@ import {
   Activity, GitBranch, Pin, PinOff, FileText, Code2, Sigma, Waves, Cpu,
   ChevronRight, TriangleAlert, CircleCheck, CircleAlert, ArrowLeft, Image as ImageIcon, LogOut,
   Landmark, Maximize2, Lightbulb, LineChart as LineChartIcon, LayoutTemplate, Move,
+  Sparkles, BookMarked,
 } from "lucide-react";
 import LayoutEditor from "./LayoutEditor.jsx";
 import DesignBox from "./DesignBox.jsx";
 import { loadLayout, saveLayout, layoutStyle, sectionByKey } from "./layout.js";
 import {
-  buildHelpers, defaultsFromSpec, compileSpec, runSpec,
-  driftPercent, summaryMetrics, buildRows,
+  buildHelpers, defaultsFromSpec, compileSpec, runSpec, buildRows,
   compileResultFigures, runResultPanel, buildPanelRows, makeFigureHelpers,
 } from "./engine.js";
 
@@ -46,13 +46,10 @@ const C = {
 const BLOCK_ICONS = [Activity, SlidersHorizontal, Sigma, GitBranch, Waves, Cpu];
 
 /* draggable top-level boxes on the free-form canvas */
-const BOX_IDS = ["conclusion", "sec-concept", "sec-foundations", "sec-method", "sec-results"];
+const BOX_IDS = ["conclusion", "sec-story", "sec-concept", "sec-foundations", "sec-method", "sec-results"];
 
 const fmt = (v, d = 3) =>
   v === undefined || v === null || Number.isNaN(v) ? "–" : (+v).toFixed(d);
-
-/** Drift readout: past 999% the number stops being informative (numerical blow-up). */
-const fmtDrift = (v) => (v > 999 ? "≥999" : fmt(v, 1));
 
 /* ---------------- small presentational pieces ---------------- */
 
@@ -161,6 +158,7 @@ function ParamSlider({ def, value, onChange }) {
 /* ---------------- section chrome ---------------- */
 
 const SECTION_TONES = {
+  rose:    { badge: "bg-rose-600",    ring: "ring-rose-200/60",    text: "text-rose-700"    },
   violet:  { badge: "bg-violet-600",  ring: "ring-violet-200/60",  text: "text-violet-700"  },
   amber:   { badge: "bg-amber-500",   ring: "ring-amber-200/60",   text: "text-amber-700"   },
   blue:    { badge: "bg-blue-600",    ring: "ring-blue-200/60",    text: "text-blue-700"    },
@@ -230,6 +228,61 @@ function Lightbox({ fig, onClose }) {
           </p>
         </div>
       </div>
+    </div>
+  );
+}
+
+/* ---------------- 0 · the paper's story (problem → gap → contribution) --- */
+
+function StorySection({ story }) {
+  if (!story) return null;
+  const steps = [
+    { label: "The problem",       text: story.problem,     tone: "bg-slate-100 text-slate-700",  dot: "bg-slate-500"  },
+    { label: "What was missing",  text: story.gap,         tone: "bg-amber-50 text-amber-900",   dot: "bg-amber-500"  },
+  ].filter((s) => s.text);
+
+  return (
+    <div className="rounded-2xl border border-slate-200/80 bg-white/90 p-5 shadow-sm backdrop-blur">
+      {/* problem → gap, as a two-beat setup */}
+      <div className="grid gap-3 md:grid-cols-2">
+        {steps.map((s) => (
+          <div key={s.label} className={`rounded-xl px-4 py-3 ${s.tone}`}>
+            <div className="mb-1 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wider opacity-70">
+              <span className={`h-2 w-2 rounded-full ${s.dot}`} /> {s.label}
+            </div>
+            <p className="text-[13.5px] leading-relaxed">{s.text}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* the payoff: what THIS paper adds */}
+      <div className="mt-4">
+        <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-rose-600">
+          <Sparkles size={13} /> What this paper adds
+        </div>
+        <div className={`grid gap-3 ${story.contribution?.length > 2 ? "md:grid-cols-3" : "md:grid-cols-2"}`}>
+          {(story.contribution || []).map((c, i) => (
+            <div key={i} className="rounded-xl border border-rose-100 bg-rose-50/60 px-4 py-3">
+              <div className="flex items-start gap-2">
+                <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-rose-600 text-[10px] font-bold text-white">
+                  {i + 1}
+                </span>
+                <h3 className="text-[13px] font-bold leading-snug text-rose-900">{c.headline}</h3>
+              </div>
+              <p className="mt-1.5 text-[12.5px] leading-relaxed text-slate-700">{c.detail}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {story.whyItMatters ? (
+        <div className="mt-4 flex items-start gap-2 rounded-xl bg-emerald-50/80 px-4 py-3">
+          <Lightbulb size={15} className="mt-0.5 shrink-0 text-emerald-600" />
+          <p className="text-[13px] leading-relaxed text-emerald-900">
+            <span className="font-semibold">Why it matters: </span>{story.whyItMatters}
+          </p>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -658,7 +711,15 @@ function ResultFigureTooltip({ active, payload, label, xLabel, legend }) {
 /** One subplot. Hover values are NOT drawn on the plot (a floating box hides
  *  the curves) — they're forwarded to a dedicated readout box via onHover. */
 function PanelChart({ panel, baseRun, actRun, height = 170, onHover }) {
-  const { rows } = useMemo(() => buildPanelRows(baseRun, actRun), [baseRun, actRun]);
+  const kind = panel.chartKind || "line";
+  const categories = actRun?.categories || baseRun?.categories || null;
+  const { rows } = useMemo(() => {
+    const r = buildPanelRows(baseRun, actRun);
+    if (kind === "bar" && categories) {
+      r.rows = r.rows.map((row, i) => ({ ...row, _c: categories[i] ?? String(row._i) }));
+    }
+    return r;
+  }, [baseRun, actRun, kind, categories]);
   const err = actRun?.error || baseRun?.error;
   const nSeries = (actRun?.series || baseRun?.series || []).length;
 
@@ -694,6 +755,32 @@ function PanelChart({ panel, baseRun, actRun, height = 170, onHover }) {
       </div>
       {err ? (
         <div className="rounded border border-red-200 bg-red-50 px-2 py-2 text-[11px] text-red-700">{err}</div>
+      ) : kind === "bar" ? (
+        <ResponsiveContainer width="100%" height={height}>
+          <BarChart data={rows} margin={{ top: 6, right: 10, bottom: 2, left: -12 }}
+            onMouseMove={handleMove}>
+            <CartesianGrid stroke={C.grid} strokeWidth={1} vertical={false} />
+            <XAxis
+              dataKey={categories ? "_c" : "_i"} type="category"
+              tick={{ fill: C.inkMuted, fontSize: 9 }} stroke={C.axis} tickLine={false}
+              interval={0} angle={rows.length > 6 ? -30 : 0} height={rows.length > 6 ? 42 : 30}
+            />
+            <YAxis
+              tick={{ fill: C.inkMuted, fontSize: 9 }} stroke="transparent"
+              tickLine={false} width={42} tickFormatter={(v) => fmt(v, 1)}
+            />
+            <Tooltip content={() => null} cursor={{ fill: "rgba(100,116,139,0.08)" }}
+              isAnimationActive={false} />
+            {legend.map((l) => (
+              <Bar key={l.key} dataKey={l.key}
+                fill={l.dash ? "transparent" : l.color}
+                stroke={l.dash ? l.color : undefined}
+                strokeWidth={l.dash ? 1.5 : 0}
+                strokeDasharray={l.dash || undefined}
+                isAnimationActive={false} />
+            ))}
+          </BarChart>
+        </ResponsiveContainer>
       ) : (
         <ResponsiveContainer width="100%" height={height}>
           <LineChart data={rows} margin={{ top: 6, right: 10, bottom: 2, left: -12 }}
@@ -715,7 +802,9 @@ function PanelChart({ panel, baseRun, actRun, height = 170, onHover }) {
               isAnimationActive={false}
             />
             {legend.map((l) => (
-              <Line key={l.key} dataKey={l.key} stroke={l.color} strokeWidth={1.8} dot={false}
+              <Line key={l.key} dataKey={l.key} stroke={l.color}
+                strokeWidth={kind === "scatter" ? 0 : 1.8}
+                dot={kind === "scatter" ? { r: 2.2, fill: l.color, strokeWidth: 0 } : false}
                 strokeDasharray={l.dash || undefined} isAnimationActive={false} />
             ))}
           </LineChart>
@@ -857,61 +946,36 @@ function ResultFigures({ spec, pipelineCompiled, helpers, baseOutputs, actOutput
   );
 }
 
-/* ---------------- smart conclusion ---------------- */
+/* ---------------- the paper's takeaway ---------------- */
 
-function ConclusionBox({ drift, conclusion, baseM, actM, modifiedCount }) {
-  let tier;
-  if (drift < 2)        tier = { icon: CircleCheck,   tone: "emerald", head: "Consistent with the paper",
-    body: "The workspace currently reproduces the author's baseline. " + conclusion };
-  else if (drift < 15)  tier = { icon: CircleAlert,   tone: "sky",     head: "Minor deviation from baseline",
-    body: `Your ${modifiedCount} modified parameter${modifiedCount === 1 ? "" : "s"} shift the headline result by ${fmtDrift(drift)}% (normalized RMS). The paper's qualitative conclusion still holds, but its reported figures no longer match this parameter set.` };
-  else if (drift < 40)  tier = { icon: TriangleAlert, tone: "amber",   head: "Significant drift from the published result",
-    body: `The modified system deviates ${fmtDrift(drift)}% from the author's baseline. The paper's quantitative claims are no longer supported at these coefficients — you are exploring outside the validated operating envelope.` };
-  else                  tier = { icon: TriangleAlert, tone: "red",     head: "Conclusion no longer supported",
-    body: `At ${fmtDrift(drift)}% normalized drift the system is in a qualitatively different regime than the one the paper characterizes. Treat the current run as a counterfactual experiment, not a reproduction.` };
-
-  const toneMap = {
-    emerald: "border-emerald-300 bg-emerald-50 text-emerald-900",
-    sky:     "border-sky-300 bg-sky-50 text-sky-900",
-    amber:   "border-amber-300 bg-amber-50 text-amber-900",
-    red:     "border-red-300 bg-red-50 text-red-900",
-  };
-  const TierIcon = tier.icon;
-
-  const metricDefs = [
-    { label: "Drift",       a: Math.min(drift, 999), b: 0, unit: "%", d: 1 },
-    { label: "Peak |y|",    a: actM.peak, b: baseM.peak, unit: "",  d: 3 },
-    { label: "RMS",         a: actM.rms,  b: baseM.rms,  unit: "",  d: 3 },
-    { label: "Mean",        a: actM.mean, b: baseM.mean, unit: "",  d: 3 },
-  ];
-
+/** The paper's core finding, stated plainly. If the reader has moved any
+ *  sliders, a gentle note explains they're now looking at their own what-if
+ *  next to the paper's baseline — no internal metrics, no jargon. */
+function TakeawayBox({ conclusion, modifiedCount, onReset }) {
+  const exploring = modifiedCount > 0;
   return (
-    <div className={`rounded-xl border-2 p-4 ${toneMap[tier.tone]}`}>
+    <div className={`rounded-xl border-2 p-4 ${exploring ? "border-sky-300 bg-sky-50 text-sky-900" : "border-emerald-300 bg-emerald-50 text-emerald-900"}`}>
       <div className="flex items-start gap-3">
-        <TierIcon size={20} className="mt-0.5 shrink-0" />
+        {exploring
+          ? <CircleAlert size={20} className="mt-0.5 shrink-0" />
+          : <CircleCheck size={20} className="mt-0.5 shrink-0" />}
         <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <h2 className="text-sm font-bold">Smart Conclusion — {tier.head}</h2>
-            <span className="rounded-full bg-white/70 px-2 py-0.5 text-xs font-semibold tabular-nums">
-              drift {fmtDrift(drift)}%
-            </span>
-          </div>
-          <p className="mt-1 text-[13px] leading-relaxed opacity-90">{tier.body}</p>
-
-          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-            {metricDefs.map((m) => {
-              const changed = fmt(m.a, m.d) !== fmt(m.b, m.d);
-              return (
-                <div key={m.label} className="rounded-lg bg-white/70 px-2.5 py-1.5">
-                  <div className="text-[10px] font-semibold uppercase tracking-wider opacity-60">{m.label}</div>
-                  <div className="text-sm font-bold tabular-nums">{fmt(m.a, m.d)}{m.unit}</div>
-                  <div className={`text-[10px] tabular-nums ${changed ? "font-semibold" : "opacity-50"}`}>
-                    baseline {fmt(m.b, m.d)}{m.unit}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+          <h2 className="text-sm font-bold">What the paper found</h2>
+          <p className="mt-1 text-[13px] leading-relaxed opacity-90">{conclusion}</p>
+          {exploring && (
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-[12px]">
+              <span className="rounded-full bg-white/70 px-2.5 py-1 font-medium">
+                You've changed {modifiedCount} dial{modifiedCount === 1 ? "" : "s"} from the paper's published values —
+                the plots now show your what-if experiment next to the paper's own setting.
+              </span>
+              {onReset && (
+                <button onClick={onReset}
+                  className="rounded-full bg-sky-600 px-2.5 py-1 font-semibold text-white hover:bg-sky-700">
+                  Back to the paper's values
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -1423,30 +1487,54 @@ function ResultsLab({ spec, pipelineCompiled, helpers, baseOutputs, actOutputs, 
 
   return (
     <LabWindow
-      title="Results Lab — the paper's figures, live"
+      title="Results Lab — the paper's real figures, explained"
       accent="bg-emerald-600"
-      pages={figs.map((f) => ({ id: f.figureLabel, label: `${f.figureLabel} · ${f.title.slice(0, 34)}${f.title.length > 34 ? "…" : ""}`, sub: `${f.panels?.length || 0} subplot${(f.panels?.length || 0) === 1 ? "" : "s"}` }))}
+      pages={figs.map((f) => ({
+        id: f.figureLabel,
+        label: `${f.figureLabel} · ${f.title.slice(0, 34)}${f.title.length > 34 ? "…" : ""}`,
+        sub: f.panels?.length
+          ? `${f.panels.length} live subplot${f.panels.length === 1 ? "" : "s"}`
+          : "guided tour",
+      }))}
       activeId={pageId}
       onSelect={setPageId}
     >
-      {fig && (
+      {fig && (() => {
+        const hasPanels = (fig.panels?.length || 0) > 0;
+        const original = fig.image ? (
+          <button onClick={() => onOpenFig({ title: `${fig.figureLabel} — ${fig.title}`, image: fig.image, explanation: fig.explanation })}
+            className="block w-full overflow-hidden rounded-lg border border-slate-200 bg-white transition hover:shadow-lg"
+            style={hasPanels ? { maxWidth: "var(--result-orig-max, 520px)" } : { maxWidth: 760, margin: "0 auto" }}>
+            <img src={fig.image} alt={`${fig.figureLabel} from the paper`} className="w-full" loading="lazy" />
+          </button>
+        ) : fig.svg ? (
+          <div className="overflow-hidden rounded-lg border border-slate-200 bg-white p-2"
+            dangerouslySetInnerHTML={{ __html: fig.svg }} />
+        ) : (
+          <div className="flex min-h-[120px] items-center justify-center rounded-lg border border-dashed border-slate-200 px-3 text-center text-[11px] text-slate-400">
+            {fig.page ? <>{fig.figureLabel} on page {fig.page} — crop unavailable</> : "No source figure available"}
+          </div>
+        );
+
+        return (
         <div>
           <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
             <div className="min-w-0">
               <h3 className="text-sm font-bold text-slate-900">{fig.figureLabel} — {fig.title}</h3>
-              <p className="mt-1 max-w-3xl leading-relaxed text-slate-600" style={{ fontSize: "calc(var(--result-text, 12.5px) * var(--box-font-scale, 1))" }}>{fig.explanation}</p>
             </div>
-            <button
-              onClick={() => setShowParams(!showParams)}
-              className={`flex shrink-0 items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition ${
-                showParams ? "border-emerald-300 bg-emerald-50 text-emerald-700" : "border-slate-200 bg-white text-slate-600 hover:border-emerald-300"
-              }`}
-            >
-              <SlidersHorizontal size={13} /> Tune parameters
-            </button>
+            {hasPanels && (
+              <button
+                onClick={() => setShowParams(!showParams)}
+                className={`flex shrink-0 items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition ${
+                  showParams ? "border-emerald-300 bg-emerald-50 text-emerald-700" : "border-slate-200 bg-white text-slate-600 hover:border-emerald-300"
+                }`}
+              >
+                <SlidersHorizontal size={13} /> Tune parameters
+              </button>
+            )}
           </div>
 
-          {showParams && (
+          {showParams && hasPanels && (
             <div className="mb-3 grid gap-x-6 rounded-xl border border-emerald-100 bg-emerald-50/40 px-4 py-2 sm:grid-cols-2 lg:grid-cols-3">
               {allParams.map((p) => (
                 <ParamSlider key={p.key} def={p} value={params[p.key]} onChange={setParam} />
@@ -1454,41 +1542,62 @@ function ResultsLab({ spec, pipelineCompiled, helpers, baseOutputs, actOutputs, 
             </div>
           )}
 
-          <div className="grid gap-4 xl:grid-cols-5">
-            <div className="xl:col-span-2">
-              <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-                Original figure from the paper · click to enlarge
-              </div>
-              {fig.image ? (
-                <button onClick={() => onOpenFig({ title: `${fig.figureLabel} — ${fig.title}`, image: fig.image, explanation: fig.explanation })}
-                  className="block w-full overflow-hidden rounded-lg border border-slate-200 bg-white transition hover:shadow-lg"
-                  style={{ maxWidth: "var(--result-orig-max, 520px)" }}>
-                  <img src={fig.image} alt={`${fig.figureLabel} from the paper`} className="w-full" loading="lazy" />
-                </button>
-              ) : fig.svg ? (
-                <div className="overflow-hidden rounded-lg border border-slate-200 bg-white p-2"
-                  dangerouslySetInnerHTML={{ __html: fig.svg }} />
-              ) : (
-                <div className="flex min-h-[120px] items-center justify-center rounded-lg border border-dashed border-slate-200 px-3 text-center text-[11px] text-slate-400">
-                  {fig.page ? <>{fig.figureLabel} on page {fig.page} — crop unavailable</> : "No source figure available"}
+          {hasPanels ? (
+            <div className="grid gap-4 xl:grid-cols-5">
+              <div className="xl:col-span-2">
+                <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                  The real figure, from the paper · click to enlarge
                 </div>
-              )}
-              <ReadoutBox hover={hover} />
-            </div>
+                {original}
+                <div className="mt-3 rounded-lg border border-slate-200 bg-white p-3">
+                  <div className="mb-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                    <BookMarked size={12} /> Guided tour
+                  </div>
+                  <p className="leading-relaxed text-slate-700" style={{ fontSize: "calc(var(--result-text, 12.5px) * var(--box-font-scale, 1))" }}>
+                    {fig.explanation}
+                  </p>
+                </div>
+                <ReadoutBox hover={hover} />
+              </div>
 
-            <div className="xl:col-span-3">
-              <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-                Interactive reproduction · solid = your run, dashed = paper baseline
-              </div>
-              <div className={`grid gap-3 ${(fig.panels?.length || 0) > 1 ? "md:grid-cols-2" : ""}`}>
-                {(fig.panels || []).map((panel, pi) => (
-                  <PanelChart key={pi} panel={panel} baseRun={runs[pi]?.base} actRun={runs[pi]?.act} height={panelH} onHover={setHover} />
-                ))}
+              <div className="xl:col-span-3">
+                <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                  Live simplified simulation · solid = your dials, dashed = paper's values
+                </div>
+                <div className={`grid gap-3 ${(fig.panels?.length || 0) > 1 ? "md:grid-cols-2" : ""}`}>
+                  {(fig.panels || []).map((panel, pi) => (
+                    <PanelChart key={pi} panel={panel} baseRun={runs[pi]?.base} actRun={runs[pi]?.act} height={panelH} onHover={setHover} />
+                  ))}
+                </div>
+                <p className="mt-2 text-[11px] leading-relaxed text-slate-400">
+                  These plots come from a simplified simulation of the paper's own equations — built to move
+                  when you turn the dials, not to replace the measured results on the left.
+                </p>
               </div>
             </div>
-          </div>
+          ) : (
+            <div className="grid gap-4 xl:grid-cols-5">
+              <div className="xl:col-span-3">
+                <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                  The real figure, from the paper · click to enlarge
+                </div>
+                {original}
+              </div>
+              <div className="xl:col-span-2">
+                <div className="mb-1.5 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                  <BookMarked size={12} /> Guided tour — what you're looking at
+                </div>
+                <div className="rounded-lg border border-emerald-100 bg-emerald-50/40 p-4">
+                  <p className="leading-relaxed text-slate-700" style={{ fontSize: "calc(var(--result-text, 12.5px) * 1.05 * var(--box-font-scale, 1))" }}>
+                    {fig.explanation}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
-      )}
+        );
+      })()}
     </LabWindow>
   );
 }
@@ -1496,8 +1605,15 @@ function ResultsLab({ spec, pipelineCompiled, helpers, baseOutputs, actOutputs, 
 /* ---------------- main workspace ---------------- */
 
 export default function Workspace({ spec, onBack, onSignOut, isOwner = false }) {
+  // Papers whose method isn't honestly simulatable (measured data, theory,
+  // surveys…) ship with no pipeline — story, figures and foundations carry
+  // the dashboard, and every pipeline-dependent section hides itself.
+  const hasPipeline = (spec.blocks?.length || 0) > 0;
   const defaults = useMemo(() => defaultsFromSpec(spec), [spec]);
-  const helpers  = useMemo(() => buildHelpers(spec.protocol), [spec]);
+  const helpers  = useMemo(
+    () => buildHelpers(spec.protocol?.T && spec.protocol?.dt ? spec.protocol : { T: 10, dt: 0.05 }),
+    [spec]
+  );
   const compiled = useMemo(() => compileSpec(spec), [spec]);
 
   const [params, setParams] = useState(defaults);
@@ -1572,11 +1688,7 @@ export default function Workspace({ spec, onBack, onSignOut, isOwner = false }) 
   const baseline = useMemo(() => runSpec(spec, compiled, defaults, helpers), [spec, compiled, defaults, helpers]);
   const active   = useMemo(() => runSpec(spec, compiled, params, helpers), [spec, compiled, params, helpers]);
 
-  const finalKey = spec.blocks[spec.blocks.length - 1].key;
   const rows  = useMemo(() => buildRows(spec, helpers, baseline.outputs, active.outputs), [spec, helpers, baseline, active]);
-  const drift = useMemo(() => driftPercent(baseline.outputs, active.outputs, finalKey), [baseline, active, finalKey]);
-  const baseM = useMemo(() => summaryMetrics(baseline.outputs[finalKey]), [baseline, finalKey]);
-  const actM  = useMemo(() => summaryMetrics(active.outputs[finalKey]), [active, finalKey]);
 
   const modifiedCount = useMemo(
     () => Object.keys(defaults).filter((k) => Math.abs(params[k] - defaults[k]) > 1e-9).length,
@@ -1678,12 +1790,10 @@ export default function Workspace({ spec, onBack, onSignOut, isOwner = false }) 
           : { maxWidth: "var(--content-max, 1280px)", paddingLeft: "var(--page-pad, 24px)", paddingRight: "var(--page-pad, 24px)" }}
       >
         <DesignBox id="conclusion" label="Conclusion" mode={free ? "free" : "flow"} rect={layout.boxes.conclusion} onRect={setBox} register={registerBox}>
-          <ConclusionBox
-            drift={drift}
+          <TakeawayBox
             conclusion={spec.conclusion}
-            baseM={baseM}
-            actM={actM}
             modifiedCount={modifiedCount}
+            onReset={() => { setParams(defaults); setPinnedT(null); }}
           />
           {active.error && (
             <div className="mt-3 rounded-xl border-2 border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800">
@@ -1692,68 +1802,87 @@ export default function Workspace({ spec, onBack, onSignOut, isOwner = false }) 
           )}
         </DesignBox>
 
-        {/* ===== 1 · concept figures (clickable → fullscreen) ===== */}
-        {spec.conceptFigures?.length && sec("concept").on ? (
-          <DesignBox id="sec-concept" label="1 · Idea in pictures" mode={free ? "free" : "flow"} rect={layout.boxes["sec-concept"]} onRect={setBox} register={registerBox}>
-            <section aria-label="Concept primer">
-              <SectionHeader num={1} tone="violet" icon={ImageIcon} title={sec("concept").title} sub={sec("concept").sub} />
-              <ConceptFigures figures={spec.conceptFigures} onOpen={setLightbox} />
-            </section>
-          </DesignBox>
-        ) : null}
+        {(() => {
+          /* sections number themselves in visible order, so hiding one never leaves a gap */
+          let n = 0;
+          const num = () => ++n;
+          return (
+            <>
+              {/* ===== story · why this paper exists ===== */}
+              {spec.story && sec("story").on ? (
+                <DesignBox id="sec-story" label="Story" mode={free ? "free" : "flow"} rect={layout.boxes["sec-story"]} onRect={setBox} register={registerBox}>
+                  <section aria-label="The paper's story">
+                    <SectionHeader num={num()} tone="rose" icon={Sparkles} title={sec("story").title} sub={sec("story").sub} />
+                    <StorySection story={spec.story} />
+                  </section>
+                </DesignBox>
+              ) : null}
 
-        {/* ===== 2 · foundations (borrowed core ideas) ===== */}
-        {spec.foundations?.length && sec("foundations").on ? (
-          <DesignBox id="sec-foundations" label="2 · Background" mode={free ? "free" : "flow"} rect={layout.boxes["sec-foundations"]} onRect={setBox} register={registerBox}>
-            <section aria-label="Foundations from prior work">
-              <SectionHeader num={2} tone="amber" icon={Landmark} title={sec("foundations").title} sub={sec("foundations").sub} />
-              <FoundationsLab foundations={spec.foundations} />
-            </section>
-          </DesignBox>
-        ) : null}
+              {/* ===== concept figures (clickable → fullscreen) ===== */}
+              {spec.conceptFigures?.length && sec("concept").on ? (
+                <DesignBox id="sec-concept" label="Idea in pictures" mode={free ? "free" : "flow"} rect={layout.boxes["sec-concept"]} onRect={setBox} register={registerBox}>
+                  <section aria-label="Concept primer">
+                    <SectionHeader num={num()} tone="violet" icon={ImageIcon} title={sec("concept").title} sub={sec("concept").sub} />
+                    <ConceptFigures figures={spec.conceptFigures} onOpen={setLightbox} />
+                  </section>
+                </DesignBox>
+              ) : null}
 
-        {/* ===== 3 · concept lab window ===== */}
-        {sec("method").on ? (
-          <DesignBox id="sec-method" label="3 · Method lab" mode={free ? "free" : "flow"} rect={layout.boxes["sec-method"]} onRect={setBox} register={registerBox}>
-            <section aria-label="The paper's contribution">
-              <SectionHeader num={3} tone="blue" icon={GitBranch} title={sec("method").title} sub={sec("method").sub} />
-              <ConceptLab
-                spec={spec}
-                params={params}
-                defaults={defaults}
-                setParam={setParam}
-                rows={rows}
-                compiled={compiled}
-                pinnedT={pinnedT}
-                onPin={togglePin}
-                onInfo={setInfoKey}
-                onInspect={setInspect}
-                layout={layout}
-              />
-            </section>
-          </DesignBox>
-        ) : null}
+              {/* ===== foundations (borrowed core ideas) ===== */}
+              {spec.foundations?.length && sec("foundations").on ? (
+                <DesignBox id="sec-foundations" label="Background" mode={free ? "free" : "flow"} rect={layout.boxes["sec-foundations"]} onRect={setBox} register={registerBox}>
+                  <section aria-label="Foundations from prior work">
+                    <SectionHeader num={num()} tone="amber" icon={Landmark} title={sec("foundations").title} sub={sec("foundations").sub} />
+                    <FoundationsLab foundations={spec.foundations} />
+                  </section>
+                </DesignBox>
+              ) : null}
 
-        {/* ===== 4 · results lab window ===== */}
-        {spec.resultFigures?.length && sec("results").on ? (
-          <DesignBox id="sec-results" label="4 · Results lab" mode={free ? "free" : "flow"} rect={layout.boxes["sec-results"]} onRect={setBox} register={registerBox}>
-            <section aria-label="Reproduced result figures">
-              <SectionHeader num={4} tone="emerald" icon={LineChartIcon} title={sec("results").title} sub={sec("results").sub} />
-              <ResultsLab
-                spec={spec}
-                pipelineCompiled={compiled}
-                helpers={helpers}
-                baseOutputs={baseline.outputs}
-                actOutputs={active.outputs}
-                defaults={defaults}
-                params={params}
-                setParam={setParam}
-                onOpenFig={setLightbox}
-                layout={layout}
-              />
-            </section>
-          </DesignBox>
-        ) : null}
+              {/* ===== method lab (only when an honest pipeline exists) ===== */}
+              {hasPipeline && sec("method").on ? (
+                <DesignBox id="sec-method" label="Method lab" mode={free ? "free" : "flow"} rect={layout.boxes["sec-method"]} onRect={setBox} register={registerBox}>
+                  <section aria-label="The paper's contribution">
+                    <SectionHeader num={num()} tone="blue" icon={GitBranch} title={sec("method").title} sub={sec("method").sub} />
+                    <ConceptLab
+                      spec={spec}
+                      params={params}
+                      defaults={defaults}
+                      setParam={setParam}
+                      rows={rows}
+                      compiled={compiled}
+                      pinnedT={pinnedT}
+                      onPin={togglePin}
+                      onInfo={setInfoKey}
+                      onInspect={setInspect}
+                      layout={layout}
+                    />
+                  </section>
+                </DesignBox>
+              ) : null}
+
+              {/* ===== results lab ===== */}
+              {spec.resultFigures?.length && sec("results").on ? (
+                <DesignBox id="sec-results" label="Results lab" mode={free ? "free" : "flow"} rect={layout.boxes["sec-results"]} onRect={setBox} register={registerBox}>
+                  <section aria-label="The paper's result figures">
+                    <SectionHeader num={num()} tone="emerald" icon={LineChartIcon} title={sec("results").title} sub={sec("results").sub} />
+                    <ResultsLab
+                      spec={spec}
+                      pipelineCompiled={compiled}
+                      helpers={helpers}
+                      baseOutputs={baseline.outputs}
+                      actOutputs={active.outputs}
+                      defaults={defaults}
+                      params={params}
+                      setParam={setParam}
+                      onOpenFig={setLightbox}
+                      layout={layout}
+                    />
+                  </section>
+                </DesignBox>
+              ) : null}
+            </>
+          );
+        })()}
       </main>
 
       <InfoModal block={infoBlock} onClose={() => setInfoKey(null)} />

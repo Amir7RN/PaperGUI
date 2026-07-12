@@ -149,8 +149,55 @@ const demoSchema = {
 export const SPEC_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["meta", "conclusion", "references", "conceptFigures", "foundations", "protocol", "blocks"],
+  required: ["meta", "archetype", "story", "conclusion", "references", "conceptFigures", "foundations", "protocol", "blocks"],
   properties: {
+    archetype: {
+      type: "object",
+      additionalProperties: false,
+      required: ["kind", "pipelineFeasible", "reproductionAdvice"],
+      properties: {
+        kind: {
+          type: "string",
+          enum: ["simulation-control", "algorithmic-learning", "empirical-experimental", "statistical-data", "theoretical", "survey-review", "other"],
+          description: "What kind of paper this is. simulation-control: dynamics/control/signal systems governed by equations. algorithmic-learning: an algorithm/optimization/learning method with iterative behavior. empirical-experimental: conclusions rest on collected experimental/clinical/field data. statistical-data: statistical analysis of datasets. theoretical: proofs/derivations. survey-review: overview of a field.",
+        },
+        pipelineFeasible: {
+          type: "boolean",
+          description: "true ONLY if the paper's core method is a computable procedure (dynamical system, filter, controller, iterative algorithm) that a small, honest surrogate simulation can imitate. false for papers whose results come from collected data, human/animal studies, proofs, or hardware measurements no equation regenerates.",
+        },
+        reproductionAdvice: {
+          type: "string",
+          description: "2-4 sentences for the later analysis phases: what (if anything) can be honestly simulated, and which result figures must stay original-only because no simulation could faithfully regenerate them.",
+        },
+      },
+      description: "Classify the paper FIRST — every later section adapts to this.",
+    },
+    story: {
+      type: "object",
+      additionalProperties: false,
+      required: ["problem", "gap", "contribution", "whyItMatters"],
+      properties: {
+        problem: { type: "string", description: "2-3 sentences, everyday language: the real-world or scientific problem this paper attacks. No jargon, no symbols." },
+        gap: { type: "string", description: "1-3 sentences: what previous approaches could not do — the specific hole this paper fills. Plain language." },
+        contribution: {
+          type: "array",
+          minItems: 2,
+          maxItems: 4,
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: ["headline", "detail"],
+            properties: {
+              headline: { type: "string", description: "<= 8 words naming one thing this paper adds, e.g. 'One planner that also balances the arms'" },
+              detail: { type: "string", description: "2-3 plain-language sentences explaining that contribution and how it differs from what existed before" },
+            },
+          },
+          description: "The 2-4 concrete things THIS paper adds over prior work — its actual claimed contributions, in the paper's own priority order.",
+        },
+        whyItMatters: { type: "string", description: "1-2 sentences: the payoff if this works — what becomes possible." },
+      },
+      description: "The paper's story: why it exists, what was missing, what it adds. This is the reader's entry point — it replaces reading the introduction.",
+    },
     meta: {
       type: "object",
       additionalProperties: false,
@@ -242,29 +289,34 @@ export const SPEC_SCHEMA = {
           title: { type: "string", description: "What this figure demonstrates, e.g. 'Push-recovery response of the whole-body controller'" },
           explanation: {
             type: "string",
-            description: "3-5 sentences: what the original figure shows (name its subplots and curves), and which sliders visibly change the reproduction",
+            description: "A guided tour of the ORIGINAL figure, 4-7 sentences: walk the reader through each subplot and curve by name, say what to look at, what the axes mean, and what the figure proves for the paper's claim. Written so someone who never opened the PDF fully understands the real figure.",
           },
           panels: {
             type: "array",
             items: {
               type: "object",
               additionalProperties: false,
-              required: ["subplotLabel", "xLabel", "yLabel", "computeJs"],
+              required: ["subplotLabel", "chartKind", "xLabel", "yLabel", "computeJs"],
               properties: {
                 subplotLabel: { type: "string", description: "The subplot's own label/title, e.g. '(a) CoM lateral position' — match the paper" },
+                chartKind: {
+                  type: "string",
+                  enum: ["line", "bar", "scatter"],
+                  description: "MUST match the ORIGINAL subplot's plot type as seen in the figure image: 'bar' for histograms and bar charts, 'scatter' for point clouds, 'line' for curves over time/iterations/frequency. Rendering a histogram as a line is an automatic rejection.",
+                },
                 xLabel: { type: "string" },
                 yLabel: { type: "string" },
                 computeJs: {
                   type: "string",
-                  description: "Body of function(outputs, params, helpers) => {x?: number[], series: [{label, data: number[]}]}. Reproduce EVERY curve shown in this subplot. See rules in the prompt.",
+                  description: "Body of function(outputs, params, helpers) => {x?: number[], categories?: string[], series: [{label, data: number[]}]}. For chartKind 'bar', return categories (the bin/condition names from the original axis) and one data value per category per series. Reproduce EVERY series shown in this subplot. See rules in the prompt.",
                 },
               },
             },
-            description: "One entry per subplot in the original figure. A figure with subplots (a)(b)(c)(d) MUST have 4 panels. Reproduce ALL subplots and ALL curves.",
+            description: "Interactive reproductions of this figure's subplots — ONLY the subplots you can honestly regenerate from the method's own equations. Emit [] (empty) when no faithful reproduction is possible; the original cropped figure is always shown regardless. A wrong reproduction is far worse than none.",
           },
         },
       },
-      description: "Faithful reproductions of the paper's KEY RESULT figures (3-6 of them) — the experimental/simulation plots the conclusions rest on. Reproduce each figure with ALL its subplots and ALL its curves.",
+      description: "The paper's KEY RESULT figures (3-6 of them) — the plots its conclusions rest on. EVERY figure gets its page + bbox (so the real figure is cropped and shown) and a thorough explanation. Interactive 'panels' reproductions are OPTIONAL per figure — include them only when honestly derivable from the method.",
     },
     protocol: {
       type: "object",
@@ -276,7 +328,7 @@ export const SPEC_SCHEMA = {
         description: { type: "string", description: "One paragraph naming the fixed protocol constants and their paper-reported values" },
       },
     },
-    blocks: { type: "array", items: blockSchema, description: "3-6 sequential methodology blocks" },
+    blocks: { type: "array", items: blockSchema, description: "3-6 sequential methodology blocks (only produced when the paper's method is honestly simulatable — see archetype.pipelineFeasible)" },
   },
 };
 
@@ -295,9 +347,11 @@ export const PHASE_SCHEMAS = {
   overview: {
     type: "object",
     additionalProperties: false,
-    required: ["meta", "conclusion", "references", "conceptFigures", "foundations"],
+    required: ["meta", "archetype", "story", "conclusion", "references", "conceptFigures", "foundations"],
     properties: {
       meta: P.meta,
+      archetype: P.archetype,
+      story: P.story,
       conclusion: P.conclusion,
       references: P.references,
       conceptFigures: P.conceptFigures,
@@ -324,40 +378,77 @@ export function phaseInstruction(phase, contextSpec) {
   if (phase === "overview") {
     return (
       "\n\nTHIS CALL IS PHASE 1 of 3: produce ONLY the fields " +
-      "{meta, conclusion, references, conceptFigures, foundations}. " +
-      "The method pipeline (protocol/blocks) and the result-figure reproductions are " +
-      "produced in later calls — keep them in mind for coherence, but do NOT emit them now."
+      "{meta, archetype, story, conclusion, references, conceptFigures, foundations}. " +
+      "Classify the archetype honestly — it decides whether an interactive pipeline is even " +
+      "attempted for this paper. The method pipeline (protocol/blocks) and the result figures " +
+      "are produced in later calls — keep them in mind for coherence, but do NOT emit them now."
     );
   }
   if (phase === "method") {
+    const arch = contextSpec?.archetype;
     return (
       "\n\nTHIS CALL IS PHASE 2 of 3: produce ONLY the fields {protocol, blocks} — " +
       "the full interactive pipeline per the rules above. Concept figures, foundations " +
-      "and result figures are handled in other calls — do NOT emit them now."
+      "and result figures are handled in other calls — do NOT emit them now." +
+      (arch
+        ? "\n\nPHASE 1 classified this paper as archetype \"" + arch.kind + "\" and advised: " +
+          (arch.reproductionAdvice || "") +
+          " Frame the pipeline in this archetype's natural axis (time for dynamics, iterations for " +
+          "learning/optimization algorithms, samples/conditions where that is what the method processes)."
+        : "")
+    );
+  }
+  const noPipeline = !contextSpec?.blocks?.length;
+  if (noPipeline) {
+    return (
+      "\n\nTHIS CALL IS PHASE 3 of 3: produce ONLY the field {resultFigures}. This paper has NO " +
+      "interactive pipeline (its method is not honestly simulatable), so EVERY figure's panels array " +
+      "MUST be [] (empty). Your entire value here is: exact page + bbox for cropping each key result " +
+      "figure, and a thorough guided-tour explanation of what each real figure shows and proves." +
+      (contextSpec?.archetype?.reproductionAdvice
+        ? " Phase 1 advice: " + contextSpec.archetype.reproductionAdvice
+        : "")
     );
   }
   return (
-    "\n\nTHIS CALL IS PHASE 3 of 3: produce ONLY the field {resultFigures}, reproducing " +
-    "the paper's key result figures per the rules above. The pipeline was already produced " +
-    "in the previous call and is given below — your panels' computeJs receive ITS block " +
-    "outputs (by block key) and ITS slider params, and helpers.simulate re-runs THIS " +
-    "pipeline. Use its exact block keys and param keys.\n\nTHE PIPELINE (protocol + blocks):\n" +
-    JSON.stringify(contextSpec || {})
+    "\n\nTHIS CALL IS PHASE 3 of 3: produce ONLY the field {resultFigures} per the rules above. " +
+    "The pipeline was already produced in the previous call and is given below — your panels' " +
+    "computeJs receive ITS block outputs (by block key) and ITS slider params, and helpers.simulate " +
+    "re-runs THIS pipeline. Use its exact block keys and param keys. Remember: panels ONLY for " +
+    "subplots you can honestly regenerate — emit panels: [] for figures you cannot.\n\n" +
+    "THE PIPELINE (protocol + blocks):\n" +
+    JSON.stringify({ protocol: contextSpec.protocol, blocks: contextSpec.blocks })
   );
 }
 
 /* ---------------- Prompt ---------------- */
 
-export const SYSTEM_PROMPT = `You convert scientific papers into interactive computational playgrounds.
+export const SYSTEM_PROMPT = `You convert scientific papers into visual, interactive explanations a reader can trust enough to put the PDF away.
 
-Read the attached paper (text AND figures) and produce a PaperSpec JSON object that recreates the paper's methodology as a sequential pipeline of 3-6 computational blocks, each with live coefficient sliders, so a reader can reproduce and perturb the paper's headline result without reading the paper.
+Read the attached paper (text AND figures) and produce a PaperSpec JSON object. The reader's experience, in order: the paper's STORY (why it exists, what it adds), its real figures cropped and explained, the background it borrows, and — ONLY when honestly possible — a live simulation of its method.
 
-RULES FOR THE PIPELINE
+THE PRIME DIRECTIVE — TRUST OVER SPECTACLE:
+Everything you emit will be checked by readers who can open the real PDF. One wrong plot, one histogram redrawn as a time series, one confident claim the paper doesn't make — and the reader distrusts every other section. When you are not sure something can be shown faithfully, leave it out. An honest gap is invisible; a fake reproduction is fatal.
+
+STEP 0 — CLASSIFY THE PAPER (archetype):
+Before anything else, decide what kind of paper this is and whether its method is honestly simulatable:
+- pipelineFeasible: true — the core method is itself a computable procedure: a controller, filter, dynamical model, optimization loop, learning rule. Running a reduced-order version of it genuinely regenerates the KIND of curves the paper shows.
+- pipelineFeasible: false — the results come from collected data: experiments on humans/animals/materials, clinical trials, field measurements, surveys, benchmark tables of someone else's systems, or theory with no numerics. NO surrogate simulation can honestly regenerate such figures. Do not pretend otherwise. The dashboard for these papers is story + real figures + guided tours + foundations — that alone is the product.
+When in doubt, choose false. reproductionAdvice must say figure-by-figure what is and is not honestly reproducible; later phases obey it.
+
+RULES FOR story (the reader's entry point):
+- Every paper is written to defend a contribution. Find it: what problem, what could prior work not do, what exactly does this paper add, why does that matter. That is the story — tell it in everyday language, zero jargon, zero symbols.
+- contribution entries must be the paper's ACTUAL claimed contributions (usually enumerated at the end of the introduction), not generic virtues. Each headline <= 8 words, concrete, specific to this paper.
+- Write like you're telling a curious friend why this paper got published. Never restate the abstract.
+
+RULES FOR THE PIPELINE (ONLY when archetype.pipelineFeasible is true — otherwise blocks: [] and a minimal protocol)
 - Block 0 is always the input/excitation. If the paper's raw empirical data is unavailable (it almost always is), synthesize a mathematically compatible surrogate signal that replicates the trend/spectrum of the paper's input (Universal Signal Adapter). Say so in that block's theory.
 - Later blocks apply the paper's methodology in order, each consuming the previous block's output array.
 - The LAST block must produce the paper's headline result (the quantity its main figure/conclusion is about).
 - Every tunable coefficient, gain, weight or constant in the method gets a slider param whose "def" is the paper's reported value. Param keys must be unique across ALL blocks. 1-5 params per block.
 - Choose protocol T and dt so T/dt is between 200 and 400 samples, in the natural units of the paper.
+- The pipeline's axis is the method's NATURAL axis, not necessarily time: iterations for learning/optimization methods, trials/samples where that is what the method processes, frequency for spectral methods. Label it accordingly.
+- If archetype.pipelineFeasible is false, emit blocks: [] and a minimal protocol {T: 1, dt: 1, description: ""} — do NOT invent a pipeline for a paper whose results are measured, not computed.
 
 RULES FOR computeJs (critical — this code is executed):
 - It is the BODY of: function(input, params, helpers) { ...your code... }
@@ -376,16 +467,21 @@ HARD QUALITY RULES (an automated validator EXECUTES your generated code and reje
 - SHAPE MATCH. Each reproduced series must show the same qualitative features as the paper's actual curve: initial transient then settling, oscillation at the reported frequency, spikes at disturbance events, a visible noise band, convergence across iterations — whatever the original shows. Test yourself: "plotted at defaults, could this panel be mistaken for the paper's subplot?" If not, redo it before answering.
 - DEMOS MUST TEACH. Every foundation demo must render an obviously shaped curve at defaults, and dragging each of its sliders must change the curve dramatically within the plotted window. Pick param ranges where cause-and-effect is unmistakable.
 
-RULES FOR resultFigures (THE MOST IMPORTANT PART — these are faithful, interactive reproductions of the paper's REAL plots):
-Your job here is to DUPLICATE the paper's result figures, not to draw a vague single-curve sketch. Treat this like being asked to reproduce every figure of the paper from its equations.
+RULES FOR resultFigures (THE MOST IMPORTANT PART — the real figures, explained, plus HONEST optional reproductions):
+The reader always sees the ORIGINAL figure, cropped from the PDF via your page + bbox. That real figure is the hero. Your explanation is its guided tour: walk through every subplot and curve by name, what the axes mean, what to look at, what it proves. This must be so good the reader doesn't need the caption or the surrounding text.
 
-INFER THE INPUT SIGNAL (the paper won't give you its raw data — reconstruct a compatible one):
+PANELS ARE OPT-IN, PER FIGURE — decide honestly:
+- Emit panels ONLY for subplots whose curves genuinely fall out of the method pipeline you built (via outputs / helpers.simulate). Time responses of the simulated controller: yes. Convergence of the simulated learning rule: yes. Experimental histograms of measured data, hardware photos' overlays, benchmark tables of other people's systems, human-subject statistics: NO — panels: [] and let the guided tour carry it.
+- FIRST LOOK AT THE FIGURE IMAGE and identify each subplot's plot type. chartKind MUST match it: histograms and bar charts → "bar" (return categories with the original bin/condition names and one value per category per series); point clouds → "scatter"; curves → "line". Redrawing a histogram as a line chart is the single worst failure this system has produced. Never do it.
+- If a figure has 6 subplots and you can honestly regenerate 2, emit exactly those 2 panels. Partial-but-true beats complete-but-fake, always.
+
+INFER THE INPUT SIGNAL (for the panels you DO emit — the paper won't give you its raw data — reconstruct a compatible one):
 - Read what excites the system in each figure (a step/reference command, a periodic gait or oscillation, a swept parameter, a disturbance/push, measurement noise) and SYNTHESIZE a signal that matches it: same qualitative shape, frequency, amplitude range, and duration as the paper describes or plots. Pull concrete numbers from the text (gait period, speed, set-points, gains, reported error magnitudes, axis ranges) and USE them as the defaults so the reproduction lands in the paper's units and ranges.
 - Feed that synthesized input through the AUTHORS' OWN equations/method (the blocks above) to produce each figure's curves. Do not invent unrelated dynamics — the curves must be the output of the paper's model driven by a plausible input.
 - If a figure compares conditions (with/without the method, before/after learning, different gains/terrain/payload, iterations), reproduce EACH condition as its own curve via helpers.simulate or by re-running the method with those settings. Reproducing the comparison is the whole point — never collapse it.
 - Calibrate to the paper's reported numbers: if it says "error < 0.018 m" or "peak force ~650 N" or "converges in N cycles", tune your synthesized model so the reproduction shows exactly that at default parameters.
-- Reproduce the 3-6 KEY RESULT figures the conclusions rest on. For EACH figure, look at it carefully and reproduce ALL of its subplots and ALL of the curves within each subplot. If a figure has subplots (a),(b),(c),(d), emit 4 panels. If a subplot overlays 3 curves (e.g. reference, measured, commanded), emit all 3 series with the paper's own labels. Never collapse a multi-curve figure into one curve.
-- Each panel's computeJs is the BODY of: function(outputs, params, helpers) { ... } returning { series: [{label, data}, ...], x?: number[] }.
+- Cover the 3-6 KEY RESULT figures the conclusions rest on (page + bbox + guided tour for every one). For each panel you emit, reproduce that subplot COMPLETELY: if it overlays 3 curves (e.g. reference, measured, commanded), emit all 3 series with the paper's own labels — never collapse a multi-curve subplot into one curve.
+- Each panel's computeJs is the BODY of: function(outputs, params, helpers) { ... } returning { series: [{label, data}, ...], x?: number[], categories?: string[] (bar only) }.
     * "outputs" = every pipeline block's output array by key (e.g. outputs.resp) at the CURRENT slider values.
     * "params" = current slider values.
     * "helpers" = { n, dt, t, T, noise, clamp, step, AND simulate }.
@@ -398,7 +494,7 @@ INFER THE INPUT SIGNAL (the paper won't give you its raw data — reconstruct a 
 - At default params the reproduction MUST qualitatively match the ORIGINAL: same subplots, same number of curves, same trends, comparable axis ranges, same legend names. Set xLabel/yLabel from the original axes.
 - Derive everything from the pipeline (outputs / simulate) so moving a slider visibly changes the real figure. Small auxiliary quantities (reference commands, bounds, thresholds, envelopes) may be computed inline.
 - Same determinism/safety rules as block computeJs: only Math, basic JS, and helpers. No imports, no randomness beyond helpers.noise, keep numerics stable.
-- If the paper reports a scalar metric per condition as a bar/scatter figure, reproduce it by returning x = condition index and one point per condition computed via simulate().
+- If the paper reports a scalar metric per condition as a bar figure AND each condition's value falls out of your pipeline, use chartKind "bar" with categories = the original condition names and one value per condition computed via simulate(). If the bars summarize measured data your pipeline cannot produce, panels: [].
 
 RULES FOR FIGURE BOUNDING BOXES (bbox):
 - Look at the actual page image. Give the figure's region as fractions of the page: x = left edge / page width, y = top edge / page height (origin top-left), w and h likewise.
@@ -423,7 +519,11 @@ OTHER FIELDS
 - conceptFigures: pick the 1-3 INTRODUCTORY/architecture figures (not results plots), give their 1-indexed PDF page and bbox, and explain each in 3-6 sentences so the reader can follow the idea without the paper.
 - conclusion: the paper's core finding, naming the coefficient values it depends on.
 
-FINAL CHECK before you answer: would a reader who never opened the PDF see, in resultFigures, the same set of plots — same subplots, same overlaid curves, same shapes — that the paper actually shows? If any key figure is missing, or any multi-curve subplot was reduced to one curve, fix it before responding. Completeness of the result-figure reproduction is the single most important quality of your output.`;
+FINAL CHECK before you answer — the trust test:
+1. Would a reader who opens the real PDF afterwards find that everything you claimed matches it? If any statement, story point, or explanation might not survive that comparison, fix or cut it.
+2. For every panel you emitted: does its chartKind match the original subplot's plot type, and would the curve at default params be recognizable as that subplot? If not, delete the panel — the original figure and its guided tour stand on their own.
+3. Is the story specific to THIS paper (its actual claimed contributions), not generic filler?
+Honesty and specificity are the product. A dashboard with zero interactive reproductions but a great story, real figures and guided tours is a success; one fake plot makes it a failure.`;
 
 /** Build the optional user-guidance block appended to the analysis prompt. */
 export function hintsBlock(hints) {

@@ -196,6 +196,46 @@ export const SAMPLE_SPEC_2 = {
       "errors uniformly ultimately bounded. Validated on a 1.85 m, 66 kg humanoid walking indoors " +
       "and on uneven outdoor grass.",
   },
+  archetype: {
+    kind: "simulation-control",
+    pipelineFeasible: true,
+    reproductionAdvice:
+      "The controller and learning law are computable dynamics; time responses and iteration-wise error decay " +
+      "can be honestly regenerated with a reduced-order surrogate calibrated to the paper's reported magnitudes. " +
+      "Hardware photos and terrain snapshots stay original-only.",
+  },
+  story: {
+    problem:
+      "A walking humanoid robot is a tower of heavy links balancing on two small feet. To keep it upright " +
+      "you need an exact model of its dynamics — but real robots never match their blueprints: motors drag, " +
+      "loads shift, and the ground is never quite flat.",
+    gap:
+      "Previous whole-body controllers either demanded that precise dynamics model or centralized every joint's " +
+      "control in one giant computation — accurate but fragile, and too slow to adapt when the model is wrong.",
+    contribution: [
+      {
+        headline: "Split the giant problem in two",
+        detail:
+          "Full-body dynamics are separated into a centroidal-momentum planner (where does the body's mass go) " +
+          "and joint-level control (how each motor gets it there), so each half stays tractable.",
+      },
+      {
+        headline: "Each joint learns for itself",
+        detail:
+          "A decentralized repetitive-learning law runs per joint. Because walking is periodic, every stride " +
+          "is a rehearsal: whatever error the model caused last cycle gets cancelled a little more this cycle.",
+      },
+      {
+        headline: "Proof it works off the lab floor",
+        detail:
+          "The framework is proven stable (errors uniformly ultimately bounded) and validated on a real 1.85 m, " +
+          "66 kg humanoid — indoors and on uneven outdoor grass, without an accurate dynamics model.",
+      },
+    ],
+    whyItMatters:
+      "A humanoid that learns away its own modeling errors stride by stride can walk on terrain nobody measured " +
+      "in advance — which is exactly where useful robots have to work.",
+  },
   conclusion:
     "By combining centroidal-momentum planning with a decentralized repetitive-learning controller " +
     "(per-joint gains Kₛ = [46,51,78,48,48,78], Λ = [300,500,500,500,400,400], Γ = [20,30,30,30,20,20], " +

@@ -160,7 +160,9 @@ export function runResultPanel(fn, outputs, params, figHelpers) {
   }
   let x = res.x;
   if (!Array.isArray(x) || x.length !== len) x = null;
-  return { x, series: res.series, error: null };
+  let categories = res.categories;
+  if (!Array.isArray(categories) || categories.length !== len) categories = null;
+  return { x, categories, series: res.series, error: null };
 }
 
 /** Recharts rows for one panel: baseline (b#) + active (a#) series interleaved. */
@@ -184,24 +186,27 @@ export function buildPanelRows(baseRun, actRun) {
 
 /**
  * Validate every panel of every result figure by test-running it.
- * Returns figures with any all-panel-failed figures removed and per-figure
- * panels pruned of individually-failing panels.
+ * Panels that fail to compile, error at runtime, or plot as flat/constant
+ * lines are silently DROPPED — a broken reproduction must never reach the
+ * reader. Figures themselves are always kept: the original cropped figure
+ * plus its guided-tour explanation is the primary content, with or without
+ * interactive panels.
  */
 export function validateResultFigures(spec, pipelineCompiled, helpers, baseParams) {
   const figCompiled = compileResultFigures(spec);
   const base = runSpec(spec, pipelineCompiled, baseParams, helpers);
   const figHelpers = makeFigureHelpers(spec, pipelineCompiled, helpers, baseParams);
-  const kept = [];
-  (spec.resultFigures || []).forEach((fig, fi) => {
+  return (spec.resultFigures || []).map((fig, fi) => {
     const goodPanels = (fig.panels || []).filter((panel, pi) => {
       const id = `${fi}:${pi}`;
       if (figCompiled.errors[id]) return false;
       const r = runResultPanel(figCompiled.fns[id], base.outputs, baseParams, figHelpers);
-      return !r.error;
+      if (r.error) return false;
+      // every series flat ⇒ not a real reproduction — drop it
+      return r.series.some((s) => signalSpan(s.data) > 1e-9);
     });
-    if (goodPanels.length) kept.push({ ...fig, panels: goodPanels });
+    return { ...fig, panels: goodPanels };
   });
-  return kept;
 }
 
 /** Normalized RMS drift (%) of the final block's output vs baseline. */
@@ -264,6 +269,7 @@ function signalSpan(arr) {
 /** Audit the methodology pipeline: constant block outputs and dead sliders. */
 export function auditPipeline(spec, compiled, helpers, defaults) {
   const problems = [];
+  if (!spec.blocks?.length) return problems; // no pipeline (by design for this archetype)
   const base = runSpec(spec, compiled, defaults, helpers);
   if (base.error) { problems.push(`the pipeline fails at baseline: ${base.error}`); return problems; }
 
