@@ -6,20 +6,17 @@
  * PaperSpec that drives the generic workspace.
  */
 
-import React, { useState, useRef, useCallback, useEffect, useMemo } from "react";
+import React, { useState, useRef, useCallback, useEffect } from "react";
 import {
   FlaskConical, Upload, BookOpenCheck, Wallet,
   Loader2, TriangleAlert, FileText, Sparkles, SlidersHorizontal, LineChart, LogOut,
   ChevronDown, Wand2, Landmark, Image as ImageIcon, LogIn, BookMarked, Mail, MapPin,
-  Move, ClipboardCopy, Check, RotateCcw,
 } from "lucide-react";
 import Workspace from "./Workspace.jsx";
 import Auth from "./Auth.jsx";
 import Library from "./Library.jsx";
 import BuyCredits from "./BuyCredits.jsx";
 import ContactModal from "./ContactModal.jsx";
-import DesignBox from "./DesignBox.jsx";
-import { LANDING_BOX_IDS, loadLandingLayout, saveLandingLayout, resetLandingLayout } from "./landingLayout.js";
 import { SAMPLE_SPEC } from "./samplePaper.js";
 import { SAMPLE_SPEC_2 } from "./samplePaper2.js";
 import { analyzePaper, MODEL_TIERS, getModelTier, setModelTier } from "./api.js";
@@ -81,9 +78,9 @@ function BalanceBadge({ balance }) {
 
 /* ---------------- analysis model tier picker ---------------- */
 
-function TierPicker({ tier, onTier, disabled, full }) {
+function TierPicker({ tier, onTier, disabled }) {
   return (
-    <div className={`mt-4 w-full ${full ? "max-w-none" : "max-w-3xl"} rounded-2xl border border-slate-200 bg-white p-4 shadow-sm`}>
+    <div className="mt-4 w-full max-w-none rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
       <div className="mb-2 flex items-baseline justify-between">
         <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
           Analysis level
@@ -122,12 +119,12 @@ function TierPicker({ tier, onTier, disabled, full }) {
 
 /* ---------------- analysis hints (optional guidance) ---------------- */
 
-function HintsPanel({ hints, onHints, disabled, full }) {
+function HintsPanel({ hints, onHints, disabled }) {
   const [open, setOpen] = useState(false);
   const set = (k) => (e) => onHints({ ...hints, [k]: e.target.value });
   const filled = ["domain", "focus", "signal", "notes"].filter((k) => hints[k]?.trim()).length;
   return (
-    <div className={`mt-3 w-full ${full ? "max-w-none" : "max-w-3xl"} rounded-2xl border border-slate-200/80 bg-white/90 shadow-sm backdrop-blur`}>
+    <div className="mt-3 w-full max-w-none rounded-2xl border border-slate-200/80 bg-white/90 shadow-sm backdrop-blur">
       <button
         onClick={() => setOpen(!open)}
         className="flex w-full items-center justify-between px-4 py-3 text-left"
@@ -320,79 +317,6 @@ function Landing({
   const fileRef = useRef(null);
   const requireAuthToUpload = authOn && !signedIn;
 
-  // ---------------- owner-only "PowerPoint mode" for the two top boxes ----
-  // (text/options column + video column) — same drag/resize/copy-config
-  // mechanic as the analysis workspace's Layout Editor. Non-owners never see
-  // this and always get the normal responsive two-column grid.
-  const [landingLayout, setLandingLayout] = useState(loadLandingLayout);
-  const [copied, setCopied] = useState(false);
-  const canvasRef = useRef(null);
-  const boxEls = useRef({});
-  const free = owner && landingLayout.freeMode;
-
-  const registerBox = useCallback((id, el) => {
-    if (el) boxEls.current[id] = el; else delete boxEls.current[id];
-  }, []);
-
-  const setBox = useCallback((id, rect) => {
-    setLandingLayout((L) => {
-      const next = { ...L, boxes: { ...L.boxes, [id]: rect } };
-      saveLandingLayout(next);
-      return next;
-    });
-  }, []);
-
-  // Entering free mode freezes the current responsive positions as the
-  // starting point, so dragging begins from what's already on screen.
-  const toggleFree = useCallback(() => {
-    setLandingLayout((L) => {
-      if (L.freeMode) { const next = { ...L, freeMode: false }; saveLandingLayout(next); return next; }
-      const canvas = canvasRef.current?.getBoundingClientRect();
-      const fullW = document.documentElement.clientWidth || (canvas?.width ?? 1280);
-      const boxes = { ...L.boxes };
-      if (canvas) {
-        for (const [id, el] of Object.entries(boxEls.current)) {
-          if (!el || boxes[id]) continue; // keep any positions already saved
-          const r = el.getBoundingClientRect();
-          boxes[id] = {
-            x: +((r.left / fullW) * 100).toFixed(2),
-            y: Math.round(r.top - canvas.top),
-            w: +((r.width / fullW) * 100).toFixed(2),
-            h: Math.round(r.height),
-            font: 1,
-          };
-        }
-      }
-      const next = { ...L, freeMode: true, boxes };
-      saveLandingLayout(next);
-      return next;
-    });
-  }, []);
-
-  const canvasHeight = useMemo(() => {
-    if (!free) return undefined;
-    let max = 400;
-    for (const id of LANDING_BOX_IDS) {
-      const b = landingLayout.boxes[id];
-      if (b) max = Math.max(max, b.y + b.h);
-    }
-    return max + 60;
-  }, [free, landingLayout.boxes]);
-
-  const copyLandingConfig = async () => {
-    try {
-      await navigator.clipboard.writeText(JSON.stringify(landingLayout, null, 2));
-      setCopied(true); setTimeout(() => setCopied(false), 1800);
-    } catch { /* clipboard blocked */ }
-  };
-
-  // In free/arranged mode the box itself IS the width constraint (the owner
-  // just resized it), so inner content must fill it edge-to-edge instead of
-  // capping at a fixed reading width — otherwise resizing the frame does
-  // nothing visible, which is exactly the bug being fixed here.
-  const wCls = free ? "max-w-none" : "max-w-3xl";
-  const wClsSm = free ? "max-w-none" : "max-w-2xl";
-
   return (
     <div className="flex min-h-screen flex-col" style={{ fontFamily: "system-ui, -apple-system, 'Segoe UI', sans-serif" }}>
       <header className="border-b border-slate-200/70 bg-white/80 backdrop-blur">
@@ -408,16 +332,6 @@ function Landing({
             >
               <Mail size={14} /> Contact
             </button>
-            {owner && (
-              <button
-                onClick={toggleFree}
-                className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium shadow-sm ${
-                  free ? "border-blue-500 bg-blue-600 text-white hover:bg-blue-700" : "border-slate-200 bg-white/80 text-slate-600 hover:border-blue-300 hover:text-blue-700"
-                }`}
-              >
-                <Move size={14} /> {free ? "Done arranging" : "Arrange page"}
-              </button>
-            )}
             {signedIn ? (
               <>
                 {owner ? (
@@ -468,47 +382,23 @@ function Landing({
         </div>
       </header>
 
-      {free && (
-        <div className="fixed bottom-4 left-1/2 z-40 flex -translate-x-1/2 flex-wrap items-center justify-center gap-2 rounded-full border border-blue-300 bg-blue-600/95 px-4 py-2 text-[11px] font-medium text-white shadow-lg backdrop-blur">
-          <span>Arrange page · drag a box by its blue label · resize from the corner</span>
-          <button
-            onClick={() => setLandingLayout(resetLandingLayout())}
-            className="flex items-center gap-1 rounded-full bg-white/15 px-2 py-1 hover:bg-white/25"
-          >
-            <RotateCcw size={11} /> Reset
-          </button>
-          <button
-            onClick={copyLandingConfig}
-            className="flex items-center gap-1 rounded-full bg-white px-2 py-1 font-semibold text-blue-700 hover:bg-blue-50"
-          >
-            {copied ? <Check size={11} /> : <ClipboardCopy size={11} />}
-            {copied ? "Copied!" : "Copy layout"}
-          </button>
-        </div>
-      )}
-
-      <main
-        ref={canvasRef}
-        className={free ? "relative w-full p-0" : "grid w-full flex-1 gap-10 px-4 py-10 sm:px-8 lg:grid-cols-[minmax(0,1fr)_22rem] lg:px-10 xl:grid-cols-[minmax(0,1fr)_26rem]"}
-        style={free ? { height: canvasHeight, maxWidth: "none" } : undefined}
-      >
-        {/* ---------- left rail: all controls (expanded) ---------- */}
-        <DesignBox
-          id="landing-text" label="Text & options"
-          mode={free ? "free" : "flow"} rect={landingLayout.boxes["landing-text"]}
-          onRect={setBox} register={registerBox}
-        >
-        <div className={`flex w-full ${wCls} flex-col items-start`}>
+      {/* ---------- fixed two-box arrangement (owner-approved layout) ----------
+       * Text/options at x:5% y:32px w:47.5% h:944px, video at x:59.5% y:72px
+       * w:38% h:832px, both absolutely placed at lg+; single stacked column
+       * below that (no arrange UI — this is now the permanent layout). */}
+      <main className="relative flex w-full flex-1 flex-col gap-10 px-4 py-10 sm:px-8 lg:block lg:h-[1020px] lg:px-10">
+        <div className="w-full lg:absolute lg:left-[5%] lg:top-[32px] lg:h-[944px] lg:w-[47.5%] lg:overflow-y-auto">
+        <div className="flex w-full max-w-none flex-col items-start">
         <div className="mb-3 flex items-center gap-2 rounded-full border border-blue-200/60 bg-white/70 px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-blue-700 shadow-sm backdrop-blur">
           <Sparkles size={13} /> Leave the PDF aside — work with the paper
         </div>
-        <h1 className={`${wCls} text-left text-3xl font-extrabold leading-tight tracking-tight text-slate-900 sm:text-4xl`}>
+        <h1 className="max-w-none text-left text-3xl font-extrabold leading-tight tracking-tight text-slate-900 sm:text-4xl">
           Turn any scientific paper into a{" "}
           <span className="bg-gradient-to-r from-blue-600 via-violet-600 to-emerald-600 bg-clip-text text-transparent">
             living, interactive lab
           </span>
         </h1>
-        <p className={`mt-4 ${wClsSm} text-left text-sm leading-relaxed text-slate-600`}>
+        <p className="mt-4 max-w-none text-left text-sm leading-relaxed text-slate-600">
           The analyzer walks you through a paper the way a good colleague would: the idea in
           pictures, the prior work it stands on, its own method with every coefficient on a
           slider, and its real result figures — recreated and reshaping live as you explore.
@@ -528,7 +418,7 @@ function Landing({
         </div>
 
         {/* how it works */}
-        <div className={`mt-8 grid w-full ${wCls} grid-cols-1 gap-3 sm:grid-cols-3`}>
+        <div className={`mt-8 grid w-full max-w-none grid-cols-1 gap-3 sm:grid-cols-3`}>
           {[
             {
               n: "1",
@@ -558,7 +448,7 @@ function Landing({
           ))}
         </div>
 
-        <div className={`mt-8 grid w-full ${wCls} gap-4 sm:grid-cols-2`}>
+        <div className={`mt-8 grid w-full max-w-none gap-4 sm:grid-cols-2`}>
           <div className="flex flex-col gap-3">
             <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
               <BookOpenCheck size={14} className="text-blue-600" /> Try a ready-made example (no key needed)
@@ -626,12 +516,12 @@ function Landing({
           />
         </div>
 
-        <TierPicker tier={tier} onTier={onTier} disabled={busy} full={free} />
+        <TierPicker tier={tier} onTier={onTier} disabled={busy} />
 
-        <HintsPanel hints={hints} onHints={onHints} disabled={busy} full={free} />
+        <HintsPanel hints={hints} onHints={onHints} disabled={busy} />
 
         {busy && (
-          <div className={`mt-6 w-full ${wCls} rounded-xl border border-blue-200 bg-white/90 px-4 py-4 shadow-sm backdrop-blur`}>
+          <div className={`mt-6 w-full max-w-none rounded-xl border border-blue-200 bg-white/90 px-4 py-4 shadow-sm backdrop-blur`}>
             <div className="flex items-center gap-3 text-sm text-blue-900">
               <Loader2 size={18} className="shrink-0 animate-spin" />
               <div className="min-w-0 flex-1">
@@ -654,7 +544,7 @@ function Landing({
         )}
 
         {error && !busy && (
-          <div className={`mt-6 flex w-full ${wCls} items-start gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800`}>
+          <div className={`mt-6 flex w-full max-w-none items-start gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800`}>
             <TriangleAlert size={18} className="mt-0.5 shrink-0" />
             <div>
               <div className="font-medium">Analysis failed</div>
@@ -663,24 +553,18 @@ function Landing({
           </div>
         )}
 
-        <p className={`mt-8 flex ${wClsSm} items-center gap-1.5 text-left text-[11px] text-slate-400`}>
+        <p className="mt-8 flex max-w-none items-center gap-1.5 text-left text-[11px] text-slate-400">
           <FileText size={12} className="shrink-0" />
           Your PDF passes through our AI analysis service and is not kept; only the
           finished interactive analysis is saved — privately, to your own library.
         </p>
         </div>
-        </DesignBox>
+        </div>
 
-        {/* ---------- right rail: demo video with synced explanations (half-size) ---------- */}
-        <DesignBox
-          id="landing-video" label="Demo video"
-          mode={free ? "free" : "flow"} rect={landingLayout.boxes["landing-video"]}
-          onRect={setBox} register={registerBox}
-        >
-        <div className="min-w-0 self-start lg:sticky lg:top-6">
+        {/* ---------- demo video (fixed position/size at lg+) ---------- */}
+        <div className="w-full lg:absolute lg:left-[59.5%] lg:top-[72px] lg:h-[832px] lg:w-[38%] lg:overflow-y-auto">
           <VideoShowcase />
         </div>
-        </DesignBox>
       </main>
 
       <SiteFooter onContact={onContact} />
