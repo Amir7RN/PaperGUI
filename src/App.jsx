@@ -11,6 +11,7 @@ import {
   FlaskConical, Upload, BookOpenCheck, Wallet,
   Loader2, TriangleAlert, FileText, Sparkles, SlidersHorizontal, LineChart, LogOut,
   ChevronDown, Wand2, Landmark, Image as ImageIcon, LogIn, BookMarked, Mail, MapPin,
+  FileCode2, X as XIcon,
 } from "lucide-react";
 import Workspace from "./Workspace.jsx";
 import Auth from "./Auth.jsx";
@@ -23,7 +24,7 @@ import { analyzePaper, MODEL_TIERS, getModelTier, setModelTier } from "./api.js"
 import { fileToBase64, renderPdfRegions } from "./pdf.js";
 import {
   compileSpec, buildHelpers, defaultsFromSpec, runSpec, validateResultFigures,
-  auditPipeline, auditResultFiguresQuality, auditFoundations,
+  auditPipeline, auditResultFiguresQuality, auditFoundations, auditExplorables,
 } from "./engine.js";
 import { authEnabled, onAuthChange, signOut, getBalance, saveAnalysis } from "./supabase.js";
 
@@ -119,10 +120,27 @@ function TierPicker({ tier, onTier, disabled }) {
 
 /* ---------------- analysis hints (optional guidance) ---------------- */
 
-function HintsPanel({ hints, onHints, disabled }) {
+/** File extensions accepted as "the paper's code" — read as plain text. */
+const CODE_EXTS = ".py,.m,.jl,.r,.c,.cpp,.h,.hpp,.cs,.java,.js,.ts,.ipynb,.sh,.yaml,.yml,.toml,.json,.txt,.md";
+const MAX_CODE_FILE_MB = 2;
+const MAX_CODE_FILES = 8;
+
+function HintsPanel({ hints, onHints, codeFiles, onCodeFiles, disabled }) {
   const [open, setOpen] = useState(false);
+  const codeInputRef = useRef(null);
   const set = (k) => (e) => onHints({ ...hints, [k]: e.target.value });
-  const filled = ["domain", "focus", "signal", "notes"].filter((k) => hints[k]?.trim()).length;
+  const filled = ["domain", "focus", "signal", "notes"].filter((k) => hints[k]?.trim()).length
+    + (codeFiles.length ? 1 : 0);
+
+  const addCodeFiles = async (fileList) => {
+    const picked = Array.from(fileList || []).slice(0, MAX_CODE_FILES - codeFiles.length);
+    const loaded = [];
+    for (const f of picked) {
+      if (f.size > MAX_CODE_FILE_MB * 1024 * 1024) continue; // silently skip huge binaries
+      try { loaded.push({ name: f.name, text: await f.text() }); } catch { /* unreadable — skip */ }
+    }
+    if (loaded.length) onCodeFiles([...codeFiles, ...loaded].slice(0, MAX_CODE_FILES));
+  };
   return (
     <div className="mt-3 w-full max-w-none rounded-2xl border border-slate-200/80 bg-white/90 shadow-sm backdrop-blur">
       <button
@@ -176,6 +194,49 @@ function HintsPanel({ hints, onHints, disabled }) {
               className="w-full resize-y rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs focus:border-blue-400 focus:outline-none"
             />
           </label>
+
+          {/* ---- the paper's code: the single biggest accuracy boost ---- */}
+          <div className="text-xs text-slate-600 sm:col-span-2">
+            <span className="mb-1 flex items-center gap-1.5 font-medium">
+              <FileCode2 size={13} className="text-emerald-600" />
+              Do you have the paper's code? <span className="font-normal text-slate-400">(its repo scripts, a notebook, your own implementation)</span>
+            </span>
+            <p className="mb-2 text-[11px] leading-relaxed text-slate-400">
+              If you attach it, the interactive plots are derived from the <strong className="text-slate-500">actual implementation</strong> —
+              same equations, same constants — instead of being reconstructed from the paper's prose. Up to {MAX_CODE_FILES} text
+              files, {MAX_CODE_FILE_MB} MB each.
+            </p>
+            <input
+              ref={codeInputRef} type="file" multiple accept={CODE_EXTS}
+              className="hidden" disabled={disabled}
+              onChange={(e) => { addCodeFiles(e.target.files); e.target.value = ""; }}
+            />
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button" disabled={disabled || codeFiles.length >= MAX_CODE_FILES}
+                onClick={() => codeInputRef.current?.click()}
+                className="flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-100 disabled:opacity-40"
+              >
+                <Upload size={12} /> Attach code files
+              </button>
+              {codeFiles.map((f, i) => (
+                <span key={`${f.name}-${i}`}
+                  className="flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] text-slate-600">
+                  <FileCode2 size={11} className="text-slate-400" />
+                  {f.name}
+                  <span className="text-slate-300">·</span>
+                  <span className="text-slate-400">{(f.text.length / 1024).toFixed(0)} kB</span>
+                  <button
+                    type="button" aria-label={`Remove ${f.name}`} disabled={disabled}
+                    onClick={() => onCodeFiles(codeFiles.filter((_, k) => k !== i))}
+                    className="ml-0.5 text-slate-300 hover:text-red-500"
+                  >
+                    <XIcon size={11} />
+                  </button>
+                </span>
+              ))}
+            </div>
+          </div>
         </div>
       )}
     </div>
@@ -312,6 +373,7 @@ function SiteFooter({ onContact }) {
 
 function Landing({
   onSample, onUpload, busy, progress, error, tier, onTier, balance, hints, onHints,
+  codeFiles, onCodeFiles,
   authOn, signedIn, onSignIn, onSignUp, onSignOut, onOpenLibrary, onBuyCredits, owner, onContact,
 }) {
   const fileRef = useRef(null);
@@ -518,7 +580,7 @@ function Landing({
 
         <TierPicker tier={tier} onTier={onTier} disabled={busy} />
 
-        <HintsPanel hints={hints} onHints={onHints} disabled={busy} />
+        <HintsPanel hints={hints} onHints={onHints} codeFiles={codeFiles} onCodeFiles={onCodeFiles} disabled={busy} />
 
         {busy && (
           <div className={`mt-6 w-full max-w-none rounded-xl border border-blue-200 bg-white/90 px-4 py-4 shadow-sm backdrop-blur`}>
@@ -582,6 +644,7 @@ export default function App() {
   const [tier, setTier] = useState(getModelTier);
   const [balance, setBalance] = useState(null);
   const [hints, setHints] = useState({ domain: "", focus: "", signal: "", notes: "" });
+  const [codeFiles, setCodeFiles] = useState([]); // [{name, text}] — the paper's actual code (optional)
 
   // Auth is optional for browsing: anyone can open the sample papers. An
   // account is only required to analyze a new PDF (that spends credit and the
@@ -640,7 +703,10 @@ export default function App() {
         method: (s) => {
           try {
             const h = buildHelpers(s.protocol);
-            return asNote(auditPipeline(s, compileSpec(s), h, defaultsFromSpec(s)));
+            return asNote([
+              ...auditPipeline(s, compileSpec(s), h, defaultsFromSpec(s)),
+              ...auditExplorables(s),
+            ]);
           } catch { return null; }
         },
         results: (s) => {
@@ -651,7 +717,12 @@ export default function App() {
         },
       };
 
-      const { spec: newSpec, remainingBalance } = await analyzePaper(base64, setProgress, tier, hints, validators);
+      // Assemble the uploaded code (if any) into one annotated text blob.
+      const codeText = codeFiles.length
+        ? codeFiles.map((f) => `\n===== FILE: ${f.name} =====\n${f.text}`).join("\n")
+        : null;
+
+      const { spec: newSpec, remainingBalance } = await analyzePaper(base64, setProgress, tier, hints, validators, codeText);
       if (typeof remainingBalance === "number") setBalance(remainingBalance);
 
       setProgress({ pct: 86, label: "Cropping figures from the paper…" });
@@ -694,7 +765,7 @@ export default function App() {
       setBusy(false);
       setProgress(null);
     }
-  }, [tier, hints, balance, session]);
+  }, [tier, hints, codeFiles, balance, session]);
 
   // Full-site background: fixed image layer + soft wash for legibility.
   const bgLayer = (
@@ -768,6 +839,8 @@ export default function App() {
         balance={balance}
         hints={hints}
         onHints={setHints}
+        codeFiles={codeFiles}
+        onCodeFiles={setCodeFiles}
         authOn={authEnabled}
         signedIn={Boolean(session)}
         onSignIn={() => setAuthOpen("signin")}

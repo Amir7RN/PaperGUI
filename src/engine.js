@@ -324,6 +324,36 @@ export function auditResultFiguresQuality(spec, compiled, helpers, defaults) {
   return problems;
 }
 
+/** Audit explorable demos (equation explorers / reported-data charts):
+ *  non-compiling, erroring, or flat/empty output. Same contract as
+ *  foundation demos — kernel body of function(params, helpers). */
+export function auditExplorables(spec) {
+  const problems = [];
+  (spec.explorables || []).forEach((ex) => {
+    const d = ex.demo;
+    if (!d) { problems.push(`explorable "${ex.title}" has no demo`); return; }
+    let fn;
+    try {
+      // eslint-disable-next-line no-new-func
+      fn = new Function("params", "helpers", d.computeJs);
+    } catch (e) { problems.push(`explorable "${ex.title}" demo does not compile: ${e.message}`); return; }
+    const h = buildHelpers({ T: d.T || 1, dt: d.dt || 1 });
+    const p = Object.fromEntries((d.params || []).map((pp) => [pp.key, pp.def]));
+    let res;
+    try { res = fn(p, h); } catch (e) { problems.push(`explorable "${ex.title}" demo errors when run: ${e.message}`); return; }
+    if (d.kind === "frames") {
+      if (!res || !Array.isArray(res.frames) || res.frames.length < 2) {
+        problems.push(`explorable "${ex.title}" frames demo returns no usable frames`);
+      }
+    } else {
+      const live = res && Array.isArray(res.series) &&
+        res.series.some((s) => Array.isArray(s.data) && s.data.length > 1 && signalSpan(s.data.filter(Number.isFinite)) > 1e-9);
+      if (!live) problems.push(`explorable "${ex.title}" chart demo plots flat or empty — it must show clearly varying values`);
+    }
+  });
+  return problems;
+}
+
 /** Audit foundation demos: non-compiling, erroring, or flat/empty output. */
 export function auditFoundations(spec) {
   const problems = [];

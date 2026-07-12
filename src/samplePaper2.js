@@ -236,6 +236,41 @@ export const SAMPLE_SPEC_2 = {
       "A humanoid that learns away its own modeling errors stride by stride can walk on terrain nobody measured " +
       "in advance — which is exactly where useful robots have to work.",
   },
+  mindmap: {
+    nodes: [
+      { id: "paper", label: "Centroidal + Repetitive-Learning Walker", kind: "paper",
+        detail: "Splits whole-body humanoid control into a centroidal-momentum planner plus per-joint decentralized repetitive-learning controllers — no accurate dynamics model required." },
+      { id: "prob", label: "No robot matches its blueprint", kind: "problem",
+        detail: "A walking humanoid is a tower of heavy links balancing on two feet. Whole-body control usually needs an exact dynamics model — but motors drag, loads shift, and real ground is never flat." },
+      { id: "prior1", label: "ZMP / preview control (Kajita 2003)", kind: "prior",
+        detail: "Classic bipedal gait generation plans around the zero-moment point — this paper builds on that lineage but at the centroidal-momentum level instead." },
+      { id: "prior2", label: "Repetitive learning (Arimoto 1984)", kind: "prior",
+        detail: "The idea that periodic tasks let you cancel the SAME error every cycle — this paper applies it per-joint to a walking gait's natural periodicity." },
+      { id: "m1", label: "Centroidal-momentum planner", kind: "method",
+        detail: "Solves for dynamically consistent CoM trajectories and desired ground reaction forces, decoupled from the joint-level problem." },
+      { id: "m2", label: "Decentralized repetitive-learning control", kind: "method",
+        detail: "Each joint runs its own learning law that uses the gait's periodicity to cancel model uncertainty stride by stride, with no central dynamics model." },
+      { id: "c1", label: "Two-layer split scales", kind: "contribution",
+        detail: "Separating momentum planning from per-joint control keeps each half tractable instead of one giant fragile computation." },
+      { id: "c2", label: "Stability proof + real hardware", kind: "contribution",
+        detail: "Proven uniformly ultimately bounded tracking errors, then validated on a real 1.85 m, 66 kg humanoid indoors and on uneven outdoor grass." },
+      { id: "res1", label: "CoM held to 1.045 m (<0.018 m err)", kind: "result",
+        detail: "Indoors, the CoM height is regulated to within 1.8 cm of target with smooth ground reaction forces capped at 650 N." },
+      { id: "res2", label: "Survives pushes and outdoor grass", kind: "result",
+        detail: "The controller rejects a transient external push and keeps tracking stable — just noisier — on uneven outdoor grass, without an accurate terrain model." },
+    ],
+    edges: [
+      { from: "prob", to: "paper", label: "motivates" },
+      { from: "prior1", to: "paper", label: "builds on" },
+      { from: "prior2", to: "paper", label: "builds on" },
+      { from: "paper", to: "m1", label: "introduces" },
+      { from: "paper", to: "m2", label: "introduces" },
+      { from: "paper", to: "c1", label: "claims" },
+      { from: "paper", to: "c2", label: "claims" },
+      { from: "m1", to: "res1", label: "achieves" },
+      { from: "m2", to: "res2", label: "achieves" },
+    ],
+  },
   conclusion:
     "By combining centroidal-momentum planning with a decentralized repetitive-learning controller " +
     "(per-joint gains Kₛ = [46,51,78,48,48,78], Λ = [300,500,500,500,400,400], Γ = [20,30,30,30,20,20], " +
@@ -599,6 +634,11 @@ return out;`,
         "steady indoor walking. Errors stay small and bounded across all joints. Raise the learning " +
         "rate Γ or the feedback gain Kₛ and the actual curves hug the reference more tightly; add " +
         "uncertainty or terrain and they deviate.",
+      hotspots: [
+        { x: 0.22, y: 0.28, label: "hip joint locks onto the gait", note: "The hip-pitch trace settles onto its periodic reference within the first couple of strides — the repetitive-learning term canceling the initial model error." },
+        { x: 0.55, y: 0.62, label: "small bounded residual", note: "Even at steady state the actual curve doesn't sit exactly on the reference — that gap is the paper's 'uniformly ultimately bounded' claim, not exact convergence." },
+        { x: 0.8, y: 0.35, label: "same shape, all six joints", note: "Every joint shows the same tight tracking despite very different gains per joint — evidence the method scales across the leg, not just one lucky joint." },
+      ],
       svg: svgTrack, panels: trackPanels(IN, 0),
     },
     {
@@ -615,6 +655,10 @@ return out;`,
         "Left: the CoM height held near the desired 1.045 m (error < 0.018 m during walking). Right: the " +
         "vertical ground reaction forces of the two feet, alternating with the gait and peaking near the " +
         "robot's weight — smooth and physically consistent, capped by the 650 N contact bound.",
+      hotspots: [
+        { x: 0.2, y: 0.45, label: "CoM height barely moves", note: "The left trace stays within 1.8 cm of the 1.045 m target the whole time — the planner is doing its job of keeping the body's mass where the controller expects it." },
+        { x: 0.75, y: 0.3, label: "GRFs alternate with the gait", note: "The two feet's forces trade off as weight shifts stride to stride, each peak staying under the 650 N contact bound the paper caps them at." },
+      ],
       svg: svgComGrf, panels: comGrfPanels(IN),
     },
     {
@@ -623,6 +667,10 @@ return out;`,
         "A transient external push is applied mid-walk. The hip-pitch and knee joints deviate at the " +
         "instant of the push, then the controller rejects it and tracking recovers — the disturbance-" +
         "rejection behavior the paper highlights. Increase Kₛ or Γ to shrink the excursion.",
+      hotspots: [
+        { x: 0.45, y: 0.4, label: "the push lands here", note: "At t = 6s an external push is applied — this is the instant the hip and knee joints visibly kick away from their reference." },
+        { x: 0.75, y: 0.55, label: "recovery, not a crash", note: "Within roughly a stride the controller pulls both joints back onto the periodic reference — the disturbance-rejection behavior the paper is demonstrating." },
+      ],
       svg: svgTrack,
       panels: [
         {
@@ -662,6 +710,27 @@ return { series: [ { label: "reference", data: r.qd }, { label: "actual", data: 
         "below 0.03 m indoors) from grass compliance and height irregularity, and the foot forces show " +
         "more asymmetry — but the CoM stays regulated and the forces continuous, without instability.",
       svg: svgComGrf, panels: comGrfPanels(OUT),
+    },
+  ],
+  // Bonus explorer (this paper HAS a pipeline) — the paper's own reported
+  // indoor-vs-outdoor robustness numbers, made interactive, alongside the
+  // live simulation panels above.
+  explorables: [
+    {
+      title: "Indoor vs. outdoor robustness, at a glance",
+      basis: "reported",
+      story: "The same controller, the same gains, two terrains. Hover the bars to compare exactly how much the paper's own reported CoM-height fluctuation and peak foot force grow when the robot leaves the flat lab floor for uneven grass.",
+      source: "Figs. 6 and 11 captions, §V-B",
+      demo: {
+        kind: "chart", chartKind: "bar", T: 1, dt: 1,
+        xLabel: "terrain", yLabel: "CoM height fluctuation (m, peak-to-peak)",
+        caption: "hover the bars for the paper's own numbers",
+        params: [],
+        computeJs: `
+return { categories: ["Indoor (flat)", "Outdoor (grass)"], series: [
+  { label: "CoM height fluctuation (m)", data: [0.03, 0.05] },
+] };`,
+      },
     },
   ],
 };

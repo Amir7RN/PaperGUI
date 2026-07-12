@@ -47,10 +47,12 @@ export const NUMERIC_DEFS = [
 /* The chapters — editable title + subtitle + on/off, like slides. */
 export const DEFAULT_SECTIONS = [
   { key: "story",       on: true, title: "Why this paper exists",       sub: "The story in plain language: the problem, what earlier work couldn't do, and exactly what this paper adds." },
+  { key: "mindmap",     on: true, title: "The whole paper, one map",    sub: "A clickable concept map — the problem, the prior work, the method, the contributions and the headline result, all in one place. Click any node to read what it means." },
   { key: "concept",     on: true, title: "The idea, in pictures",       sub: "The paper's own introductory figures, cropped and explained. Click any figure to open it fullscreen with its full explanation." },
   { key: "foundations", on: true, title: "Background you need first",   sub: "Key ideas from earlier work that this paper builds on — quick lessons before the new contribution makes sense." },
   { key: "method",      on: true, title: "Learn the method by playing", sub: "An app-style lab: pick a step of the pipeline on the left, watch the animated signal flow, turn its dials and see the plot react — plain language throughout." },
-  { key: "results",     on: true, title: "The results, from the paper itself", sub: "Every key result figure, cropped from the PDF with a guided tour of what it shows — plus a live simulation wherever one can honestly be built." },
+  { key: "explorables", on: true, title: "Play with the paper's own model", sub: "The paper's own equations on sliders, and its own reported numbers made interactive — hands-on even when the full method can't be simulated." },
+  { key: "results",     on: true, title: "The results, from the paper itself", sub: "Every key result figure, cropped from the PDF with clickable hotspots and a guided tour — plus a live reproduction wherever one can honestly be built." },
 ];
 
 /* Free-form canvas boxes: id -> { x,w in % of canvas width; y,h in px; font mult }.

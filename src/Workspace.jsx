@@ -20,7 +20,7 @@ import {
   Activity, GitBranch, Pin, PinOff, FileText, Code2, Sigma, Waves, Cpu,
   ChevronRight, TriangleAlert, CircleCheck, CircleAlert, ArrowLeft, Image as ImageIcon, LogOut,
   Landmark, Maximize2, Lightbulb, LineChart as LineChartIcon, LayoutTemplate, Move,
-  Sparkles, BookMarked,
+  Sparkles, BookMarked, Play, Pause, Puzzle, Rocket, Network, ChevronLeft, FileCode2,
 } from "lucide-react";
 import LayoutEditor from "./LayoutEditor.jsx";
 import DesignBox from "./DesignBox.jsx";
@@ -232,57 +232,231 @@ function Lightbox({ fig, onClose }) {
   );
 }
 
-/* ---------------- 0 · the paper's story (problem → gap → contribution) --- */
+/* ---------------- 0 · the story, as an auto-playing animated sequence ----
+ * No text walls: the story plays itself like a short film's title cards —
+ * one animated beat at a time with tap-to-jump progress bars (story-player
+ * pattern). Pause, scrub, replay. */
 
-function StorySection({ story }) {
-  if (!story) return null;
-  const steps = [
-    { label: "The problem",       text: story.problem,     tone: "bg-slate-100 text-slate-700",  dot: "bg-slate-500"  },
-    { label: "What was missing",  text: story.gap,         tone: "bg-amber-50 text-amber-900",   dot: "bg-amber-500"  },
-  ].filter((s) => s.text);
+const BEAT_HUES = {
+  problem:      { bg: "from-slate-800 to-slate-900",  chip: "bg-red-500/20 text-red-300",       bar: "#e34948" },
+  gap:          { bg: "from-slate-800 to-slate-900",  chip: "bg-amber-500/20 text-amber-300",   bar: "#eda100" },
+  contribution: { bg: "from-slate-800 to-slate-900",  chip: "bg-rose-500/20 text-rose-300",     bar: "#e0447c" },
+  payoff:       { bg: "from-slate-800 to-slate-900",  chip: "bg-emerald-500/20 text-emerald-300", bar: "#1baf7a" },
+};
+
+function StoryPlayer({ story }) {
+  const beats = useMemo(() => {
+    if (!story) return [];
+    const b = [];
+    if (story.problem) b.push({ kind: "problem", Icon: TriangleAlert, kicker: "The problem", headline: null, text: story.problem });
+    if (story.gap)     b.push({ kind: "gap", Icon: Puzzle, kicker: "What was missing", headline: null, text: story.gap });
+    (story.contribution || []).forEach((c, i, arr) => {
+      b.push({ kind: "contribution", Icon: Sparkles, kicker: `This paper adds — ${i + 1} of ${arr.length}`, headline: c.headline, text: c.detail });
+    });
+    if (story.whyItMatters) b.push({ kind: "payoff", Icon: Rocket, kicker: "Why it matters", headline: null, text: story.whyItMatters });
+    return b;
+  }, [story]);
+
+  const DUR = 7000;
+  const [idx, setIdx] = useState(0);
+  const [playing, setPlaying] = useState(true);
+  const [cycle, setCycle] = useState(0); // bumps to restart the bar animation on replay
+
+  useEffect(() => {
+    if (!playing || beats.length < 2) return;
+    const t = setTimeout(() => {
+      setIdx((i) => (i + 1 < beats.length ? i + 1 : (setPlaying(false), i)));
+    }, DUR);
+    return () => clearTimeout(t);
+  }, [idx, playing, beats.length, cycle]);
+
+  if (!beats.length) return null;
+  const beat = beats[Math.min(idx, beats.length - 1)];
+  const hue = BEAT_HUES[beat.kind];
+  const BeatIcon = beat.Icon;
+  const jump = (i) => { setIdx(i); setPlaying(true); setCycle((c) => c + 1); };
 
   return (
-    <div className="rounded-2xl border border-slate-200/80 bg-white/90 p-5 shadow-sm backdrop-blur">
-      {/* problem → gap, as a two-beat setup */}
-      <div className="grid gap-3 md:grid-cols-2">
-        {steps.map((s) => (
-          <div key={s.label} className={`rounded-xl px-4 py-3 ${s.tone}`}>
-            <div className="mb-1 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wider opacity-70">
-              <span className={`h-2 w-2 rounded-full ${s.dot}`} /> {s.label}
-            </div>
-            <p className="text-[13.5px] leading-relaxed">{s.text}</p>
-          </div>
+    <div className={`relative overflow-hidden rounded-2xl bg-gradient-to-br ${hue.bg} shadow-lg`}>
+      <style>{`
+        @keyframes beatIn { from { opacity: 0; transform: translateY(14px) scale(0.985); } to { opacity: 1; transform: none; } }
+        @keyframes beatIcon { 0% { opacity: 0; transform: scale(0.4) rotate(-8deg); } 60% { transform: scale(1.12); } 100% { opacity: 1; transform: none; } }
+        @keyframes beatBar { from { width: 0%; } to { width: 100%; } }
+      `}</style>
+
+      {/* tap-to-jump progress bars */}
+      <div className="absolute left-0 right-0 top-0 z-10 flex gap-1 px-3 pt-3">
+        {beats.map((b, i) => (
+          <button key={i} onClick={() => jump(i)} aria-label={`Story part ${i + 1}`}
+            className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/20">
+            <span
+              className="block h-full rounded-full"
+              style={{
+                background: BEAT_HUES[b.kind].bar,
+                width: i < idx ? "100%" : i > idx ? "0%" : undefined,
+                animation: i === idx && playing ? `beatBar ${DUR}ms linear forwards` : undefined,
+                animationName: i === idx && playing ? "beatBar" : undefined,
+                ...(i === idx && !playing ? { width: "100%" } : {}),
+              }}
+              key={`${i}-${cycle}-${i === idx}`}
+            />
+          </button>
         ))}
       </div>
 
-      {/* the payoff: what THIS paper adds */}
-      <div className="mt-4">
-        <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-rose-600">
-          <Sparkles size={13} /> What this paper adds
+      {/* the beat itself — re-keyed so the entrance animation replays */}
+      <div key={`${idx}-${cycle}`} className="flex min-h-[240px] flex-col items-center justify-center px-6 py-12 text-center sm:px-16"
+        style={{ animation: "beatIn 600ms cubic-bezier(0.22,1,0.36,1) both" }}>
+        <div className={`mb-3 flex h-12 w-12 items-center justify-center rounded-2xl ${hue.chip}`}
+          style={{ animation: "beatIcon 700ms cubic-bezier(0.34,1.56,0.64,1) both" }}>
+          <BeatIcon size={22} />
         </div>
-        <div className={`grid gap-3 ${story.contribution?.length > 2 ? "md:grid-cols-3" : "md:grid-cols-2"}`}>
-          {(story.contribution || []).map((c, i) => (
-            <div key={i} className="rounded-xl border border-rose-100 bg-rose-50/60 px-4 py-3">
-              <div className="flex items-start gap-2">
-                <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-rose-600 text-[10px] font-bold text-white">
-                  {i + 1}
-                </span>
-                <h3 className="text-[13px] font-bold leading-snug text-rose-900">{c.headline}</h3>
-              </div>
-              <p className="mt-1.5 text-[12.5px] leading-relaxed text-slate-700">{c.detail}</p>
-            </div>
+        <div className={`mb-2 rounded-full px-3 py-1 text-[11px] font-bold uppercase tracking-widest ${hue.chip}`}>
+          {beat.kicker}
+        </div>
+        {beat.headline && (
+          <h3 className="mb-2 max-w-2xl text-xl font-extrabold leading-snug text-white sm:text-2xl">{beat.headline}</h3>
+        )}
+        <p className={`max-w-2xl leading-relaxed text-slate-200 ${beat.headline ? "text-[14px]" : "text-lg font-medium sm:text-xl"}`}>
+          {beat.text}
+        </p>
+      </div>
+
+      {/* controls */}
+      <div className="absolute bottom-3 left-0 right-0 z-10 flex items-center justify-center gap-2">
+        <button onClick={() => jump(Math.max(0, idx - 1))} aria-label="Previous"
+          className="rounded-full bg-white/10 p-2 text-white hover:bg-white/25"><ChevronLeft size={15} /></button>
+        <button
+          onClick={() => { if (!playing && idx === beats.length - 1) { jump(0); } else { setPlaying(!playing); setCycle((c) => c + 1); } }}
+          aria-label={playing ? "Pause" : "Play"}
+          className="rounded-full bg-white/15 px-4 py-2 text-white hover:bg-white/30">
+          {playing ? <Pause size={15} /> : <Play size={15} />}
+        </button>
+        <button onClick={() => jump(Math.min(beats.length - 1, idx + 1))} aria-label="Next"
+          className="rounded-full bg-white/10 p-2 text-white hover:bg-white/25"><ChevronRight size={15} /></button>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- the paper as a clickable concept map ---------------- */
+
+const NODE_KINDS = {
+  paper:        { fill: "#0f172a", stroke: "#334155", ink: "#fff",    legend: "the paper" },
+  problem:      { fill: "#fdeeee", stroke: "#e34948", ink: "#7f1d1d", legend: "problem" },
+  prior:        { fill: "#fdf6e3", stroke: "#eda100", ink: "#713f12", legend: "prior work" },
+  method:       { fill: "#eef4fc", stroke: "#2a78d6", ink: "#1e3a8a", legend: "method" },
+  contribution: { fill: "#fdeef5", stroke: "#e0447c", ink: "#831843", legend: "contribution" },
+  result:       { fill: "#e9f9f2", stroke: "#1baf7a", ink: "#064e3b", legend: "result" },
+};
+
+function MindMap({ mindmap }) {
+  const [activeId, setActiveId] = useState(null);
+  const nodes = mindmap?.nodes || [];
+  const edges = mindmap?.edges || [];
+  if (nodes.length < 2) return null;
+
+  const center = nodes.find((n) => n.kind === "paper") || nodes[0];
+  const ring = nodes.filter((n) => n !== center);
+
+  const W = 900, H = 470, cx = W / 2, cy = H / 2;
+  const NW = 150, NH = 54;
+  const rx = (W - NW) / 2 - 12, ry = (H - NH) / 2 - 12;
+
+  const pos = { [center.id]: { x: cx, y: cy } };
+  ring.forEach((n, i) => {
+    const a = (i / ring.length) * 2 * Math.PI - Math.PI / 2;
+    pos[n.id] = { x: cx + rx * Math.cos(a), y: cy + ry * Math.sin(a) };
+  });
+
+  const active = nodes.find((n) => n.id === activeId) || null;
+
+  return (
+    <div className="rounded-2xl border border-slate-200/80 bg-white/90 p-4 shadow-sm backdrop-blur">
+      <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+          <Network size={13} className="text-rose-600" /> The whole paper, one map — click any node
+        </div>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          {Object.entries(NODE_KINDS).map(([k, v]) => (
+            <span key={k} className="flex items-center gap-1 text-[10px] text-slate-500">
+              <span className="h-2 w-2 rounded-full" style={{ background: v.stroke }} /> {v.legend}
+            </span>
           ))}
         </div>
       </div>
 
-      {story.whyItMatters ? (
-        <div className="mt-4 flex items-start gap-2 rounded-xl bg-emerald-50/80 px-4 py-3">
-          <Lightbulb size={15} className="mt-0.5 shrink-0 text-emerald-600" />
-          <p className="text-[13px] leading-relaxed text-emerald-900">
-            <span className="font-semibold">Why it matters: </span>{story.whyItMatters}
-          </p>
-        </div>
-      ) : null}
+      <div className="overflow-x-auto">
+        <style>{`
+          @keyframes nodePop { from { opacity: 0; transform: scale(0.55); } to { opacity: 1; transform: none; } }
+          @keyframes edgeDraw { to { stroke-dashoffset: 0; } }
+          .mm-node { transform-box: fill-box; transform-origin: center; animation: nodePop 500ms cubic-bezier(0.34,1.56,0.64,1) both; cursor: pointer; }
+          .mm-edge { stroke-dasharray: 400; stroke-dashoffset: 400; animation: edgeDraw 900ms ease-out forwards; }
+        `}</style>
+        <svg width="100%" viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Concept map of the paper" style={{ minWidth: 640 }}>
+          {edges.map((e, i) => {
+            const a = pos[e.from], b = pos[e.to];
+            if (!a || !b) return null;
+            const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+            return (
+              <g key={i}>
+                <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="#cbd5e1" strokeWidth="1.5"
+                  className="mm-edge" style={{ animationDelay: `${150 + i * 80}ms` }} />
+                {e.label ? (
+                  <>
+                    <rect x={mx - 30} y={my - 9} width="60" height="16" rx="8" fill="white" opacity="0.9" />
+                    <text x={mx} y={my + 3} textAnchor="middle" fontSize="9" fill="#64748b" fontWeight="600">
+                      {e.label.slice(0, 14)}
+                    </text>
+                  </>
+                ) : null}
+              </g>
+            );
+          })}
+          {nodes.map((n, i) => {
+            const p = pos[n.id];
+            if (!p) return null;
+            const k = NODE_KINDS[n.kind] || NODE_KINDS.method;
+            const isCenter = n === center;
+            const w = isCenter ? NW + 26 : NW, h = isCenter ? NH + 10 : NH;
+            const selected = activeId === n.id;
+            return (
+              <g key={n.id} className="mm-node" style={{ animationDelay: `${i * 90}ms` }}
+                onClick={() => setActiveId(selected ? null : n.id)} role="button" aria-label={n.label}>
+                <rect x={p.x - w / 2} y={p.y - h / 2} width={w} height={h} rx={h / 2}
+                  fill={k.fill} stroke={k.stroke} strokeWidth={selected ? 3 : 1.8} />
+                {selected && (
+                  <rect x={p.x - w / 2 - 3} y={p.y - h / 2 - 3} width={w + 6} height={h + 6} rx={(h + 6) / 2}
+                    fill="none" stroke={k.stroke} strokeWidth="5" opacity="0.25" />
+                )}
+                <foreignObject x={p.x - w / 2 + 8} y={p.y - h / 2 + 6} width={w - 16} height={h - 12}>
+                  <div xmlns="http://www.w3.org/1999/xhtml"
+                    style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center",
+                             textAlign: "center", fontSize: isCenter ? "12px" : "11px", fontWeight: 700,
+                             lineHeight: 1.2, color: k.ink, overflow: "hidden" }}>
+                    {n.label}
+                  </div>
+                </foreignObject>
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+
+      {/* click-to-read detail — the only prose, and only on demand */}
+      <div className={`mt-2 rounded-xl border px-4 py-3 transition-colors ${active ? "border-slate-300 bg-slate-50" : "border-dashed border-slate-200 bg-transparent"}`}>
+        {active ? (
+          <div className="flex items-start gap-2.5">
+            <span className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: (NODE_KINDS[active.kind] || NODE_KINDS.method).stroke }} />
+            <div>
+              <div className="text-[12px] font-bold text-slate-800">{active.label}</div>
+              <p className="mt-0.5 text-[12.5px] leading-relaxed text-slate-600">{active.detail}</p>
+            </div>
+          </div>
+        ) : (
+          <p className="text-[11px] text-slate-400">Click a node to see what it means for this paper.</p>
+        )}
+      </div>
     </div>
   );
 }
@@ -750,7 +924,14 @@ function PanelChart({ panel, baseRun, actRun, height = 170, onHover }) {
   return (
     <div className="rounded-lg border border-slate-100 bg-white p-2">
       <div className="mb-1 flex items-baseline justify-between px-1">
-        <span className="text-[11px] font-semibold text-slate-700">{panel.subplotLabel}</span>
+        <span className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-700">
+          {panel.subplotLabel}
+          {panel.dataSource === "reported" && (
+            <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-emerald-700">
+              paper's numbers
+            </span>
+          )}
+        </span>
         <span className="text-[10px] text-slate-400">{panel.xLabel} → {panel.yLabel}</span>
       </div>
       {err ? (
@@ -852,6 +1033,67 @@ function ReadoutBox({ hover }) {
         <p className="text-[11px] text-slate-400">
           Move the mouse across any plot on the right — exact values appear here instead of covering the curves.
         </p>
+      )}
+    </div>
+  );
+}
+
+/** The real cropped figure with 3-6 numbered hotspot markers pinned on it —
+ *  the clickable version of the guided tour. Click a marker to read what
+ *  happens at that exact spot; click the image itself (outside a marker) to
+ *  open it fullscreen via `onOpen`, when provided. */
+function HotspotFigure({ fig, onOpen }) {
+  const [activeIdx, setActiveIdx] = useState(null);
+  const hotspots = fig.hotspots || [];
+  const active = activeIdx != null ? hotspots[activeIdx] : null;
+
+  if (!fig.image && !fig.svg) return null;
+
+  const Wrapper = onOpen ? "button" : "div";
+  return (
+    <div>
+      <Wrapper
+        {...(onOpen ? { type: "button", onClick: onOpen } : {})}
+        className="relative block w-full overflow-hidden rounded-lg border border-slate-200 bg-white text-left transition hover:shadow-lg"
+      >
+        {fig.image
+          ? <img src={fig.image} alt={`${fig.figureLabel} from the paper`} className="w-full" loading="lazy" />
+          : <div className="p-2" dangerouslySetInnerHTML={{ __html: fig.svg }} />}
+        {hotspots.map((h, i) => (
+          <span
+            key={i}
+            role="button"
+            tabIndex={0}
+            aria-label={h.label}
+            onClick={(e) => { e.stopPropagation(); setActiveIdx(activeIdx === i ? null : i); }}
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.stopPropagation(); e.preventDefault(); setActiveIdx(activeIdx === i ? null : i); } }}
+            className={`absolute flex h-6 w-6 -translate-x-1/2 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full border-2 text-[10px] font-bold shadow-md transition ${
+              activeIdx === i
+                ? "scale-125 border-white bg-rose-600 text-white"
+                : "border-white bg-rose-500/90 text-white hover:scale-110"
+            }`}
+            style={{ left: `${(h.x ?? 0.5) * 100}%`, top: `${(h.y ?? 0.5) * 100}%` }}
+          >
+            {i + 1}
+          </span>
+        ))}
+      </Wrapper>
+      {hotspots.length > 0 && (
+        <div className={`mt-2 rounded-lg border px-3 py-2 transition-colors ${active ? "border-rose-200 bg-rose-50/70" : "border-dashed border-slate-200"}`}>
+          {active ? (
+            <div className="flex items-start gap-2">
+              <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-rose-600 text-[9px] font-bold text-white">
+                {activeIdx + 1}
+              </span>
+              <div>
+                <div className="text-[11.5px] font-bold text-rose-900">{active.label}</div>
+                <p className="text-[12px] leading-relaxed text-slate-700">{active.note}</p>
+              </div>
+            </div>
+          ) : (
+            <p className="text-[11px] text-slate-400">Click a numbered marker on the figure to see what it proves.</p>
+          )}
+        </div>
       )}
     </div>
   );
@@ -1012,24 +1254,26 @@ function useDemo(demo) {
   return { helpers, params, setParam, result };
 }
 
-/** Line-chart demo with its own dials and an under-chart readout. */
+/** Chart demo (line / bar / scatter) with its own dials and a readout. */
 function DemoChart({ demo }) {
   const { helpers, params, setParam, result } = useDemo(demo);
   const [readout, setReadout] = useState(null);
+  const kind = demo.chartKind || "line";
 
-  const { rows, legend, err } = useMemo(() => {
-    if (result.error) return { rows: [], legend: [], err: result.error };
+  const { rows, legend, err, categories } = useMemo(() => {
+    if (result.error) return { rows: [], legend: [], err: result.error, categories: null };
     const v = result.value;
-    if (!v?.series?.length) return { rows: [], legend: [], err: "demo returned no series" };
+    if (!v?.series?.length) return { rows: [], legend: [], err: "demo returned no series", categories: null };
     const n = v.series[0].data?.length || 0;
+    const cats = Array.isArray(v.categories) && v.categories.length === n ? v.categories : null;
     const rows = new Array(n);
     for (let i = 0; i < n; i++) {
-      const row = { _i: v.x ? v.x[i] : helpers.t[i] ?? i };
+      const row = { _i: v.x ? v.x[i] : helpers.t[i] ?? i, _c: cats ? cats[i] : undefined };
       v.series.forEach((s, k) => { row[`s${k}`] = Number.isFinite(s.data[i]) ? s.data[i] : 0; });
       rows[i] = row;
     }
     const legend = v.series.map((s, k) => ({ key: `s${k}`, label: s.label, color: SERIES_HUES[k % SERIES_HUES.length] }));
-    return { rows, legend, err: null };
+    return { rows, legend, err: null, categories: cats };
   }, [result, helpers]);
 
   const handleMove = useCallback((state) => {
@@ -1053,21 +1297,39 @@ function DemoChart({ demo }) {
             <span className="text-[10px] text-slate-400">{demo.xLabel} → {demo.yLabel}</span>
           </div>
           <ResponsiveContainer width="100%" height={210}>
-            <LineChart data={rows} margin={{ top: 6, right: 10, bottom: 2, left: -8 }} onMouseMove={handleMove}>
-              <CartesianGrid stroke={C.grid} strokeWidth={1} vertical={false} />
-              <XAxis dataKey="_i" type="number" domain={["dataMin", "dataMax"]}
-                tick={{ fill: C.inkMuted, fontSize: 9 }} stroke={C.axis} tickLine={false}
-                tickFormatter={(v) => fmt(v, 1)} />
-              <YAxis tick={{ fill: C.inkMuted, fontSize: 9 }} stroke="transparent"
-                tickLine={false} width={44} tickFormatter={(v) => fmt(v, 1)} />
-              <Tooltip content={() => null}
-                cursor={{ stroke: C.inkMuted, strokeWidth: 1, strokeDasharray: "3 3" }}
-                isAnimationActive={false} />
-              {legend.map((l) => (
-                <Line key={l.key} dataKey={l.key} stroke={l.color} strokeWidth={2} dot={false}
+            {kind === "bar" || categories ? (
+              <BarChart data={rows} margin={{ top: 6, right: 10, bottom: 2, left: -8 }} onMouseMove={handleMove}>
+                <CartesianGrid stroke={C.grid} strokeWidth={1} vertical={false} />
+                <XAxis dataKey={categories ? "_c" : "_i"} type="category"
+                  tick={{ fill: C.inkMuted, fontSize: 9 }} stroke={C.axis} tickLine={false}
+                  interval={0} angle={rows.length > 6 ? -30 : 0} height={rows.length > 6 ? 44 : 30} />
+                <YAxis tick={{ fill: C.inkMuted, fontSize: 9 }} stroke="transparent"
+                  tickLine={false} width={44} tickFormatter={(v) => fmt(v, 1)} />
+                <Tooltip content={() => null} cursor={{ fill: "rgba(100,116,139,0.08)" }}
                   isAnimationActive={false} />
-              ))}
-            </LineChart>
+                {legend.map((l) => (
+                  <Bar key={l.key} dataKey={l.key} fill={l.color} isAnimationActive={false} />
+                ))}
+              </BarChart>
+            ) : (
+              <LineChart data={rows} margin={{ top: 6, right: 10, bottom: 2, left: -8 }} onMouseMove={handleMove}>
+                <CartesianGrid stroke={C.grid} strokeWidth={1} vertical={false} />
+                <XAxis dataKey="_i" type="number" domain={["dataMin", "dataMax"]}
+                  tick={{ fill: C.inkMuted, fontSize: 9 }} stroke={C.axis} tickLine={false}
+                  tickFormatter={(v) => fmt(v, 1)} />
+                <YAxis tick={{ fill: C.inkMuted, fontSize: 9 }} stroke="transparent"
+                  tickLine={false} width={44} tickFormatter={(v) => fmt(v, 1)} />
+                <Tooltip content={() => null}
+                  cursor={{ stroke: C.inkMuted, strokeWidth: 1, strokeDasharray: "3 3" }}
+                  isAnimationActive={false} />
+                {legend.map((l) => (
+                  <Line key={l.key} dataKey={l.key} stroke={l.color}
+                    strokeWidth={kind === "scatter" ? 0 : 2}
+                    dot={kind === "scatter" ? { r: 2.4, fill: l.color, strokeWidth: 0 } : false}
+                    isAnimationActive={false} />
+                ))}
+              </LineChart>
+            )}
           </ResponsiveContainer>
           <div className="flex flex-wrap items-center justify-between gap-2 px-1 pb-1">
             <LegendRow items={legend} />
@@ -1222,6 +1484,62 @@ function FoundationsLab({ foundations }) {
           ) : (
             <div className="flex min-h-[180px] items-center justify-center rounded-lg border border-dashed border-slate-200 text-[11px] text-slate-400">
               No interactive demo for this concept
+            </div>
+          )}
+        </div>
+      </div>
+    </LabWindow>
+  );
+}
+
+/* ---------------- explorables lab: honest interactivity for EVERY paper ---
+ * Each explorable is either basis 'equation' (the paper's own model on
+ * sliders, defaults = its fitted/reported coefficients) or 'reported' (the
+ * paper's own published numbers as an interactive chart). Same demo schema
+ * as foundations, so it reuses DemoChart / DemoFrames verbatim. */
+
+function ExplorablesLab({ explorables }) {
+  const [pageIdx, setPageIdx] = useState(0);
+  const ex = explorables[Math.min(pageIdx, explorables.length - 1)];
+  if (!ex) return null;
+
+  const BASIS = {
+    equation: { label: "Paper's equation", tone: "bg-blue-50 text-blue-700 border-blue-200", Icon: Sigma },
+    reported: { label: "Paper's reported data", tone: "bg-emerald-50 text-emerald-700 border-emerald-200", Icon: BookMarked },
+  };
+  const basis = BASIS[ex.basis] || BASIS.equation;
+  const BasisIcon = basis.Icon;
+
+  return (
+    <LabWindow
+      title="Explorables Lab — the paper's own equations and numbers, on sliders"
+      accent="bg-amber-500"
+      pages={explorables.map((x, i) => ({ id: String(i), label: x.title, sub: x.source }))}
+      activeId={String(pageIdx)}
+      onSelect={(id) => setPageIdx(+id)}
+    >
+      <div className="grid gap-4 xl:grid-cols-5">
+        <div className="min-w-0 xl:col-span-2">
+          <div className={`mb-2 inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide ${basis.tone}`}>
+            <BasisIcon size={12} /> {basis.label}
+          </div>
+          <h3 className="text-sm font-bold text-slate-900">{ex.title}</h3>
+          <p className="text-[11px] italic text-slate-400">Source: {ex.source}</p>
+          <p className="mt-2 leading-relaxed text-slate-700" style={{ fontSize: "calc(var(--found-text, 13px) * var(--box-font-scale, 1))" }}>
+            {ex.story}
+          </p>
+        </div>
+        <div className="min-w-0 xl:col-span-3">
+          {ex.demo ? (
+            <>
+              <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                Try it — {ex.demo.caption}
+              </div>
+              {ex.demo.kind === "frames" ? <DemoFrames demo={ex.demo} /> : <DemoChart demo={ex.demo} />}
+            </>
+          ) : (
+            <div className="flex min-h-[180px] items-center justify-center rounded-lg border border-dashed border-slate-200 text-[11px] text-slate-400">
+              No interactive demo for this explorer
             </div>
           )}
         </div>
@@ -1501,15 +1819,13 @@ function ResultsLab({ spec, pipelineCompiled, helpers, baseOutputs, actOutputs, 
     >
       {fig && (() => {
         const hasPanels = (fig.panels?.length || 0) > 0;
-        const original = fig.image ? (
-          <button onClick={() => onOpenFig({ title: `${fig.figureLabel} — ${fig.title}`, image: fig.image, explanation: fig.explanation })}
-            className="block w-full overflow-hidden rounded-lg border border-slate-200 bg-white transition hover:shadow-lg"
-            style={hasPanels ? { maxWidth: "var(--result-orig-max, 520px)" } : { maxWidth: 760, margin: "0 auto" }}>
-            <img src={fig.image} alt={`${fig.figureLabel} from the paper`} className="w-full" loading="lazy" />
-          </button>
-        ) : fig.svg ? (
-          <div className="overflow-hidden rounded-lg border border-slate-200 bg-white p-2"
-            dangerouslySetInnerHTML={{ __html: fig.svg }} />
+        const original = (fig.image || fig.svg) ? (
+          <div style={hasPanels ? { maxWidth: "var(--result-orig-max, 520px)" } : { maxWidth: 760, margin: "0 auto" }}>
+            <HotspotFigure
+              fig={fig}
+              onOpen={fig.image ? () => onOpenFig({ title: `${fig.figureLabel} — ${fig.title}`, image: fig.image, explanation: fig.explanation }) : undefined}
+            />
+          </div>
         ) : (
           <div className="flex min-h-[120px] items-center justify-center rounded-lg border border-dashed border-slate-200 px-3 text-center text-[11px] text-slate-400">
             {fig.page ? <>{fig.figureLabel} on page {fig.page} — crop unavailable</> : "No source figure available"}
@@ -1562,7 +1878,7 @@ function ResultsLab({ spec, pipelineCompiled, helpers, baseOutputs, actOutputs, 
 
               <div className="xl:col-span-3">
                 <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-                  Live simplified simulation · solid = your dials, dashed = paper's values
+                  Interactive reproduction · solid = your dials, dashed = paper's values
                 </div>
                 <div className={`grid gap-3 ${(fig.panels?.length || 0) > 1 ? "md:grid-cols-2" : ""}`}>
                   {(fig.panels || []).map((panel, pi) => (
@@ -1570,8 +1886,9 @@ function ResultsLab({ spec, pipelineCompiled, helpers, baseOutputs, actOutputs, 
                   ))}
                 </div>
                 <p className="mt-2 text-[11px] leading-relaxed text-slate-400">
-                  These plots come from a simplified simulation of the paper's own equations — built to move
-                  when you turn the dials, not to replace the measured results on the left.
+                  Plots marked <strong>paper's numbers</strong> are the paper's own published values, made
+                  interactive; the rest come from a simplified live simulation of the paper's own equations,
+                  built to move when you turn the dials — neither replaces the measured results on the left.
                 </p>
               </div>
             </div>
@@ -1808,12 +2125,22 @@ export default function Workspace({ spec, onBack, onSignOut, isOwner = false }) 
           const num = () => ++n;
           return (
             <>
-              {/* ===== story · why this paper exists ===== */}
+              {/* ===== story · why this paper exists (animated player) ===== */}
               {spec.story && sec("story").on ? (
                 <DesignBox id="sec-story" label="Story" mode={free ? "free" : "flow"} rect={layout.boxes["sec-story"]} onRect={setBox} register={registerBox}>
                   <section aria-label="The paper's story">
                     <SectionHeader num={num()} tone="rose" icon={Sparkles} title={sec("story").title} sub={sec("story").sub} />
-                    <StorySection story={spec.story} />
+                    <StoryPlayer story={spec.story} />
+                  </section>
+                </DesignBox>
+              ) : null}
+
+              {/* ===== mindmap · the whole paper as one clickable map ===== */}
+              {spec.mindmap?.nodes?.length && sec("mindmap").on ? (
+                <DesignBox id="sec-mindmap" label="Mind map" mode={free ? "free" : "flow"} rect={layout.boxes["sec-mindmap"]} onRect={setBox} register={registerBox}>
+                  <section aria-label="The paper as a concept map">
+                    <SectionHeader num={num()} tone="rose" icon={Network} title={sec("mindmap").title} sub={sec("mindmap").sub} />
+                    <MindMap mindmap={spec.mindmap} />
                   </section>
                 </DesignBox>
               ) : null}
@@ -1856,6 +2183,19 @@ export default function Workspace({ spec, onBack, onSignOut, isOwner = false }) 
                       onInspect={setInspect}
                       layout={layout}
                     />
+                  </section>
+                </DesignBox>
+              ) : null}
+
+              {/* ===== explorables lab — the hands-on layer for EVERY paper:
+                   the paper's own equations on sliders, its own reported
+                   numbers as interactive charts. Runs whether or not a full
+                   pipeline exists (bonus explorers for pipeline papers). ===== */}
+              {spec.explorables?.length && sec("explorables").on ? (
+                <DesignBox id="sec-explorables" label="Explorables lab" mode={free ? "free" : "flow"} rect={layout.boxes["sec-explorables"]} onRect={setBox} register={registerBox}>
+                  <section aria-label="Interactive explorers derived from the paper's own equations and data">
+                    <SectionHeader num={num()} tone="amber" icon={FlaskConical} title={sec("explorables").title} sub={sec("explorables").sub} />
+                    <ExplorablesLab explorables={spec.explorables} />
                   </section>
                 </DesignBox>
               ) : null}

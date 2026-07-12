@@ -75,10 +75,20 @@ Deno.serve(async (req) => {
     return json(400, { error: "Invalid JSON body." });
   }
 
-  const { pdfBase64, tierId, hints, phase, contextSpec, repair } = body || {};
+  const { pdfBase64, tierId, hints, phase, contextSpec, repair, codeText } = body || {};
   if (!pdfBase64 || typeof pdfBase64 !== "string") {
     return json(400, { error: "Missing pdfBase64." });
   }
+  // Optional: the paper's actual code/scripts, uploaded by the reader. It is
+  // the ground truth for the method — capped so one analysis can't blow the
+  // context (or the caller's balance) with a giant repo dump.
+  const MAX_CODE_CHARS = 160_000;
+  const code =
+    typeof codeText === "string" && codeText.trim()
+      ? codeText.length > MAX_CODE_CHARS
+        ? codeText.slice(0, MAX_CODE_CHARS) + "\n\n[... code truncated at 160k characters ...]"
+        : codeText
+      : null;
   if (pdfBase64.length > MAX_PDF_BASE64_CHARS) {
     return json(400, { error: "PDF is too large (32MB API limit)." });
   }
@@ -190,6 +200,19 @@ Deno.serve(async (req) => {
                   // re-read it at ~10% of the input price (5-minute TTL).
                   cache_control: { type: "ephemeral" },
                 },
+                // The paper's real code, when the reader provided it — cached
+                // alongside the PDF for the same reason, and placed BEFORE the
+                // instructions so it reads as source material.
+                ...(code
+                  ? [{
+                      type: "text",
+                      text:
+                        "THE PAPER'S ACTUAL CODE (uploaded by the reader — this is the METHOD'S GROUND TRUTH; " +
+                        "derive every computeJs kernel, constant and update rule from it rather than guessing " +
+                        "from the paper's prose):\n\n" + code,
+                      cache_control: { type: "ephemeral" },
+                    }]
+                  : []),
                 { type: "text", text: prompt },
               ],
             },

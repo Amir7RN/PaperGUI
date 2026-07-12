@@ -83,6 +83,41 @@ export const SAMPLE_SPEC = {
       "One coefficient set that survives noise, saturation and plant variation means less hand-tuning in " +
       "the lab — the recipe transfers instead of being re-derived for every rig.",
   },
+  mindmap: {
+    nodes: [
+      { id: "paper", label: "Filter+Gain+PID Chain", kind: "paper",
+        detail: "A four-stage pipeline — recursive filter, saturating gain, then a PID-regulated plant — tuned and reported as ONE coefficient set instead of four separately-tuned pieces." },
+      { id: "prob", label: "Noisy sensors destabilize control", kind: "problem",
+        detail: "Real sensors are noisy. Before a control loop can act on a measurement, it has to be cleaned up — but cleaning it up interacts with the control loop itself." },
+      { id: "prior1", label: "IIR filtering (Oppenheim & Schafer)", kind: "prior",
+        detail: "The recursive low-pass filter this paper uses is the classic exponential moving average: one multiply, one memory cell, a genuine cutoff — but it adds phase lag." },
+      { id: "prior2", label: "PID tuning rules (Åström & Murray)", kind: "prior",
+        detail: "Classic PID design treats the controller in isolation, assuming a clean reference signal — this paper breaks that assumption on purpose." },
+      { id: "m1", label: "Saturating pre-shaper", kind: "method",
+        detail: "z = G·tanh(y/S) — a smooth soft limiter placed between the filter and the plant, so noise spikes never reach the plant at full strength." },
+      { id: "m2", label: "Whole-chain tuning", kind: "method",
+        detail: "All four stages (filter α, gain G, and the PID gains) are tuned together as one system, not locally optimized in isolation." },
+      { id: "c1", label: "One coefficient set, not four", kind: "contribution",
+        detail: "The paper's central claim: a single reported coefficient set (α=0.18, G=1.6, Kp=2.4, Ki=1.1, Kd=0.35) makes the whole chain behave." },
+      { id: "c2", label: "Saturation as a feature", kind: "contribution",
+        detail: "Instead of avoiding the saturating stage as a nonlinearity to fight, the method deliberately exploits its soft-limiting." },
+      { id: "res1", label: "<9% overshoot, 2.1s settling", kind: "result",
+        detail: "With the published coefficients the closed loop tracks a step command with under 9% overshoot and settles within 2.1 seconds despite broadband noise." },
+      { id: "res2", label: "Robust across plant speeds", kind: "result",
+        detail: "The same coefficients were stress-tested against slower and faster plants and swept over the proportional gain, mapping where the design stays calm." },
+    ],
+    edges: [
+      { from: "prob", to: "paper", label: "motivates" },
+      { from: "prior1", to: "paper", label: "builds on" },
+      { from: "prior2", to: "paper", label: "builds on" },
+      { from: "paper", to: "m1", label: "introduces" },
+      { from: "paper", to: "m2", label: "introduces" },
+      { from: "paper", to: "c1", label: "claims" },
+      { from: "paper", to: "c2", label: "claims" },
+      { from: "m2", to: "res1", label: "achieves" },
+      { from: "m1", to: "res2", label: "achieves" },
+    ],
+  },
   conclusion:
     "With the published coefficients (α = 0.18, G = 1.6, Kp = 2.4, Ki = 1.1, Kd = 0.35), " +
     "the closed-loop system tracks the step command with low overshoot and fast settling, " +
@@ -225,6 +260,11 @@ return { x, series: [
         "step command, compared against the uncontrolled plant — the gap is what the controller buys " +
         "you. (b) The signal at each conditioning stage. Move the PID gains, filter α or gain G and " +
         "both subplots redraw against the author's baseline (dashed).",
+      hotspots: [
+        { x: 0.32, y: 0.22, label: "the step command", note: "At t = 2s the reference jumps — this is the disturbance the whole loop has to reject." },
+        { x: 0.55, y: 0.11, label: "fast, low overshoot", note: "The controlled output (blue) catches the step with under 9% overshoot — the paper's headline number." },
+        { x: 0.42, y: 0.63, label: "the gap the controller buys you", note: "The red curve is the SAME plant with no controller — it barely moves. That gap is the paper's whole argument." },
+      ],
       svg: `<svg viewBox="0 0 300 180" xmlns="http://www.w3.org/2000/svg" font-family="system-ui" font-size="8">
         <rect x="0" y="0" width="300" height="180" fill="white"/>
         <text x="8" y="12" fill="#52514e" font-weight="600">(a) step tracking</text>
@@ -272,6 +312,11 @@ return { series: [
         "(a) Tracking error for three plant time constants — the loop stays fast for small τ and " +
         "degrades as the plant slows. (b) Percent overshoot swept across the proportional gain Kₚ. " +
         "Changing any other slider shifts these whole curves, because each point re-runs the model.",
+      hotspots: [
+        { x: 0.33, y: 0.28, label: "slow plants degrade", note: "The τ = 1.0 curve (amber) sags further from zero and takes longer to recover — the loop's speed is capped by the plant itself." },
+        { x: 0.68, y: 0.13, label: "fast plants recover cleanly", note: "τ = 0.3 (blue) barely dips before the controller pulls the error back to zero." },
+        { x: 0.72, y: 0.62, label: "overshoot climbs with Kp", note: "Pushing the proportional gain higher trades a faster response for a bigger overshoot — the curve's upward bend is that tradeoff." },
+      ],
       svg: `<svg viewBox="0 0 300 180" xmlns="http://www.w3.org/2000/svg" font-family="system-ui" font-size="8">
         <rect x="0" y="0" width="300" height="180" fill="white"/>
         <text x="8" y="12" fill="#52514e" font-weight="600">(a) error vs τ</text>
@@ -469,6 +514,39 @@ for (let i = 0; i < helpers.n; i++) {
   out[i] = y;
 }
 return out;`,
+    },
+  ],
+  // Bonus explorers (this paper HAS a pipeline — these are extra, not a
+  // substitute): the filter's own transfer function, on a slider, straight
+  // from Eq. 2 — a second, equation-level way to feel the α tradeoff besides
+  // watching the time-domain trace in the Concept Lab.
+  explorables: [
+    {
+      title: "The filter's frequency response, live",
+      basis: "equation",
+      story: "Every α is a tradeoff between smoothing and lag. Drag it and watch the cutoff frequency itself slide — the same knob you tune in the Concept Lab, seen from the filter's own transfer function instead of a time trace.",
+      source: "Eq. (2), the recursive filter y[n] = αx[n] + (1−α)y[n−1]",
+      demo: {
+        kind: "chart",
+        chartKind: "line",
+        T: 1, dt: 1 / 200,
+        xLabel: "normalized frequency ω (0 → π)",
+        yLabel: "|H(ω)|",
+        caption: "drag α and watch the cutoff frequency slide",
+        params: [
+          { key: "alpha", sym: "α", label: "Filter coefficient", min: 0.01, max: 1, step: 0.01, def: 0.18 },
+        ],
+        computeJs: `
+const N = helpers.n;
+const w = new Array(N), mag = new Array(N);
+const a = params.alpha;
+for (let i = 0; i < N; i++) {
+  const f = (i / (N - 1)) * Math.PI;
+  w[i] = f;
+  mag[i] = a / Math.sqrt(1 - 2 * (1 - a) * Math.cos(f) + (1 - a) * (1 - a));
+}
+return { x: w, series: [{ label: "|H(ω)|", data: mag }] };`,
+      },
     },
   ],
 };

@@ -38,9 +38,9 @@ export function setModelTier(id) {
  */
 const PHASES = [
   { id: "overview", title: "Story & foundations", from: 3,  to: 34,
-    keys: ["meta", "archetype", "story", "conclusion", "references", "conceptFigures", "foundations"] },
-  { id: "method",   title: "Method pipeline",     from: 34, to: 67,
-    keys: ["protocol", "blocks"] },
+    keys: ["meta", "archetype", "story", "mindmap", "conclusion", "references", "conceptFigures", "foundations"] },
+  { id: "method",   title: "Interactive method layer", from: 34, to: 67,
+    keys: ["protocol", "blocks", "explorables"] },
   { id: "results",  title: "Result figures",      from: 67, to: 99,
     keys: ["resultFigures"] },
 ];
@@ -72,7 +72,7 @@ function fallbackTier(tier) {
 /** One phase call: streams NDJSON progress, returns {spec, cost, remainingBalance}.
  *  `repair` is an optional list of validation problems from a previous
  *  attempt, fed back to the analyzer so it regenerates correctly. */
-async function runPhase(pdfBase64, tier, hints, phase, contextSpec, token, report, repair = null) {
+async function runPhase(pdfBase64, tier, hints, phase, contextSpec, token, report, repair = null, codeText = null) {
   const res = await fetch(`${functionsUrl}/analyze-paper`, {
     method: "POST",
     headers: {
@@ -80,7 +80,7 @@ async function runPhase(pdfBase64, tier, hints, phase, contextSpec, token, repor
       Authorization: `Bearer ${token}`,
       apikey: supabaseAnonKey,
     },
-    body: JSON.stringify({ pdfBase64, tierId: tier.id, hints, phase: phase.id, contextSpec, repair }),
+    body: JSON.stringify({ pdfBase64, tierId: tier.id, hints, phase: phase.id, contextSpec, repair, codeText }),
   });
 
   if (!res.ok || !res.body) {
@@ -147,7 +147,7 @@ async function runPhase(pdfBase64, tier, hints, phase, contextSpec, token, repor
  * onProgress({pct,label}) is called as the request advances.
  * Returns { spec, cost, remainingBalance }.
  */
-export async function analyzePaper(pdfBase64, onProgress, tier = getModelTier(), hints = null, validators = null) {
+export async function analyzePaper(pdfBase64, onProgress, tier = getModelTier(), hints = null, validators = null, codeText = null) {
   const report = (pct, label) => onProgress?.({ pct, label });
 
   if (!functionsUrl) {
@@ -164,19 +164,15 @@ export async function analyzePaper(pdfBase64, onProgress, tier = getModelTier(),
   const spec = {};
   let totalCost = 0;
   let remainingBalance = null;
-  const key = docKey(pdfBase64);
+  // cache key covers the code too — analyzing the same PDF with vs without
+  // uploaded code must never reuse the other run's phases
+  const key = docKey(pdfBase64) + (codeText ? `+${docKey(codeText)}` : "");
 
   for (const phase of PHASES) {
-    // Archetype gate: papers whose method isn't honestly simulatable (measured
-    // data, theory, surveys…) get NO pipeline — skip the method phase entirely
-    // (it's free AND it prevents a fake simulation from ever being generated).
-    if (phase.id === "method" && spec.archetype && spec.archetype.pipelineFeasible === false) {
-      spec.protocol = { T: 1, dt: 1, description: "" };
-      spec.blocks = [];
-      report(phase.to, "Method pipeline — skipped: this paper's results are measured, not simulated");
-      continue;
-    }
-
+    // NOTE: the method phase always runs. For papers whose method isn't
+    // honestly simulatable it produces `explorables` (the paper's own
+    // equations on sliders + its reported data as interactive charts)
+    // instead of a simulation pipeline — every paper stays hands-on.
     const cacheId = `${key}:${phase.id}`;
     let result = phaseCache.get(cacheId);
 
@@ -191,14 +187,14 @@ export async function analyzePaper(pdfBase64, onProgress, tier = getModelTier(),
             ? { archetype: spec.archetype }
             : null;
       try {
-        result = await runPhase(pdfBase64, tier, hints, phase, contextSpec, token, report);
+        result = await runPhase(pdfBase64, tier, hints, phase, contextSpec, token, report, null, codeText);
       } catch (err) {
         // A timed-out stage automatically retries once on the next-faster
         // level, so one slow stage doesn't waste the whole (paid) run.
         const fb = err?.code === "timeout" ? fallbackTier(tier) : null;
         if (!fb) throw err;
         report(phase.from, `${phase.title} — took too long, retrying on the ${fb.label} level…`);
-        result = await runPhase(pdfBase64, fb, hints, phase, contextSpec, token, report);
+        result = await runPhase(pdfBase64, fb, hints, phase, contextSpec, token, report, null, codeText);
       }
 
       // Quality gate: test-run the generated code. If it produces flat lines,
@@ -215,7 +211,7 @@ export async function analyzePaper(pdfBase64, onProgress, tier = getModelTier(),
         if (problems) {
           report(phase.from, `${phase.title} — failed the quality check, regenerating…`);
           try {
-            const retry = await runPhase(pdfBase64, tier, hints, phase, contextSpec, token, report, problems);
+            const retry = await runPhase(pdfBase64, tier, hints, phase, contextSpec, token, report, problems, codeText);
             const candidate2 = { ...spec };
             for (const k of phase.keys) {
               if (retry.spec?.[k] !== undefined) candidate2[k] = retry.spec[k];
