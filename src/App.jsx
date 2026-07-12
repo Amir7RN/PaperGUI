@@ -10,12 +10,13 @@ import React, { useState, useRef, useCallback, useEffect } from "react";
 import {
   FlaskConical, Upload, BookOpenCheck, Wallet,
   Loader2, TriangleAlert, FileText, Sparkles, SlidersHorizontal, LineChart, LogOut,
-  ChevronDown, Wand2, Landmark, Image as ImageIcon, LogIn, BookMarked,
+  ChevronDown, Wand2, Landmark, Image as ImageIcon, LogIn, BookMarked, Mail, MapPin,
 } from "lucide-react";
 import Workspace from "./Workspace.jsx";
 import Auth from "./Auth.jsx";
 import Library from "./Library.jsx";
 import BuyCredits from "./BuyCredits.jsx";
+import ContactModal from "./ContactModal.jsx";
 import { SAMPLE_SPEC } from "./samplePaper.js";
 import { SAMPLE_SPEC_2 } from "./samplePaper2.js";
 import { analyzePaper, MODEL_TIERS, getModelTier, setModelTier } from "./api.js";
@@ -79,7 +80,7 @@ function BalanceBadge({ balance }) {
 
 function TierPicker({ tier, onTier, disabled }) {
   return (
-    <div className="mt-4 w-full max-w-2xl rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+    <div className="mt-4 w-full max-w-3xl rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
       <div className="mb-2 flex items-baseline justify-between">
         <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
           Analysis level
@@ -123,7 +124,7 @@ function HintsPanel({ hints, onHints, disabled }) {
   const set = (k) => (e) => onHints({ ...hints, [k]: e.target.value });
   const filled = ["domain", "focus", "signal", "notes"].filter((k) => hints[k]?.trim()).length;
   return (
-    <div className="mt-3 w-full max-w-2xl rounded-2xl border border-slate-200/80 bg-white/90 shadow-sm backdrop-blur">
+    <div className="mt-3 w-full max-w-3xl rounded-2xl border border-slate-200/80 bg-white/90 shadow-sm backdrop-blur">
       <button
         onClick={() => setOpen(!open)}
         className="flex w-full items-center justify-between px-4 py-3 text-left"
@@ -267,11 +268,51 @@ function VideoShowcase() {
   );
 }
 
+/* ---------------- site footer ---------------- */
+
+function SiteFooter({ onContact }) {
+  return (
+    <footer className="mt-auto border-t border-slate-200/70 bg-white/70 backdrop-blur">
+      <div className="mx-auto max-w-5xl px-4 py-8 sm:px-8">
+        <div className="rounded-xl border border-blue-200/70 bg-blue-50/80 px-4 py-3 text-center text-xs leading-relaxed text-blue-900">
+          <strong>Try it before you pay:</strong> run one paper on the free sample or your own
+          upload with your signup credit, no cost. If it's useful, add credit and analyze the
+          papers you actually care about — and use the interactive labs to learn the method,
+          not just read about it.
+        </div>
+
+        <div className="mt-6 flex flex-col items-center justify-between gap-4 sm:flex-row">
+          <div className="text-center text-xs text-slate-500 sm:text-left">
+            <div className="font-semibold text-slate-700">Site owner &amp; contact</div>
+            <div className="mt-1">Amirreza Naseri</div>
+            <div className="mt-0.5 flex items-center justify-center gap-1 sm:justify-start">
+              <MapPin size={11} className="shrink-0" /> Waltham, MA, USA
+            </div>
+            <div className="mt-0.5 flex items-center justify-center gap-1 sm:justify-start">
+              <Mail size={11} className="shrink-0" /> amir73rn@gmail.com
+            </div>
+          </div>
+          <button
+            onClick={onContact}
+            className="flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-medium text-slate-700 shadow-sm hover:border-blue-300 hover:text-blue-700"
+          >
+            <Mail size={14} /> Send feedback
+          </button>
+        </div>
+
+        <p className="mt-6 text-center text-[10px] text-slate-400">
+          Interactive Paper Playground — turning scientific papers into explorable, interactive labs.
+        </p>
+      </div>
+    </footer>
+  );
+}
+
 /* ---------------- landing page ---------------- */
 
 function Landing({
   onSample, onUpload, busy, progress, error, tier, onTier, balance, hints, onHints,
-  authOn, signedIn, onSignIn, onSignUp, onSignOut, onOpenLibrary, onBuyCredits, owner,
+  authOn, signedIn, onSignIn, onSignUp, onSignOut, onOpenLibrary, onBuyCredits, owner, onContact,
 }) {
   const fileRef = useRef(null);
   const requireAuthToUpload = authOn && !signedIn;
@@ -285,6 +326,12 @@ function Landing({
             Interactive Paper Playground
           </div>
           <div className="flex items-center gap-2">
+            <button
+              onClick={onContact}
+              className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white/80 px-3 py-1.5 text-xs font-medium text-slate-600 hover:border-blue-300 hover:text-blue-700"
+            >
+              <Mail size={14} /> Contact
+            </button>
             {signedIn ? (
               <>
                 {owner ? (
@@ -335,19 +382,19 @@ function Landing({
         </div>
       </header>
 
-      <main className="grid w-full flex-1 gap-10 px-4 py-10 sm:px-8 lg:grid-cols-[minmax(0,36rem)_minmax(0,1fr)] lg:px-10">
-        {/* ---------- left rail: all controls ---------- */}
-        <div className="flex w-full max-w-2xl flex-col items-start">
+      <main className="grid w-full flex-1 gap-10 px-4 py-10 sm:px-8 lg:grid-cols-[minmax(0,1fr)_22rem] lg:px-10 xl:grid-cols-[minmax(0,1fr)_26rem]">
+        {/* ---------- left rail: all controls (expanded) ---------- */}
+        <div className="flex w-full max-w-3xl flex-col items-start">
         <div className="mb-3 flex items-center gap-2 rounded-full border border-blue-200/60 bg-white/70 px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-blue-700 shadow-sm backdrop-blur">
           <Sparkles size={13} /> Leave the PDF aside — work with the paper
         </div>
-        <h1 className="max-w-2xl text-left text-3xl font-extrabold leading-tight tracking-tight text-slate-900 sm:text-4xl">
+        <h1 className="max-w-3xl text-left text-3xl font-extrabold leading-tight tracking-tight text-slate-900 sm:text-4xl">
           Turn any scientific paper into a{" "}
           <span className="bg-gradient-to-r from-blue-600 via-violet-600 to-emerald-600 bg-clip-text text-transparent">
             living, interactive lab
           </span>
         </h1>
-        <p className="mt-4 max-w-xl text-left text-sm leading-relaxed text-slate-600">
+        <p className="mt-4 max-w-2xl text-left text-sm leading-relaxed text-slate-600">
           The analyzer walks you through a paper the way a good colleague would: the idea in
           pictures, the prior work it stands on, its own method with every coefficient on a
           slider, and its real result figures — recreated and reshaping live as you explore.
@@ -367,7 +414,7 @@ function Landing({
         </div>
 
         {/* how it works */}
-        <div className="mt-8 grid w-full max-w-2xl grid-cols-1 gap-3 sm:grid-cols-3">
+        <div className="mt-8 grid w-full max-w-3xl grid-cols-1 gap-3 sm:grid-cols-3">
           {[
             {
               n: "1",
@@ -397,7 +444,7 @@ function Landing({
           ))}
         </div>
 
-        <div className="mt-8 grid w-full max-w-2xl gap-4 sm:grid-cols-2">
+        <div className="mt-8 grid w-full max-w-3xl gap-4 sm:grid-cols-2">
           <div className="flex flex-col gap-3">
             <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
               <BookOpenCheck size={14} className="text-blue-600" /> Try a ready-made example (no key needed)
@@ -470,7 +517,7 @@ function Landing({
         <HintsPanel hints={hints} onHints={onHints} disabled={busy} />
 
         {busy && (
-          <div className="mt-6 w-full max-w-2xl rounded-xl border border-blue-200 bg-white/90 px-4 py-4 shadow-sm backdrop-blur">
+          <div className="mt-6 w-full max-w-3xl rounded-xl border border-blue-200 bg-white/90 px-4 py-4 shadow-sm backdrop-blur">
             <div className="flex items-center gap-3 text-sm text-blue-900">
               <Loader2 size={18} className="shrink-0 animate-spin" />
               <div className="min-w-0 flex-1">
@@ -493,7 +540,7 @@ function Landing({
         )}
 
         {error && !busy && (
-          <div className="mt-6 flex w-full max-w-2xl items-start gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+          <div className="mt-6 flex w-full max-w-3xl items-start gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
             <TriangleAlert size={18} className="mt-0.5 shrink-0" />
             <div>
               <div className="font-medium">Analysis failed</div>
@@ -502,18 +549,20 @@ function Landing({
           </div>
         )}
 
-        <p className="mt-8 flex max-w-xl items-center gap-1.5 text-left text-[11px] text-slate-400">
+        <p className="mt-8 flex max-w-2xl items-center gap-1.5 text-left text-[11px] text-slate-400">
           <FileText size={12} className="shrink-0" />
           Your PDF passes through our AI analysis service and is not kept; only the
           finished interactive analysis is saved — privately, to your own library.
         </p>
         </div>
 
-        {/* ---------- right rail: demo video with synced explanations ---------- */}
+        {/* ---------- right rail: demo video with synced explanations (half-size) ---------- */}
         <div className="min-w-0 self-start lg:sticky lg:top-6">
           <VideoShowcase />
         </div>
       </main>
+
+      <SiteFooter onContact={onContact} />
     </div>
   );
 }
@@ -538,6 +587,7 @@ export default function App() {
   const [authOpen, setAuthOpen] = useState(null); // null | "signin" | "signup"
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [buyOpen, setBuyOpen] = useState(false);
+  const [contactOpen, setContactOpen] = useState(false);
   useEffect(() => {
     if (!authEnabled) return;
     const unsub = onAuthChange((s) => { setSession(s); setAuthReady(true); });
@@ -677,6 +727,9 @@ export default function App() {
   const buyModal = buyOpen && (
     <BuyCredits onClose={() => setBuyOpen(false)} email={session?.user?.email} />
   );
+  const contactModal = contactOpen && (
+    <ContactModal onClose={() => setContactOpen(false)} prefillEmail={session?.user?.email} />
+  );
 
   if (spec) {
     return (
@@ -691,6 +744,7 @@ export default function App() {
         {authModal}
         {libraryModal}
         {buyModal}
+        {contactModal}
       </>
     );
   }
@@ -716,11 +770,13 @@ export default function App() {
         onSignOut={signOut}
         onOpenLibrary={() => setLibraryOpen(true)}
         onBuyCredits={() => setBuyOpen(true)}
+        onContact={() => setContactOpen(true)}
         owner={isOwnerUser(session)}
       />
       {authModal}
       {libraryModal}
       {buyModal}
+      {contactModal}
     </>
   );
 }
