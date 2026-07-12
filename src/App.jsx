@@ -181,6 +181,92 @@ function HintsPanel({ hints, onHints, disabled }) {
   );
 }
 
+/* ---------------- demo video showcase ---------------- */
+
+/** Timeline of the landing demo recording — each entry drives the dynamic
+ *  explanation box while the video plays, and doubles as a seek button. */
+const DEMO_CHAPTERS = [
+  { at: 0,  short: "Overview",    title: "The finished workspace",
+    body: "This is what your paper becomes — a living, explorable analysis instead of a static PDF." },
+  { at: 1,  short: "References",  title: "Original references, one click away",
+    body: "Every source the paper cites, ready to open — no digging through the bibliography." },
+  { at: 5,  short: "The idea",    title: "1 · The idea in pictures",
+    body: "The paper's own concept figures, cropped out and explained in plain language." },
+  { at: 9,  short: "Background",  title: "2 · Background you need first",
+    body: "Each borrowed concept becomes a mini-lab: drag the sliders, watch the diagram react, toggle the formulas open when you're curious." },
+  { at: 30, short: "The method",  title: "3 · Learn the method by playing",
+    body: "Step through the method's stages — every coefficient is a slider, and the diagrams and plots reshape as you switch states." },
+  { at: 60, short: "Results",     title: "4 · Results, recreated live",
+    body: "The paper's real result figures rebuilt as live plots: tune the parameters, hover any curve to read the exact numbers." },
+];
+
+const fmtTime = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+
+function VideoShowcase() {
+  const vidRef = useRef(null);
+  const [time, setTime] = useState(0);
+  const idx = DEMO_CHAPTERS.reduce((acc, c, i) => (time >= c.at ? i : acc), 0);
+  const ch = DEMO_CHAPTERS[idx];
+
+  const seek = (at) => {
+    const v = vidRef.current;
+    if (!v) return;
+    v.currentTime = at;
+    v.play?.().catch(() => { /* autoplay policies */ });
+  };
+
+  return (
+    <div className="w-full">
+      {/* framed like an app window */}
+      <div className="overflow-hidden rounded-2xl border border-slate-300/70 bg-slate-900 shadow-2xl">
+        <div className="flex items-center gap-1.5 border-b border-slate-700/60 bg-slate-800 px-4 py-2.5">
+          <span className="h-3 w-3 rounded-full bg-red-400" />
+          <span className="h-3 w-3 rounded-full bg-amber-400" />
+          <span className="h-3 w-3 rounded-full bg-emerald-400" />
+          <span className="ml-3 text-[11px] font-medium text-slate-300">
+            Watch a finished analysis in action
+          </span>
+        </div>
+        <video
+          ref={vidRef}
+          src={`${import.meta.env.BASE_URL}landing-demo.mp4`}
+          autoPlay muted loop playsInline controls
+          className="block w-full"
+          onTimeUpdate={(e) => setTime(e.currentTarget.currentTime)}
+        />
+      </div>
+
+      {/* dynamic explanation, synced to the timeline */}
+      <div key={idx} className="mt-3 rounded-xl border border-blue-200/70 bg-white/90 px-4 py-3 shadow-sm backdrop-blur">
+        <div className="flex items-baseline gap-2">
+          <span className="rounded bg-blue-600 px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-white">
+            {fmtTime(ch.at)}
+          </span>
+          <span className="text-xs font-bold text-blue-700">{ch.title}</span>
+        </div>
+        <p className="mt-1 text-xs leading-relaxed text-slate-600">{ch.body}</p>
+      </div>
+
+      {/* chapter buttons — click to jump */}
+      <div className="mt-3 flex flex-wrap gap-1.5">
+        {DEMO_CHAPTERS.map((c, i) => (
+          <button
+            key={c.at}
+            onClick={() => seek(c.at)}
+            className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition ${
+              i === idx
+                ? "border-blue-500 bg-blue-600 text-white shadow-sm"
+                : "border-slate-200 bg-white/80 text-slate-600 hover:border-blue-300 hover:text-blue-700"
+            }`}
+          >
+            {fmtTime(c.at)} · {c.short}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /* ---------------- landing page ---------------- */
 
 function Landing({
@@ -249,23 +335,25 @@ function Landing({
         </div>
       </header>
 
-      <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col items-center justify-center px-4 py-12 sm:px-6">
+      <main className="grid w-full flex-1 gap-10 px-4 py-10 sm:px-8 lg:grid-cols-[minmax(0,36rem)_minmax(0,1fr)] lg:px-10">
+        {/* ---------- left rail: all controls ---------- */}
+        <div className="flex w-full max-w-2xl flex-col items-start">
         <div className="mb-3 flex items-center gap-2 rounded-full border border-blue-200/60 bg-white/70 px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-blue-700 shadow-sm backdrop-blur">
           <Sparkles size={13} /> Leave the PDF aside — work with the paper
         </div>
-        <h1 className="max-w-2xl text-center text-3xl font-extrabold leading-tight tracking-tight text-slate-900 sm:text-4xl">
+        <h1 className="max-w-2xl text-left text-3xl font-extrabold leading-tight tracking-tight text-slate-900 sm:text-4xl">
           Turn any scientific paper into a{" "}
           <span className="bg-gradient-to-r from-blue-600 via-violet-600 to-emerald-600 bg-clip-text text-transparent">
             living, interactive lab
           </span>
         </h1>
-        <p className="mt-4 max-w-xl text-center text-sm leading-relaxed text-slate-600">
+        <p className="mt-4 max-w-xl text-left text-sm leading-relaxed text-slate-600">
           The analyzer walks you through a paper the way a good colleague would: the idea in
           pictures, the prior work it stands on, its own method with every coefficient on a
           slider, and its real result figures — recreated and reshaping live as you explore.
         </p>
 
-        <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
+        <div className="mt-5 flex flex-wrap items-center justify-start gap-2">
           {[
             { icon: ImageIcon, label: "1 · Idea in pictures", cls: "text-violet-700 bg-violet-50 border-violet-200/70" },
             { icon: Landmark, label: "2 · Prior foundations", cls: "text-amber-700 bg-amber-50 border-amber-200/70" },
@@ -414,11 +502,17 @@ function Landing({
           </div>
         )}
 
-        <p className="mt-8 flex max-w-xl items-center gap-1.5 text-center text-[11px] text-slate-400">
+        <p className="mt-8 flex max-w-xl items-center gap-1.5 text-left text-[11px] text-slate-400">
           <FileText size={12} className="shrink-0" />
           Your PDF passes through our AI analysis service and is not kept; only the
           finished interactive analysis is saved — privately, to your own library.
         </p>
+        </div>
+
+        {/* ---------- right rail: demo video with synced explanations ---------- */}
+        <div className="min-w-0 self-start lg:sticky lg:top-6">
+          <VideoShowcase />
+        </div>
       </main>
     </div>
   );
