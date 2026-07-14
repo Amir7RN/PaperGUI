@@ -278,10 +278,13 @@ function VideoShowcase() {
   };
 
   return (
-    <div className="w-full">
-      {/* framed like an app window */}
-      <div className="overflow-hidden rounded-2xl border border-slate-300/70 bg-slate-900 shadow-2xl">
-        <div className="flex items-center gap-1.5 border-b border-slate-700/60 bg-slate-800 px-4 py-2.5">
+    <div className="w-full lg:flex lg:h-full lg:flex-col">
+      {/* framed like an app window — flexes to fill whatever height the
+          column has, so a tall/portrait recording never forces a scrollbar
+          inside its own box (it did before: w-full on a portrait video
+          made it taller than the fixed-height column around it). */}
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-slate-300/70 bg-slate-900 shadow-2xl">
+        <div className="flex shrink-0 items-center gap-1.5 border-b border-slate-700/60 bg-slate-800 px-4 py-2.5">
           <span className="h-3 w-3 rounded-full bg-red-400" />
           <span className="h-3 w-3 rounded-full bg-amber-400" />
           <span className="h-3 w-3 rounded-full bg-emerald-400" />
@@ -293,13 +296,13 @@ function VideoShowcase() {
           ref={vidRef}
           src={`${import.meta.env.BASE_URL}landing-demo.mp4`}
           autoPlay muted loop playsInline controls
-          className="block w-full"
+          className="block w-full lg:min-h-0 lg:flex-1 lg:object-contain"
           onTimeUpdate={(e) => setTime(e.currentTarget.currentTime)}
         />
       </div>
 
       {/* dynamic explanation, synced to the timeline */}
-      <div key={idx} className="mt-3 rounded-xl border border-blue-200/70 bg-white/90 px-4 py-3 shadow-sm backdrop-blur">
+      <div key={idx} className="mt-3 shrink-0 rounded-xl border border-blue-200/70 bg-white/90 px-4 py-3 shadow-sm backdrop-blur">
         <div className="flex items-baseline gap-2">
           <span className="rounded bg-blue-600 px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-white">
             {fmtTime(ch.at)}
@@ -310,7 +313,7 @@ function VideoShowcase() {
       </div>
 
       {/* chapter buttons — click to jump */}
-      <div className="mt-3 flex flex-wrap gap-1.5">
+      <div className="mt-3 flex shrink-0 flex-wrap gap-1.5">
         {DEMO_CHAPTERS.map((c, i) => (
           <button
             key={c.at}
@@ -624,7 +627,7 @@ function Landing({
         </div>
 
         {/* ---------- demo video (fixed position/size at lg+) ---------- */}
-        <div className="w-full lg:absolute lg:left-[59.5%] lg:top-[72px] lg:h-[832px] lg:w-[38%] lg:overflow-y-auto">
+        <div className="w-full lg:absolute lg:left-[59.5%] lg:top-[72px] lg:h-[832px] lg:w-[38%] lg:overflow-hidden">
           <VideoShowcase />
         </div>
       </main>
