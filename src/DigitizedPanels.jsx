@@ -69,6 +69,61 @@ function RadarPanel({ panel, height = 220 }) {
   );
 }
 
+/* ---------------- box plot (custom SVG) ---------------- */
+
+function BoxPanel({ panel, height = 220 }) {
+  const d = panel.digitized || {};
+  const cats = d.categories || [];
+  const [hover, setHover] = useState(null);
+  if (!cats.length) return <PanelShell panel={panel}><div className="p-4 text-[11px] text-slate-400">No box data.</div></PanelShell>;
+
+  const W = 320, H = height, padL = 44, padR = 12, padT = 10, padB = 26;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  let lo = Infinity, hi = -Infinity;
+  for (const c of cats) for (const v of Object.values(c.box)) if (Number.isFinite(v)) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
+  const span = hi - lo || 1; lo -= span * 0.08; hi += span * 0.08;
+  const yPix = (v) => padT + plotH * (1 - (v - lo) / (hi - lo));
+  const bw = Math.min(46, (plotW / cats.length) * 0.55);
+  const ticks = 5;
+
+  return (
+    <PanelShell panel={panel} footer={
+      <div className={`mt-1 rounded-md px-2 py-1 text-[11px] tabular-nums ${hover ? "bg-slate-800 text-white" : "bg-slate-50 text-slate-400"}`}>
+        {hover ? <><strong>{hover.name}</strong> · min {fmt(hover.box.min)} · Q1 {fmt(hover.box.q1)} · med {fmt(hover.box.med)} · Q3 {fmt(hover.box.q3)} · max {fmt(hover.box.max)}</>
+          : "hover a box for its five-number summary"}
+      </div>}>
+      <div className="overflow-x-auto">
+        <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ minWidth: 260 }}>
+          {Array.from({ length: ticks }, (_, i) => { const v = lo + (hi - lo) * (i / (ticks - 1)); const y = yPix(v); return (
+            <g key={i}>
+              <line x1={padL} y1={y} x2={W - padR} y2={y} stroke="#e1e0d9" strokeWidth="1" />
+              <text x={padL - 5} y={y + 3} textAnchor="end" fontSize="9" fill="#94a3b8">{fmt(v, 1)}</text>
+            </g>
+          ); })}
+          {cats.map((c, i) => {
+            const cx = padL + plotW * ((i + 0.5) / cats.length);
+            const col = HUES[i % HUES.length];
+            const b = c.box;
+            return (
+              <g key={i} onMouseEnter={() => setHover(c)} onMouseLeave={() => setHover(null)} style={{ cursor: "pointer" }}>
+                {/* whiskers */}
+                <line x1={cx} y1={yPix(b.max)} x2={cx} y2={yPix(b.q3)} stroke={col} strokeWidth="1.2" />
+                <line x1={cx} y1={yPix(b.q1)} x2={cx} y2={yPix(b.min)} stroke={col} strokeWidth="1.2" />
+                <line x1={cx - bw / 3} y1={yPix(b.max)} x2={cx + bw / 3} y2={yPix(b.max)} stroke={col} strokeWidth="1.2" />
+                <line x1={cx - bw / 3} y1={yPix(b.min)} x2={cx + bw / 3} y2={yPix(b.min)} stroke={col} strokeWidth="1.2" />
+                {/* box */}
+                <rect x={cx - bw / 2} y={yPix(b.q3)} width={bw} height={Math.max(1, yPix(b.q1) - yPix(b.q3))} fill={col} fillOpacity="0.18" stroke={col} strokeWidth="1.4" />
+                <line x1={cx - bw / 2} y1={yPix(b.med)} x2={cx + bw / 2} y2={yPix(b.med)} stroke={col} strokeWidth="2" />
+                <text x={cx} y={H - 8} textAnchor="middle" fontSize="9" fill="#52514e">{c.name}</text>
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+    </PanelShell>
+  );
+}
+
 /* ---------------- dispatcher ---------------- */
 
 /** Picks the renderer for a non-line digitized kind. Returns null for kinds
@@ -76,6 +131,7 @@ function RadarPanel({ panel, height = 220 }) {
 export function DigitizedPanel({ panel, height }) {
   switch (panel.digitized?.kind) {
     case "radar": return <RadarPanel panel={panel} height={height} />;
+    case "box": return <BoxPanel panel={panel} height={height} />;
     default: return null;
   }
 }

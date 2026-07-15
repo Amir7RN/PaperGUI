@@ -54,10 +54,33 @@ function ensureRadar(s) {
     activeSeries: 0,
   };
 }
+/** Lazily-initialised box-plot extraction state (Y-calibration is shared via
+ *  sub.cal.yA/yB; each category carries five clicked levels). */
+function ensureBox(s) {
+  return s.box || {
+    categories: [{ name: "cat 1", levels: { min: null, q1: null, med: null, q3: null, max: null } }],
+    activeCat: 0,
+  };
+}
+const BOX_LEVELS = ["max", "q3", "med", "q1", "min"];
 const CHART_KINDS = [
   { k: "line", label: "line / scatter" },
   { k: "radar", label: "radar / spider" },
+  { k: "box", label: "box plot" },
 ];
+
+/** Linear (or log) map of a y fraction → data value using two Y reference marks. */
+function yValueOf(cal, fy, yLog) {
+  const v0 = parseFloat(cal.yA.val), v1 = parseFloat(cal.yB.val);
+  const f0 = cal.yA.f, f1 = cal.yB.f;
+  if (f0 === f1 || !Number.isFinite(v0) || !Number.isFinite(v1)) return NaN;
+  const t = (fy - f0) / (f1 - f0);
+  if (yLog) {
+    if (v0 <= 0 || v1 <= 0) return NaN;
+    return Math.pow(10, Math.log10(v0) + t * (Math.log10(v1) - Math.log10(v0)));
+  }
+  return v0 + t * (v1 - v0);
+}
 
 /** Seed subplots when re-opening a figure already traced, or from the vision
  *  model's per-figure digitizeHint, or a single blank subplot. */
@@ -157,6 +180,60 @@ function RadarControls({ sub, mode, setMode, patchSub }) {
   );
 }
 
+/** Box-plot extraction: calibrate the Y axis once, then per category click the
+ *  five levels (max / Q3 / median / Q1 / min) off the figure. */
+function BoxControls({ sub, mode, setMode, patchSub }) {
+  const b = ensureBox(sub);
+  const ci = b.activeCat || 0;
+  const cat = b.categories[ci];
+  const setBox = (patch) => patchSub((s) => ({ ...s, box: { ...ensureBox(s), ...(typeof patch === "function" ? patch(ensureBox(s)) : patch) } }));
+  const yv = (lvl) => (cat?.levels[lvl] ? yValueOf(sub.cal, cat.levels[lvl].fy, sub.yLog) : null);
+
+  return (
+    <div className="mb-4">
+      <div className="mb-2 text-[11px] font-bold uppercase tracking-wider text-blue-300">Calibrate Y axis</div>
+      {[["yA", "Y ref A", sub.cal.yA], ["yB", "Y ref B", sub.cal.yB]].map(([k, label, ref]) => (
+        <div key={k} className="mb-1.5 flex items-center gap-2">
+          <button onClick={() => setMode(k)} className={`flex w-20 shrink-0 items-center gap-1 rounded px-2 py-1 text-[11px] font-medium ${mode === k ? "bg-blue-600 text-white" : "bg-slate-700 hover:bg-slate-600"}`}>
+            <Crosshair size={11} /> {label}
+          </button>
+          <input type="number" value={ref.val}
+            onChange={(e) => patchSub((s) => ({ ...s, cal: { ...s.cal, [k]: { ...s.cal[k], val: e.target.value } } }))}
+            placeholder="value at tick"
+            className="w-full rounded border border-slate-600 bg-slate-900 px-2 py-1 text-[12px] text-white focus:border-blue-400 focus:outline-none" />
+        </div>
+      ))}
+      <label className="flex items-center gap-1.5 text-[11px]"><input type="checkbox" checked={sub.yLog} onChange={(e) => patchSub({ yLog: e.target.checked })} /> Y log</label>
+
+      <div className="mb-2 mt-3 flex items-center justify-between">
+        <span className="text-[11px] font-semibold text-slate-300">Categories</span>
+        <button onClick={() => setBox((bx) => ({ categories: [...bx.categories, { name: `cat ${bx.categories.length + 1}`, levels: { min: null, q1: null, med: null, q3: null, max: null } }], activeCat: bx.categories.length }))}
+          className="flex items-center gap-1 rounded bg-slate-700 px-2 py-0.5 text-[11px] hover:bg-slate-600"><Plus size={10} /> Add</button>
+      </div>
+      <div className="mb-2 flex flex-wrap gap-1.5">
+        {b.categories.map((c, k) => (
+          <span key={k} onClick={() => setBox({ activeCat: k })}
+            className={`flex cursor-pointer items-center gap-1 rounded px-2 py-1 text-[11px] ${k === ci ? "bg-blue-600 text-white" : "bg-slate-700 hover:bg-slate-600"}`}>
+            <input value={c.name} onClick={(e) => e.stopPropagation()} onChange={(e) => setBox((bx) => ({ categories: bx.categories.map((x, j) => j === k ? { ...x, name: e.target.value } : x) }))}
+              className="w-16 bg-transparent focus:outline-none" />
+            {b.categories.length > 1 && <button onClick={(e) => { e.stopPropagation(); setBox((bx) => ({ categories: bx.categories.filter((_, j) => j !== k), activeCat: 0 })); }}><X size={9} /></button>}
+          </span>
+        ))}
+      </div>
+      <div className="text-[11px] text-slate-400">Click a level, then click the figure at that height ({cat?.name}):</div>
+      {BOX_LEVELS.map((lvl) => (
+        <div key={lvl} className="mt-1 flex items-center gap-2">
+          <button onClick={() => setMode(`bx:${ci}:${lvl}`)}
+            className={`w-16 shrink-0 rounded px-2 py-1 text-[11px] font-medium ${mode === `bx:${ci}:${lvl}` ? "bg-emerald-500 text-slate-900" : cat?.levels[lvl] ? "bg-emerald-700 text-white" : "bg-slate-700 hover:bg-slate-600"}`}>
+            {lvl}
+          </button>
+          <span className="text-[11px] tabular-nums text-slate-400">{Number.isFinite(yv(lvl)) ? yv(lvl).toPrecision(3) : "—"}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function DigitizerEditor({ fig, onSave, onClose }) {
   const imgRef = useRef(null);
   const [imgNat, setImgNat] = useState(null);
@@ -244,6 +321,16 @@ export default function DigitizerEditor({ fig, onSave, onClose }) {
       });
       setMode("idle");
     }
+    // ---- box: bx:<catIndex>:<level> ----
+    else if (mode.startsWith("bx:")) {
+      const [, ci, lvl] = mode.split(":");
+      patchSub((s) => {
+        const b = ensureBox(s);
+        const categories = b.categories.map((c, k) => k !== +ci ? c : { ...c, levels: { ...c.levels, [lvl]: { fy } } });
+        return { ...s, box: { ...b, categories } };
+      });
+      setMode("idle");
+    }
   };
 
   const autoTrace = (ci) => {
@@ -283,6 +370,22 @@ export default function DigitizerEditor({ fig, onSave, onClose }) {
       return {
         subplotLabel: s.label, xLabel: s.xLabel, yLabel: s.yLabel, chartKind: "radar", dataSource: "digitized",
         digitized: { kind: "radar", source: src, axes: r.axes.map((a) => ({ name: a.name })), series },
+      };
+    }
+    if (s.kind === "box") {
+      const yv = (lvl) => (lvl ? yValueOf(s.cal, lvl.fy, s.yLog) : null);
+      const cats = (s.box?.categories || []).map((cat) => ({
+        name: cat.name,
+        box: { min: yv(cat.levels.min), q1: yv(cat.levels.q1), med: yv(cat.levels.med), q3: yv(cat.levels.q3), max: yv(cat.levels.max) },
+      })).filter((c) => [c.box.q1, c.box.med, c.box.q3].every(Number.isFinite));
+      if (!cats.length) return null;
+      cats.forEach((c) => {
+        if (!Number.isFinite(c.box.min)) c.box.min = c.box.q1;
+        if (!Number.isFinite(c.box.max)) c.box.max = c.box.q3;
+      });
+      return {
+        subplotLabel: s.label, xLabel: s.xLabel, yLabel: s.yLabel, chartKind: "box", dataSource: "digitized",
+        digitized: { kind: "box", source: src, yLog: s.yLog, categories: cats },
       };
     }
     // default: line / scatter
@@ -355,6 +458,21 @@ export default function DigitizerEditor({ fig, onSave, onClose }) {
                       {active?.vertices?.map((v, i) => dot(v, "bg-emerald-500", `v${i}`))}
                     </>
                   );
+                })() : sub.kind === "box" ? (() => {
+                  const b = sub.box || {};
+                  const cat = b.categories?.[b.activeCat];
+                  return (
+                    <>
+                      <div className="pointer-events-none absolute inset-x-0 border-t-2 border-dashed border-emerald-400/80" style={{ top: pct(sub.cal.yA.f) }} />
+                      <div className="pointer-events-none absolute inset-x-0 border-t-2 border-dashed border-emerald-400/80" style={{ top: pct(sub.cal.yB.f) }} />
+                      {cat && BOX_LEVELS.map((lvl) => cat.levels[lvl] && (
+                        <div key={lvl} className="pointer-events-none absolute inset-x-0 flex items-center" style={{ top: pct(cat.levels[lvl].fy) }}>
+                          <span className="h-0.5 w-full bg-blue-500/70" />
+                          <span className="absolute left-1 rounded bg-blue-600 px-1 text-[8px] font-bold text-white">{lvl}</span>
+                        </div>
+                      ))}
+                    </>
+                  );
                 })() : (
                   <>
                     {/* line calibration marks + traced points */}
@@ -398,7 +516,7 @@ export default function DigitizerEditor({ fig, onSave, onClose }) {
             <div className="mt-2 flex items-center gap-2 text-[11px]">
               <span className="text-slate-400">Chart type</span>
               <select value={sub.kind}
-                onChange={(e) => { const k = e.target.value; patchSub((s) => ({ ...s, kind: k, radar: k === "radar" ? ensureRadar(s) : s.radar })); setMode("idle"); }}
+                onChange={(e) => { const k = e.target.value; patchSub((s) => ({ ...s, kind: k, radar: k === "radar" ? ensureRadar(s) : s.radar, box: k === "box" ? ensureBox(s) : s.box })); setMode("idle"); }}
                 className="flex-1 rounded border border-slate-600 bg-slate-900 px-2 py-1 text-white focus:border-blue-400 focus:outline-none">
                 {CHART_KINDS.map((c) => <option key={c.k} value={c.k}>{c.label}</option>)}
               </select>
@@ -412,6 +530,7 @@ export default function DigitizerEditor({ fig, onSave, onClose }) {
           </div>
 
           {sub.kind === "radar" && <RadarControls sub={sub} mode={mode} setMode={setMode} patchSub={patchSub} />}
+          {sub.kind === "box" && <BoxControls sub={sub} mode={mode} setMode={setMode} patchSub={patchSub} />}
 
           {sub.kind === "line" && <>
           {/* calibrate */}
@@ -498,8 +617,12 @@ export default function DigitizerEditor({ fig, onSave, onClose }) {
                 <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full" style={{ background: s.colorHex }} />{s.label}</span>
                 <span>{s.data.length ? `${s.data.length} pts · x[${s.data[0][0].toPrecision(3)}…${s.data[s.data.length - 1][0].toPrecision(3)}]` : "no data"}</span>
               </div>
-            )) : (
-              <div className="text-slate-400">{sub.kind} · {(sub.radar?.series || []).length} series · {(sub.radar?.axes || []).length} axes</div>
+            )) : sub.kind === "radar" ? (
+              <div className="text-slate-400">radar · {(sub.radar?.series || []).length} series · {(sub.radar?.axes || []).length} axes</div>
+            ) : sub.kind === "box" ? (
+              <div className="text-slate-400">box · {(sub.box?.categories || []).length} categories</div>
+            ) : (
+              <div className="text-slate-400">{sub.kind}</div>
             )}
             <div className="mt-1 border-t border-slate-700 pt-1 text-slate-500">{builtPanels.length} of {subs.length} subplot(s) ready to save</div>
           </div>
