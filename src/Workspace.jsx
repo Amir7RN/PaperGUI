@@ -2145,16 +2145,24 @@ function ResultsLab({ spec, pipelineCompiled, helpers, baseOutputs, actOutputs, 
             <div className="min-w-0">
               <h3 className="text-sm font-bold text-slate-900">{fig.figureLabel} — {fig.title}</h3>
             </div>
-            {hasPanels && (
-              <button
-                onClick={() => setShowParams(!showParams)}
-                className={`flex shrink-0 items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition ${
-                  showParams ? "border-emerald-300 bg-emerald-50 text-emerald-700" : "border-slate-200 bg-white text-slate-600 hover:border-emerald-300"
-                }`}
-              >
-                <SlidersHorizontal size={13} /> Tune parameters
-              </button>
-            )}
+            <div className="flex shrink-0 items-center gap-2">
+              {isOwner && fig.image && (
+                <button onClick={() => onTrace(figIndex)}
+                  className="flex items-center gap-1.5 rounded-lg border border-blue-300 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-100">
+                  <Crosshair size={13} /> Trace figure → real data
+                </button>
+              )}
+              {hasPanels && (
+                <button
+                  onClick={() => setShowParams(!showParams)}
+                  className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition ${
+                    showParams ? "border-emerald-300 bg-emerald-50 text-emerald-700" : "border-slate-200 bg-white text-slate-600 hover:border-emerald-300"
+                  }`}
+                >
+                  <SlidersHorizontal size={13} /> Tune parameters
+                </button>
+              )}
+            </div>
           </div>
 
           {showParams && hasPanels && (
@@ -2190,12 +2198,6 @@ function ResultsLab({ spec, pipelineCompiled, helpers, baseOutputs, actOutputs, 
                 <div className={`grid gap-3 ${(fig.panels?.length || 0) > 1 ? "md:grid-cols-2" : ""}`}>
                   {(fig.panels || []).map((panel, pi) => (
                     <div key={pi}>
-                      {isOwner && fig.image && (
-                        <button onClick={() => onTrace(figIndex, pi)}
-                          className="mb-1 flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700 hover:bg-blue-100">
-                          <Crosshair size={10} /> {panel.digitized ? "Re-trace" : "Trace"} off the real figure
-                        </button>
-                      )}
                       <PanelChart panel={panel} baseRun={runs[pi]?.base} actRun={runs[pi]?.act}
                         height={panelH} onHover={setHover}
                         activeSuffix={runs[pi]?.digitized ? "traced" : ""}
@@ -2229,10 +2231,9 @@ function ResultsLab({ spec, pipelineCompiled, helpers, baseOutputs, actOutputs, 
                   </p>
                 </div>
                 {isOwner && fig.image && (
-                  <button onClick={() => onTrace(figIndex, 0)}
-                    className="mt-2 flex items-center gap-1.5 rounded-lg border border-blue-300 bg-blue-50 px-3 py-1.5 text-[11px] font-semibold text-blue-700 hover:bg-blue-100">
-                    <Crosshair size={12} /> Make this figure interactive — trace the real curve
-                  </button>
+                  <p className="mt-2 text-[11px] text-slate-400">
+                    Use <strong>Trace figure → real data</strong> above to turn each subplot of this figure into an interactive plot.
+                  </p>
                 )}
               </div>
             </div>
@@ -2251,29 +2252,12 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
   // the spec here — keyed "figIdx:panelIdx" — so tracing never mutates the
   // original and every downstream memo just sees a spec with `digitized` blocks
   // filled in. onSave from the editor writes into this map.
-  const [digitizedOverrides, setDigitizedOverrides] = useState({});
-  const [traceTarget, setTraceTarget] = useState(null); // {figIndex, panelIndex}
+  const [digitizedOverrides, setDigitizedOverrides] = useState({}); // figIndex -> panels[]
+  const [traceTarget, setTraceTarget] = useState(null); // figIndex
   const spec = useMemo(() => {
     if (!Object.keys(digitizedOverrides).length) return baseSpec;
-    const figs = (baseSpec.resultFigures || []).map((f, fi) => {
-      const panels = [...(f.panels || [])];
-      Object.entries(digitizedOverrides).forEach(([key, ov]) => {
-        const [ofi, opi] = key.split(":").map(Number);
-        if (ofi !== fi) return;
-        if (panels[opi]) {
-          // replace an eyeballed reproduction with the traced real data
-          panels[opi] = { ...panels[opi], dataSource: "digitized", digitized: ov.digitized };
-        } else {
-          // panel-less "guided tour" figure → a brand-new interactive plot
-          const m = ov.meta || {};
-          panels[opi] = {
-            subplotLabel: m.subplotLabel || f.figureLabel, xLabel: m.xLabel || "x", yLabel: m.yLabel || "y",
-            chartKind: "line", dataSource: "digitized", digitized: ov.digitized,
-          };
-        }
-      });
-      return { ...f, panels };
-    });
+    const figs = (baseSpec.resultFigures || []).map((f, fi) =>
+      digitizedOverrides[fi] ? { ...f, panels: digitizedOverrides[fi] } : f);
     return { ...baseSpec, resultFigures: figs };
   }, [baseSpec, digitizedOverrides]);
 
@@ -2423,7 +2407,7 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
         <ResultsLab
           spec={spec} pipelineCompiled={compiled} helpers={helpers} baseOutputs={baseline.outputs} actOutputs={active.outputs}
           defaults={defaults} params={params} setParam={setParam} onOpenFig={setLightbox} layout={layout}
-          isOwner={isOwner} onTrace={(figIndex, panelIndex) => setTraceTarget({ figIndex, panelIndex })}
+          isOwner={isOwner} onTrace={(figIndex) => setTraceTarget(figIndex)}
         />
       ),
     },
@@ -2546,16 +2530,17 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
       <Inspector inspect={inspect} rows={rows} onClose={() => setInspect(null)} />
       <Lightbox fig={lightbox} onClose={() => setLightbox(null)} />
       <LayoutEditor open={editorOpen} layout={layout} onChange={setLayout} onClose={() => setEditorOpen(false)} />
-      {traceTarget && (() => {
-        const f = baseSpec.resultFigures?.[traceTarget.figIndex];
-        const p = f?.panels?.[traceTarget.panelIndex];
+      {traceTarget != null && (() => {
+        // seed from the CURRENT figure (restores prior traced subplots); the
+        // editor returns a full panels[] that replaces this figure's panels
+        const f = spec.resultFigures?.[traceTarget];
         if (!f) return null;
         return (
           <DigitizerEditor
-            fig={f} panel={p}
+            fig={f}
             onClose={() => setTraceTarget(null)}
-            onSave={(digitized, meta) => {
-              setDigitizedOverrides((prev) => ({ ...prev, [`${traceTarget.figIndex}:${traceTarget.panelIndex}`]: { digitized, meta } }));
+            onSave={(panels) => {
+              setDigitizedOverrides((prev) => ({ ...prev, [traceTarget]: panels }));
               setTraceTarget(null);
             }}
           />
