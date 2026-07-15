@@ -20,6 +20,7 @@ import BuyCredits from "./BuyCredits.jsx";
 import ContactModal from "./ContactModal.jsx";
 import { SAMPLE_SPEC } from "./samplePaper.js";
 import { SAMPLE_SPEC_2 } from "./samplePaper2.js";
+import { SAMPLE_SPEC_3 } from "./samplePaper3.js";
 import { analyzePaper, MODEL_TIERS, getModelTier, setModelTier } from "./api.js";
 import { fileToBase64, renderPdfRegions } from "./pdf.js";
 import {
@@ -537,6 +538,17 @@ function Landing({
               <span className="text-sm font-semibold text-slate-800">Multi-stage filtering &amp; control</span>
               <span className="text-xs leading-relaxed text-slate-500">
                 A signal-conditioning + feedback-regulation example — simpler, good for a first look.
+              </span>
+            </button>
+            <button
+              onClick={() => onSample(SAMPLE_SPEC_3)}
+              disabled={busy}
+              className="group flex flex-col items-start gap-1 rounded-2xl border border-slate-200/80 bg-white/90 p-4 text-left shadow-sm backdrop-blur transition hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-xl disabled:opacity-50"
+            >
+              <span className="text-sm font-semibold text-slate-800">AR/VR adoption in construction (survey)</span>
+              <span className="text-xs leading-relaxed text-slate-500">
+                A survey paper — no simulation. Shows the paper's own reported numbers as interactive
+                charts (incl. a radar), a clickable trend story, and its real figures.
               </span>
             </button>
           </div>
