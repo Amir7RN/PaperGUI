@@ -45,7 +45,7 @@ export async function renderPdfRegions(arrayBuffer, items) {
       let canvas = pageCanvases.get(it.page);
       if (!canvas) {
         const page = await doc.getPage(it.page);
-        const viewport = page.getViewport({ scale: 3 }); // high-res so figure text stays readable
+        const viewport = page.getViewport({ scale: 5 }); // high-res so dense figure/axis text stays readable when enlarged
         canvas = document.createElement("canvas");
         canvas.width = viewport.width;
         canvas.height = viewport.height;

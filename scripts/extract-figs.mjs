@@ -76,7 +76,7 @@ for (let p = 1; p <= doc.numPages; p++) {
 console.log("captions found:", [...captions.entries()].map(([n, c]) => `Fig${n}@p${c.page}`).join(" "));
 
 // 2) crop each target
-const SCALE = 4; // high-res so subplot axis text stays readable when enlarged
+const SCALE = 6; // high-res so dense multi-subplot figures stay readable when enlarged
 for (const t of TARGETS) {
   const cap = captions.get(t.fig);
   if (!cap) { console.log(`Fig ${t.fig}: caption NOT FOUND, skipped`); continue; }

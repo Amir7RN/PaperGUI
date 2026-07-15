@@ -53,6 +53,19 @@ const BOX_IDS = ["conclusion", "sec-story", "sec-concept", "sec-foundations", "s
 const fmt = (v, d = 3) =>
   v === undefined || v === null || Number.isNaN(v) ? "–" : (+v).toFixed(d);
 
+/** Axis tick formatter with decimals adapted to magnitude, so a ±0.05 error
+ *  axis doesn't collapse every tick to "0.0". */
+const fmtTick = (v) => {
+  if (v === undefined || v === null || Number.isNaN(v)) return "";
+  const a = Math.abs(+v);
+  if (a === 0) return "0";
+  if (a >= 10) return (+v).toFixed(0);
+  if (a >= 1) return (+v).toFixed(1);
+  if (a >= 0.1) return (+v).toFixed(2);
+  if (a >= 0.001) return (+v).toFixed(3);
+  return (+v).toExponential(1);
+};
+
 /* ---------------- small presentational pieces ---------------- */
 
 function Eq({ children }) {
@@ -822,7 +835,7 @@ function ChartCard({ title, blockKey, rows, tMax, height = 180, pinnedT, onPin, 
             <YAxis
               tick={{ fill: C.inkMuted, fontSize: 10 }} stroke="transparent"
               tickLine={false} width={52}
-              tickFormatter={(v) => fmt(v, 1)}
+              tickFormatter={fmtTick}
             />
             <Tooltip
               content={() => null}
@@ -1172,7 +1185,7 @@ function PanelChart({ panel, baseRun, actRun, height = 170, onHover, activeSuffi
             />
             <YAxis
               tick={{ fill: C.inkMuted, fontSize: 9 }} stroke="transparent"
-              tickLine={false} width={42} tickFormatter={(v) => fmt(v, 1)}
+              tickLine={false} width={42} tickFormatter={fmtTick}
             />
             <Tooltip content={() => null} cursor={{ fill: "rgba(100,116,139,0.08)" }}
               isAnimationActive={false} />
@@ -1194,11 +1207,11 @@ function PanelChart({ panel, baseRun, actRun, height = 170, onHover, activeSuffi
             <XAxis
               dataKey="_i" type="number" domain={["dataMin", "dataMax"]}
               tick={{ fill: C.inkMuted, fontSize: 9 }} stroke={C.axis} tickLine={false}
-              tickFormatter={(v) => fmt(v, 1)}
+              tickFormatter={fmtTick}
             />
             <YAxis
               tick={{ fill: C.inkMuted, fontSize: 9 }} stroke="transparent"
-              tickLine={false} width={42} tickFormatter={(v) => fmt(v, 1)}
+              tickLine={false} width={42} tickFormatter={fmtTick}
             />
             {pinned != null && (
               <ReferenceLine x={pinned.x} stroke={C.ink} strokeWidth={1.5} strokeDasharray="5 3" />
@@ -1574,7 +1587,7 @@ function DemoChart({ demo }) {
                   tick={{ fill: C.inkMuted, fontSize: 9 }} stroke={C.axis} tickLine={false}
                   interval={0} angle={rows.length > 6 ? -30 : 0} height={rows.length > 6 ? 44 : 30} />
                 <YAxis tick={{ fill: C.inkMuted, fontSize: 9 }} stroke="transparent"
-                  tickLine={false} width={44} tickFormatter={(v) => fmt(v, 1)} />
+                  tickLine={false} width={44} tickFormatter={fmtTick} />
                 <Tooltip content={() => null} cursor={{ fill: "rgba(100,116,139,0.08)" }}
                   isAnimationActive={false} />
                 {legend.filter((l) => !hidden.has(l.key)).map((l) => (
@@ -1587,9 +1600,9 @@ function DemoChart({ demo }) {
                 <CartesianGrid stroke={C.grid} strokeWidth={1} vertical={false} />
                 <XAxis dataKey="_i" type="number" domain={["dataMin", "dataMax"]}
                   tick={{ fill: C.inkMuted, fontSize: 9 }} stroke={C.axis} tickLine={false}
-                  tickFormatter={(v) => fmt(v, 1)} />
+                  tickFormatter={fmtTick} />
                 <YAxis tick={{ fill: C.inkMuted, fontSize: 9 }} stroke="transparent"
-                  tickLine={false} width={44} tickFormatter={(v) => fmt(v, 1)} />
+                  tickLine={false} width={44} tickFormatter={fmtTick} />
                 <Tooltip content={() => null}
                   cursor={{ stroke: C.inkMuted, strokeWidth: 1, strokeDasharray: "3 3" }}
                   isAnimationActive={false} />

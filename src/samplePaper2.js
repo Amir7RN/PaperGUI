@@ -36,6 +36,10 @@ const JOINTS = [
   { name: "ankle pitch", amp: 0.25, ph: 2.0, Ks: 48, Lam: 400, Gam: 20, sig: 0.4, d: 1.2 },
   { name: "ankle roll",  amp: 0.06, ph: 2.4, Ks: 78, Lam: 400, Gam: 20, sig: 0.4, d: 0.8 },
 ];
+// Both legs: the paper's Figs. 4/5 show Joint L1–L6 AND R1–R6 (12 subplots).
+// The right leg is the same six joints a half gait-cycle out of phase.
+const JOINTS_R = JOINTS.map((j) => ({ ...j, ph: j.ph + Math.PI }));
+const JOINTS_ALL = JOINTS.concat(JOINTS_R);
 const KsN = 55, GamN = 25, LamN = 430, WEIGHT = 647;
 function gaitRef(j) {
   const a = new Array(helpers.n);
@@ -109,42 +113,46 @@ function grf(side, terrain) {
 }
 `;
 
+// Match the paper's figures: 12 subplots, Joint L1–L6 then R1–R6, plotted
+// against real TIME (0–15 s) — not the sample index.
+const LEG_JOINTS = ["L1", "L2", "L3", "L4", "L5", "L6", "R1", "R2", "R3", "R4", "R5", "R6"];
+
 const trackPanels = (terrain, push) =>
-  Array.from({ length: 6 }, (_, k) => ({
-    subplotLabel: `(${"abcdef"[k]}) ${["hip yaw", "hip roll", "hip pitch", "knee", "ankle pitch", "ankle roll"][k]}`,
-    xLabel: "t (s)", yLabel: "angle (rad)",
+  Array.from({ length: 12 }, (_, k) => ({
+    subplotLabel: `Joint ${LEG_JOINTS[k]}`,
+    xLabel: "Time (s)", yLabel: "angle (rad)",
     computeJs: SIM + `
-const j = JOINTS[${k}];
+const j = JOINTS_ALL[${k}];
 const r = rlcJoint(j, ${terrain}, ${push || 0});
-return { series: [
+return { x: helpers.t, series: [
   { label: "reference", data: r.qd },
   { label: "actual", data: r.q },
 ] };`,
   }));
 
 const errorPanels = (terrain) =>
-  Array.from({ length: 6 }, (_, k) => ({
-    subplotLabel: `(${"abcdef"[k]}) ${["hip yaw", "hip roll", "hip pitch", "knee", "ankle pitch", "ankle roll"][k]}`,
-    xLabel: "t (s)", yLabel: "error (rad)",
+  Array.from({ length: 12 }, (_, k) => ({
+    subplotLabel: `Joint ${LEG_JOINTS[k]}`,
+    xLabel: "Time (s)", yLabel: "position tracking error (rad)",
     computeJs: SIM + `
-const r = rlcJoint(JOINTS[${k}], ${terrain}, 0);
-return { series: [ { label: "tracking error", data: r.e } ] };`,
+const r = rlcJoint(JOINTS_ALL[${k}], ${terrain}, 0);
+return { x: helpers.t, series: [ { label: "tracking error", data: r.e } ] };`,
   }));
 
 const comGrfPanels = (terrain) => [
   {
-    subplotLabel: "CoM height", xLabel: "t (s)", yLabel: "height (m)",
+    subplotLabel: "CoM height", xLabel: "Time (s)", yLabel: "height (m)",
     computeJs: SIM + `
 const c = comTraj(${terrain});
-return { series: [
+return { x: helpers.t, series: [
   { label: "desired CoM", data: c.des },
   { label: "actual CoM", data: c.act },
 ] };`,
   },
   {
-    subplotLabel: "Ground reaction force", xLabel: "t (s)", yLabel: "vertical GRF (N)",
+    subplotLabel: "Ground reaction force", xLabel: "Time (s)", yLabel: "vertical GRF (N)",
     computeJs: SIM + `
-return { series: [
+return { x: helpers.t, series: [
   { label: "left foot", data: grf("L", ${terrain}) },
   { label: "right foot", data: grf("R", ${terrain}) },
 ] };`,
@@ -493,11 +501,11 @@ return { x, series: [
     },
   ],
   protocol: {
-    T: 12,
+    T: 15,
     dt: 0.02,
     description:
       "Reduced reproduction of the paper's walking experiments: gait period ≈ 1.2 s, forward speed " +
-      "0.2 m/s, target CoM height 1.045 m, horizon 12 s (~10 gait cycles), Δt = 0.02 s. The seeded " +
+      "0.2 m/s, target CoM height 1.045 m, horizon 15 s (matching the paper's 0–15 s figures), Δt = 0.02 s. The seeded " +
       "disturbance realization is shared across runs, so every change you see comes from the sliders. " +
       "Indoor figures use a smooth floor; outdoor figures inject uneven-terrain disturbance internally.",
   },
@@ -637,7 +645,7 @@ return out;`,
       hotspots: [
         { x: 0.22, y: 0.28, label: "hip joint locks onto the gait", note: "The hip-pitch trace settles onto its periodic reference within the first couple of strides — the repetitive-learning term canceling the initial model error." },
         { x: 0.55, y: 0.62, label: "small bounded residual", note: "Even at steady state the actual curve doesn't sit exactly on the reference — that gap is the paper's 'uniformly ultimately bounded' claim, not exact convergence." },
-        { x: 0.8, y: 0.35, label: "same shape, all six joints", note: "Every joint shows the same tight tracking despite very different gains per joint — evidence the method scales across the leg, not just one lucky joint." },
+        { x: 0.8, y: 0.35, label: "same shape, all 12 joints", note: "Every joint of both legs (L1–L6, R1–R6) shows the same tight tracking despite very different gains per joint — evidence the decentralized method scales across the whole body, not one lucky joint." },
       ],
       svg: svgTrack, panels: trackPanels(IN, 0),
     },
@@ -674,16 +682,16 @@ return out;`,
       svg: svgTrack,
       panels: [
         {
-          subplotLabel: "(a) hip pitch — push at t = 6 s", xLabel: "t (s)", yLabel: "angle (rad)",
+          subplotLabel: "hip pitch — push at t = 7.5 s", xLabel: "Time (s)", yLabel: "angle (rad)",
           computeJs: SIM + `
 const r = rlcJoint(JOINTS[2], ${IN}, 8);
-return { series: [ { label: "reference", data: r.qd }, { label: "actual", data: r.q } ] };`,
+return { x: helpers.t, series: [ { label: "reference", data: r.qd }, { label: "actual", data: r.q } ] };`,
         },
         {
-          subplotLabel: "(b) knee — push at t = 6 s", xLabel: "t (s)", yLabel: "angle (rad)",
+          subplotLabel: "knee — push at t = 7.5 s", xLabel: "Time (s)", yLabel: "angle (rad)",
           computeJs: SIM + `
 const r = rlcJoint(JOINTS[3], ${IN}, 8);
-return { series: [ { label: "reference", data: r.qd }, { label: "actual", data: r.q } ] };`,
+return { x: helpers.t, series: [ { label: "reference", data: r.qd }, { label: "actual", data: r.q } ] };`,
         },
       ],
     },

@@ -161,6 +161,11 @@ export function runResultPanel(fn, outputs, params, figHelpers) {
   }
   let x = res.x;
   if (!Array.isArray(x) || x.length !== len) x = null;
+  // If a kernel returns no explicit x, fall back to the protocol's NATURAL axis
+  // (time/iterations) — never the raw sample index. Plotting a 0–15 s response
+  // against 0–600 samples is the classic mismatch that makes a reproduction
+  // look nothing like the paper's figure.
+  if (!x && Array.isArray(figHelpers?.t) && figHelpers.t.length === len) x = figHelpers.t;
   let categories = res.categories;
   if (!Array.isArray(categories) || categories.length !== len) categories = null;
   return { x, categories, series: res.series, error: null };
