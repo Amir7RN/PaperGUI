@@ -116,6 +116,50 @@ export function rgbToHex({ r, g, b }) {
 }
 
 /**
+ * Build a colour→value lookup table for a heat map by sampling colours along
+ * the colour bar between its low and high ends (each a fraction position with a
+ * known data value). N samples give a ramp we can invert per cell.
+ */
+export function buildColorLUT(imageData, lowPt, highPt, lowVal, highVal, N = 64) {
+  const lut = [];
+  for (let i = 0; i < N; i++) {
+    const t = i / (N - 1);
+    const fx = lowPt.fx + (highPt.fx - lowPt.fx) * t;
+    const fy = lowPt.fy + (highPt.fy - lowPt.fy) * t;
+    lut.push({ rgb: sampleColor(imageData, fx, fy), val: lowVal + (highVal - lowVal) * t });
+  }
+  return lut;
+}
+
+/** Nearest-colour lookup: map an RGB back to the LUT's value. */
+export function valueFromLUT(lut, rgb) {
+  let best = lut[0], bd = Infinity;
+  for (const e of lut) {
+    const d = colorDist2(e.rgb.r, e.rgb.g, e.rgb.b, rgb.r, rgb.g, rgb.b);
+    if (d < bd) { bd = d; best = e; }
+  }
+  return best ? best.val : NaN;
+}
+
+/**
+ * Read an nRows×nCols grid of cell values out of a heat map: sample each cell's
+ * centre colour inside `region` (fraction box) and invert it through the LUT.
+ */
+export function readHeatmapGrid(imageData, region, nRows, nCols, lut) {
+  const grid = [];
+  for (let r = 0; r < nRows; r++) {
+    const row = [];
+    for (let c = 0; c < nCols; c++) {
+      const fx = region.fx0 + ((c + 0.5) / nCols) * (region.fx1 - region.fx0);
+      const fy = region.fy0 + ((r + 0.5) / nRows) * (region.fy1 - region.fy0);
+      row.push(valueFromLUT(lut, sampleColor(imageData, fx, fy)));
+    }
+    grid.push(row);
+  }
+  return grid;
+}
+
+/**
  * Convert a set of fraction points + a calibration into real DATA points,
  * sorted by x and de-duplicated onto a monotonic x grid (drop backtracks so a
  * noisy trace still plots as a function). Returns [[x, y], …].

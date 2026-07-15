@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 import {
   makeCalibration, autoTraceColor, sampleColor, hexToRgb, rgbToHex,
-  fracPointsToData, bboxFracToCropFrac,
+  fracPointsToData, bboxFracToCropFrac, buildColorLUT, readHeatmapGrid,
 } from "./digitizer.js";
 
 const CURVE_HUES = ["#2a78d6", "#1baf7a", "#eda100", "#e34948", "#4a3aa7", "#e87ba4"];
@@ -41,7 +41,7 @@ function newSubplot(label, region) {
     id: ++SUB_ID, label: label || `subplot ${SUB_ID}`, xLabel: "x", yLabel: "y",
     region: region || null, xLog: false, yLog: false,
     cal: defaultCal(region), curves: [{ label: "curve 1", colorHex: CURVE_HUES[0], tol: 0.12, points: [] }],
-    activeCurve: 0, kind: "line", radar: null,
+    activeCurve: 0, kind: "line", radar: null, box: null, heatmap: null,
   };
 }
 
@@ -63,10 +63,19 @@ function ensureBox(s) {
   };
 }
 const BOX_LEVELS = ["max", "q3", "med", "q1", "min"];
+/** Lazily-initialised heat-map extraction state. */
+function ensureHeatmap(s) {
+  return s.heatmap || {
+    barLow: null, barHigh: null, lowVal: 0, highVal: 1,
+    gridRegion: null, nRows: 3, nCols: 3, grid: null,
+    rowLabels: "", colLabels: "",
+  };
+}
 const CHART_KINDS = [
   { k: "line", label: "line / scatter" },
   { k: "radar", label: "radar / spider" },
   { k: "box", label: "box plot" },
+  { k: "heatmap", label: "heat map" },
 ];
 
 /** Linear (or log) map of a y fraction → data value using two Y reference marks. */
@@ -234,6 +243,52 @@ function BoxControls({ sub, mode, setMode, patchSub }) {
   );
 }
 
+/** Heat-map extraction: calibrate the colour bar (low+high ends with values),
+ *  draw a box around the grid, set its rows×cols, then read every cell colour. */
+function HeatmapControls({ sub, mode, setMode, patchSub, readHeatmap, imageData }) {
+  const h = ensureHeatmap(sub);
+  const setH = (patch) => patchSub((s) => ({ ...s, heatmap: { ...ensureHeatmap(s), ...(typeof patch === "function" ? patch(ensureHeatmap(s)) : patch) } }));
+  const ready = h.barLow && h.barHigh && h.gridRegion && imageData;
+  return (
+    <div className="mb-4">
+      <div className="mb-2 text-[11px] font-bold uppercase tracking-wider text-blue-300">Colour-bar calibration</div>
+      <div className="mb-1.5 flex items-center gap-2">
+        <button onClick={() => setMode("hlow")} className={`w-24 shrink-0 rounded px-2 py-1 text-[11px] ${mode === "hlow" ? "bg-blue-600 text-white" : "bg-slate-700 hover:bg-slate-600"}`}>{h.barLow ? "✓ " : ""}bar low</button>
+        <input type="number" value={h.lowVal} onChange={(e) => setH({ lowVal: e.target.value })} placeholder="low value"
+          className="w-full rounded border border-slate-600 bg-slate-900 px-2 py-1 text-[12px] text-white focus:border-blue-400 focus:outline-none" />
+      </div>
+      <div className="mb-2 flex items-center gap-2">
+        <button onClick={() => setMode("hhigh")} className={`w-24 shrink-0 rounded px-2 py-1 text-[11px] ${mode === "hhigh" ? "bg-blue-600 text-white" : "bg-slate-700 hover:bg-slate-600"}`}>{h.barHigh ? "✓ " : ""}bar high</button>
+        <input type="number" value={h.highVal} onChange={(e) => setH({ highVal: e.target.value })} placeholder="high value"
+          className="w-full rounded border border-slate-600 bg-slate-900 px-2 py-1 text-[12px] text-white focus:border-blue-400 focus:outline-none" />
+      </div>
+
+      <div className="mb-2 text-[11px] font-bold uppercase tracking-wider text-blue-300">Grid</div>
+      <button onClick={() => setMode(mode === "hregion" ? "idle" : "hregion")}
+        className={`mb-2 flex w-full items-center justify-center gap-1.5 rounded px-2 py-1.5 text-[11px] font-medium ${mode === "hregion" ? "bg-amber-500 text-slate-900" : "bg-slate-700 hover:bg-slate-600"}`}>
+        <SquareDashedMousePointer size={12} /> {h.gridRegion ? "Redraw" : "Draw"} box around the grid cells
+      </button>
+      <div className="mb-2 flex gap-2">
+        <label className="flex flex-1 items-center gap-1 text-[11px] text-slate-400">rows
+          <input type="number" min="1" max="40" value={h.nRows} onChange={(e) => setH({ nRows: Math.max(1, Math.min(40, +e.target.value || 1)) })}
+            className="w-full rounded border border-slate-600 bg-slate-900 px-2 py-1 text-white focus:border-blue-400 focus:outline-none" /></label>
+        <label className="flex flex-1 items-center gap-1 text-[11px] text-slate-400">cols
+          <input type="number" min="1" max="40" value={h.nCols} onChange={(e) => setH({ nCols: Math.max(1, Math.min(40, +e.target.value || 1)) })}
+            className="w-full rounded border border-slate-600 bg-slate-900 px-2 py-1 text-white focus:border-blue-400 focus:outline-none" /></label>
+      </div>
+      <input value={h.rowLabels} onChange={(e) => setH({ rowLabels: e.target.value })} placeholder="row labels (comma-separated, optional)"
+        className="mb-1.5 w-full rounded border border-slate-600 bg-slate-900 px-2 py-1 text-[12px] text-white focus:border-blue-400 focus:outline-none" />
+      <input value={h.colLabels} onChange={(e) => setH({ colLabels: e.target.value })} placeholder="column labels (comma-separated, optional)"
+        className="mb-2 w-full rounded border border-slate-600 bg-slate-900 px-2 py-1 text-[12px] text-white focus:border-blue-400 focus:outline-none" />
+      <button onClick={readHeatmap} disabled={!ready}
+        className="flex w-full items-center justify-center gap-1.5 rounded bg-emerald-700 px-2 py-1.5 text-[11px] font-medium hover:bg-emerald-600 disabled:opacity-40">
+        <Wand2 size={12} /> Read cell colours → values
+      </button>
+      {h.grid && <p className="mt-1 text-[11px] text-emerald-400">Read {h.grid.length}×{h.grid[0]?.length} cells.</p>}
+    </div>
+  );
+}
+
 export default function DigitizerEditor({ fig, onSave, onClose }) {
   const imgRef = useRef(null);
   const [imgNat, setImgNat] = useState(null);
@@ -275,25 +330,27 @@ export default function DigitizerEditor({ fig, onSave, onClose }) {
   }));
 
   // ---- pointer handling: region drag vs. click actions ----
+  const isRegionMode = (m) => m === "region" || m === "hregion";
   const onDown = (e) => {
-    if (mode !== "region") return;
+    if (!isRegionMode(mode)) return;
     e.preventDefault();
     const p = fracFromEvent(e);
     setDragRect({ fx0: p.fx, fy0: p.fy, fx1: p.fx, fy1: p.fy });
   };
   const onMove = (e) => {
-    if (mode !== "region" || !dragRect) return;
+    if (!isRegionMode(mode) || !dragRect) return;
     const p = fracFromEvent(e);
     setDragRect((d) => ({ ...d, fx1: p.fx, fy1: p.fy }));
   };
   const onUp = () => {
-    if (mode !== "region" || !dragRect) return;
+    if (!isRegionMode(mode) || !dragRect) return;
     const region = {
       fx0: Math.min(dragRect.fx0, dragRect.fx1), fy0: Math.min(dragRect.fy0, dragRect.fy1),
       fx1: Math.max(dragRect.fx0, dragRect.fx1), fy1: Math.max(dragRect.fy0, dragRect.fy1),
     };
     if (region.fx1 - region.fx0 > 0.02 && region.fy1 - region.fy0 > 0.02) {
-      patchSub((s) => ({ ...s, region, cal: defaultCal(region) }));
+      if (mode === "hregion") patchSub((s) => ({ ...s, heatmap: { ...ensureHeatmap(s), gridRegion: region } }));
+      else patchSub((s) => ({ ...s, region, cal: defaultCal(region) }));
     }
     setDragRect(null); setMode("idle");
   };
@@ -331,6 +388,18 @@ export default function DigitizerEditor({ fig, onSave, onClose }) {
       });
       setMode("idle");
     }
+    // ---- heatmap colour-bar endpoints ----
+    else if (mode === "hlow") { patchSub((s) => ({ ...s, heatmap: { ...ensureHeatmap(s), barLow: { fx, fy } } })); setMode("idle"); }
+    else if (mode === "hhigh") { patchSub((s) => ({ ...s, heatmap: { ...ensureHeatmap(s), barHigh: { fx, fy } } })); setMode("idle"); }
+  };
+
+  /** Sample the colour bar + grid to fill the heat-map values. */
+  const readHeatmap = () => {
+    const h = sub.heatmap;
+    if (!imageData || !h?.barLow || !h?.barHigh || !h?.gridRegion) return;
+    const lut = buildColorLUT(imageData, h.barLow, h.barHigh, num(h.lowVal, 0), num(h.highVal, 1));
+    const grid = readHeatmapGrid(imageData, h.gridRegion, h.nRows, h.nCols, lut);
+    patchSub((s) => ({ ...s, heatmap: { ...ensureHeatmap(s), grid } }));
   };
 
   const autoTrace = (ci) => {
@@ -386,6 +455,19 @@ export default function DigitizerEditor({ fig, onSave, onClose }) {
       return {
         subplotLabel: s.label, xLabel: s.xLabel, yLabel: s.yLabel, chartKind: "box", dataSource: "digitized",
         digitized: { kind: "box", source: src, yLog: s.yLog, categories: cats },
+      };
+    }
+    if (s.kind === "heatmap") {
+      const h = s.heatmap;
+      if (!h?.grid?.length) return null;
+      let lo = Infinity, hi = -Infinity;
+      for (const row of h.grid) for (const v of row) if (Number.isFinite(v)) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
+      if (!Number.isFinite(lo)) return null;
+      const labs = (str, n) => { const a = String(str || "").split(",").map((x) => x.trim()).filter(Boolean); return Array.from({ length: n }, (_, i) => a[i] || `${i + 1}`); };
+      return {
+        subplotLabel: s.label, xLabel: s.xLabel, yLabel: s.yLabel, chartKind: "heatmap", dataSource: "digitized",
+        digitized: { kind: "heatmap", source: src, grid: h.grid, min: lo, max: hi,
+          rows: labs(h.rowLabels, h.grid.length), cols: labs(h.colLabels, h.grid[0].length) },
       };
     }
     // default: line / scatter
@@ -473,6 +555,19 @@ export default function DigitizerEditor({ fig, onSave, onClose }) {
                       ))}
                     </>
                   );
+                })() : sub.kind === "heatmap" ? (() => {
+                  const h = sub.heatmap || {};
+                  const dot = (p, cls, key) => p && Number.isFinite(p.fx) && (
+                    <span key={key} className={`pointer-events-none absolute h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full ring-2 ring-white ${cls}`}
+                      style={{ left: pct(p.fx), top: pct(p.fy) }} />
+                  );
+                  return (
+                    <>
+                      {regionBox(h.gridRegion, true)}
+                      {dot(h.barLow, "bg-slate-300", "lo")}
+                      {dot(h.barHigh, "bg-slate-900", "hi")}
+                    </>
+                  );
                 })() : (
                   <>
                     {/* line calibration marks + traced points */}
@@ -516,7 +611,7 @@ export default function DigitizerEditor({ fig, onSave, onClose }) {
             <div className="mt-2 flex items-center gap-2 text-[11px]">
               <span className="text-slate-400">Chart type</span>
               <select value={sub.kind}
-                onChange={(e) => { const k = e.target.value; patchSub((s) => ({ ...s, kind: k, radar: k === "radar" ? ensureRadar(s) : s.radar, box: k === "box" ? ensureBox(s) : s.box })); setMode("idle"); }}
+                onChange={(e) => { const k = e.target.value; patchSub((s) => ({ ...s, kind: k, radar: k === "radar" ? ensureRadar(s) : s.radar, box: k === "box" ? ensureBox(s) : s.box, heatmap: k === "heatmap" ? ensureHeatmap(s) : s.heatmap })); setMode("idle"); }}
                 className="flex-1 rounded border border-slate-600 bg-slate-900 px-2 py-1 text-white focus:border-blue-400 focus:outline-none">
                 {CHART_KINDS.map((c) => <option key={c.k} value={c.k}>{c.label}</option>)}
               </select>
@@ -531,6 +626,7 @@ export default function DigitizerEditor({ fig, onSave, onClose }) {
 
           {sub.kind === "radar" && <RadarControls sub={sub} mode={mode} setMode={setMode} patchSub={patchSub} />}
           {sub.kind === "box" && <BoxControls sub={sub} mode={mode} setMode={setMode} patchSub={patchSub} />}
+          {sub.kind === "heatmap" && <HeatmapControls sub={sub} mode={mode} setMode={setMode} patchSub={patchSub} readHeatmap={readHeatmap} imageData={imageData} />}
 
           {sub.kind === "line" && <>
           {/* calibrate */}
@@ -621,6 +717,8 @@ export default function DigitizerEditor({ fig, onSave, onClose }) {
               <div className="text-slate-400">radar · {(sub.radar?.series || []).length} series · {(sub.radar?.axes || []).length} axes</div>
             ) : sub.kind === "box" ? (
               <div className="text-slate-400">box · {(sub.box?.categories || []).length} categories</div>
+            ) : sub.kind === "heatmap" ? (
+              <div className="text-slate-400">heatmap · {sub.heatmap?.grid ? `${sub.heatmap.grid.length}×${sub.heatmap.grid[0]?.length} cells read` : "cells not read yet"}</div>
             ) : (
               <div className="text-slate-400">{sub.kind}</div>
             )}

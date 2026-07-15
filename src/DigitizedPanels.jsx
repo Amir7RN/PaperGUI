@@ -124,6 +124,54 @@ function BoxPanel({ panel, height = 220 }) {
   );
 }
 
+/* ---------------- heat map (custom SVG) ---------------- */
+
+function HeatmapPanel({ panel, height = 240 }) {
+  const d = panel.digitized || {};
+  const grid = d.grid || [];
+  const [hover, setHover] = useState(null);
+  if (!grid.length) return <PanelShell panel={panel}><div className="p-4 text-[11px] text-slate-400">No heat-map data.</div></PanelShell>;
+
+  const nR = grid.length, nC = grid[0].length;
+  const lo = d.min, hi = d.max, span = (hi - lo) || 1;
+  const rows = d.rows || grid.map((_, i) => `${i + 1}`);
+  const cols = d.cols || grid[0].map((_, i) => `${i + 1}`);
+  // sequential blue ramp (light → dark) — same family as the frames demo
+  const cellColor = (v) => {
+    if (!Number.isFinite(v)) return "#f1f5f9";
+    const u = (v - lo) / span;
+    const light = [222, 235, 250], dark = [13, 54, 107];
+    return `rgb(${light.map((l, i) => Math.round(l + (dark[i] - l) * u)).join(",")})`;
+  };
+  const labW = 46, labT = 18, W = 320, cellH = Math.max(14, Math.min(34, (height - labT) / nR));
+  const gridW = W - labW, cellW = gridW / nC, svgH = labT + nR * cellH;
+
+  return (
+    <PanelShell panel={panel} footer={
+      <div className={`mt-1 rounded-md px-2 py-1 text-[11px] tabular-nums ${hover ? "bg-slate-800 text-white" : "bg-slate-50 text-slate-400"}`}>
+        {hover ? <><strong>{hover.row} · {hover.col}</strong> = {fmt(hover.v, 3)}</> : "hover a cell for its value"}
+      </div>}>
+      <div className="overflow-x-auto">
+        <svg width="100%" viewBox={`0 0 ${W} ${svgH}`} style={{ minWidth: 260 }}>
+          {cols.map((c, ci) => (
+            <text key={ci} x={labW + cellW * (ci + 0.5)} y={12} textAnchor="middle" fontSize="8.5" fill="#64748b">{c}</text>
+          ))}
+          {grid.map((row, ri) => (
+            <g key={ri}>
+              <text x={labW - 4} y={labT + cellH * (ri + 0.5) + 3} textAnchor="end" fontSize="8.5" fill="#64748b">{rows[ri]}</text>
+              {row.map((v, ci) => (
+                <rect key={ci} x={labW + cellW * ci} y={labT + cellH * ri} width={cellW - 1} height={cellH - 1}
+                  fill={cellColor(v)} onMouseEnter={() => setHover({ row: rows[ri], col: cols[ci], v })} onMouseLeave={() => setHover(null)}
+                  style={{ cursor: "pointer" }} />
+              ))}
+            </g>
+          ))}
+        </svg>
+      </div>
+    </PanelShell>
+  );
+}
+
 /* ---------------- dispatcher ---------------- */
 
 /** Picks the renderer for a non-line digitized kind. Returns null for kinds
@@ -132,6 +180,7 @@ export function DigitizedPanel({ panel, height }) {
   switch (panel.digitized?.kind) {
     case "radar": return <RadarPanel panel={panel} height={height} />;
     case "box": return <BoxPanel panel={panel} height={height} />;
+    case "heatmap": return <HeatmapPanel panel={panel} height={height} />;
     default: return null;
   }
 }
