@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import LayoutEditor from "./LayoutEditor.jsx";
 import DigitizerEditor from "./DigitizerEditor.jsx";
+import { DigitizedPanel, isSpecialDigitized } from "./DigitizedPanels.jsx";
 import DesignBox from "./DesignBox.jsx";
 import { loadLayout, saveLayout, layoutStyle, sectionByKey } from "./layout.js";
 import {
@@ -2198,10 +2199,14 @@ function ResultsLab({ spec, pipelineCompiled, helpers, baseOutputs, actOutputs, 
                 <div className={`grid gap-3 ${(fig.panels?.length || 0) > 1 ? "md:grid-cols-2" : ""}`}>
                   {(fig.panels || []).map((panel, pi) => (
                     <div key={pi}>
-                      <PanelChart panel={panel} baseRun={runs[pi]?.base} actRun={runs[pi]?.act}
-                        height={panelH} onHover={setHover}
-                        activeSuffix={runs[pi]?.digitized ? "traced" : ""}
-                        baselineSuffix={runs[pi]?.digitized ? "live model" : "paper's value"} />
+                      {isSpecialDigitized(panel) ? (
+                        <DigitizedPanel panel={panel} height={panelH} />
+                      ) : (
+                        <PanelChart panel={panel} baseRun={runs[pi]?.base} actRun={runs[pi]?.act}
+                          height={panelH} onHover={setHover}
+                          activeSuffix={runs[pi]?.digitized ? "traced" : ""}
+                          baselineSuffix={runs[pi]?.digitized ? "live model" : "paper's value"} />
+                      )}
                     </div>
                   ))}
                 </div>

@@ -41,9 +41,23 @@ function newSubplot(label, region) {
     id: ++SUB_ID, label: label || `subplot ${SUB_ID}`, xLabel: "x", yLabel: "y",
     region: region || null, xLog: false, yLog: false,
     cal: defaultCal(region), curves: [{ label: "curve 1", colorHex: CURVE_HUES[0], tol: 0.12, points: [] }],
-    activeCurve: 0,
+    activeCurve: 0, kind: "line", radar: null,
   };
 }
+
+/** Lazily-initialised radar extraction state for a subplot. */
+function ensureRadar(s) {
+  return s.radar || {
+    center: null, ref: { fx: null, fy: null, val: 1 },
+    axes: [{ name: "axis 1" }, { name: "axis 2" }, { name: "axis 3" }],
+    series: [{ label: "series 1", vertices: [null, null, null] }],
+    activeSeries: 0,
+  };
+}
+const CHART_KINDS = [
+  { k: "line", label: "line / scatter" },
+  { k: "radar", label: "radar / spider" },
+];
 
 /** Seed subplots when re-opening a figure already traced, or from the vision
  *  model's per-figure digitizeHint, or a single blank subplot. */
@@ -82,6 +96,65 @@ function seedSubplots(fig) {
     return [s];
   }
   return [newSubplot("subplot 1", null)];
+}
+
+/** Radar extraction: click the centre, click a ring point of known value (sets
+ *  the radial scale), name the axes, then click each series' vertex per axis. */
+function RadarControls({ sub, mode, setMode, patchSub }) {
+  const r = ensureRadar(sub);
+  const si = r.activeSeries || 0;
+  const setR = (patch) => patchSub((s) => ({ ...s, radar: { ...ensureRadar(s), ...(typeof patch === "function" ? patch(ensureRadar(s)) : patch) } }));
+  const addAxis = () => setR((rd) => ({ axes: [...rd.axes, { name: `axis ${rd.axes.length + 1}` }], series: rd.series.map((se) => ({ ...se, vertices: [...se.vertices, null] })) }));
+  const rmAxis = (ai) => setR((rd) => ({ axes: rd.axes.filter((_, k) => k !== ai), series: rd.series.map((se) => ({ ...se, vertices: se.vertices.filter((_, k) => k !== ai) })) }));
+  const addSeries = () => setR((rd) => ({ series: [...rd.series, { label: `series ${rd.series.length + 1}`, vertices: rd.axes.map(() => null) }], activeSeries: rd.series.length }));
+
+  return (
+    <div className="mb-4">
+      <div className="mb-2 text-[11px] font-bold uppercase tracking-wider text-blue-300">Radar calibration</div>
+      <div className="mb-2 flex gap-1.5">
+        <button onClick={() => setMode("rcenter")} className={`flex flex-1 items-center justify-center gap-1 rounded px-2 py-1 text-[11px] ${mode === "rcenter" ? "bg-blue-600 text-white" : "bg-slate-700 hover:bg-slate-600"}`}>
+          <Crosshair size={11} /> {r.center ? "Re-set" : "Set"} centre
+        </button>
+        <button onClick={() => setMode("rref")} className={`flex flex-1 items-center justify-center gap-1 rounded px-2 py-1 text-[11px] ${mode === "rref" ? "bg-amber-500 text-slate-900" : "bg-slate-700 hover:bg-slate-600"}`}>
+          <Crosshair size={11} /> {Number.isFinite(r.ref?.fx) ? "Re-set" : "Set"} ring
+        </button>
+        <input type="number" value={r.ref?.val ?? 1} title="value at the ring you clicked"
+          onChange={(e) => setR((rd) => ({ ref: { ...rd.ref, val: e.target.value } }))}
+          className="w-16 rounded border border-slate-600 bg-slate-900 px-2 py-1 text-[12px] text-white focus:border-blue-400 focus:outline-none" />
+      </div>
+
+      <div className="mb-2 flex items-center justify-between">
+        <span className="text-[11px] font-semibold text-slate-300">Axes</span>
+        <button onClick={addAxis} className="flex items-center gap-1 rounded bg-slate-700 px-2 py-0.5 text-[11px] hover:bg-slate-600"><Plus size={10} /> Add</button>
+      </div>
+      {r.axes.map((a, ai) => (
+        <div key={ai} className="mb-1 flex items-center gap-1.5">
+          <input value={a.name} onChange={(e) => setR((rd) => ({ axes: rd.axes.map((x, k) => k === ai ? { name: e.target.value } : x) }))}
+            className="w-full rounded border border-slate-600 bg-slate-900 px-2 py-0.5 text-[12px] text-white focus:border-blue-400 focus:outline-none" />
+          <button onClick={() => setMode(`rv:${si}:${ai}`)}
+            className={`shrink-0 rounded px-2 py-0.5 text-[10px] ${mode === `rv:${si}:${ai}` ? "bg-emerald-500 text-slate-900" : r.series[si]?.vertices[ai] ? "bg-emerald-700 text-white" : "bg-slate-700 hover:bg-slate-600"}`}>
+            {r.series[si]?.vertices[ai] ? "✓ vertex" : "click"}
+          </button>
+          {r.axes.length > 3 && <button onClick={() => rmAxis(ai)} className="shrink-0 rounded p-1 text-slate-400 hover:text-red-400"><Trash2 size={11} /></button>}
+        </div>
+      ))}
+
+      <div className="mb-2 mt-3 flex items-center justify-between">
+        <span className="text-[11px] font-semibold text-slate-300">Series (click a tab, then set its vertices above)</span>
+        <button onClick={addSeries} className="flex items-center gap-1 rounded bg-slate-700 px-2 py-0.5 text-[11px] hover:bg-slate-600"><Plus size={10} /> Add</button>
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {r.series.map((se, k) => (
+          <span key={k} onClick={() => setR({ activeSeries: k })}
+            className={`flex cursor-pointer items-center gap-1 rounded px-2 py-1 text-[11px] ${k === si ? "bg-blue-600 text-white" : "bg-slate-700 hover:bg-slate-600"}`}>
+            <input value={se.label} onClick={(e) => e.stopPropagation()} onChange={(e) => setR((rd) => ({ series: rd.series.map((x, j) => j === k ? { ...x, label: e.target.value } : x) }))}
+              className="w-20 bg-transparent focus:outline-none" />
+            {r.series.length > 1 && <button onClick={(e) => { e.stopPropagation(); setR((rd) => ({ series: rd.series.filter((_, j) => j !== k), activeSeries: 0 })); }}><X size={9} /></button>}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 export default function DigitizerEditor({ fig, onSave, onClose }) {
@@ -159,6 +232,18 @@ export default function DigitizerEditor({ fig, onSave, onClose }) {
     } else if (mode === "points") {
       patchCurve(sub.activeCurve, (cv) => ({ points: [...cv.points, { fx, fy }].sort((a, b) => a.fx - b.fx) }));
     }
+    // ---- radar ----
+    else if (mode === "rcenter") { patchSub((s) => ({ ...s, radar: { ...ensureRadar(s), center: { fx, fy } } })); setMode("idle"); }
+    else if (mode === "rref") { patchSub((s) => { const r = ensureRadar(s); return { ...s, radar: { ...r, ref: { ...r.ref, fx, fy } } }; }); setMode("idle"); }
+    else if (mode.startsWith("rv:")) {
+      const [, si, ai] = mode.split(":").map(Number);
+      patchSub((s) => {
+        const r = ensureRadar(s);
+        const series = r.series.map((se, k) => k !== si ? se : { ...se, vertices: se.vertices.map((v, j) => j !== ai ? v : { fx, fy }) });
+        return { ...s, radar: { ...r, series } };
+      });
+      setMode("idle");
+    }
   };
 
   const autoTrace = (ci) => {
@@ -181,8 +266,26 @@ export default function DigitizerEditor({ fig, onSave, onClose }) {
     label: cv.label, colorHex: cv.colorHex, data: calibration ? fracPointsToData(cv.points, calibration) : [],
   })), [sub, calibration]);
 
-  /** One built panel per subplot that has a valid calibration + real curve. */
+  /** One built panel per subplot with valid extracted data (kind-specific). */
   const builtPanels = useMemo(() => subs.map((s) => {
+    const src = `Traced from ${fig?.figureLabel || "the figure"} — ${s.label}`;
+    if (s.kind === "radar") {
+      const r = s.radar;
+      if (!r?.center || !Number.isFinite(r.ref?.fx)) return null;
+      const refR = Math.hypot(r.ref.fx - r.center.fx, r.ref.fy - r.center.fy);
+      const refVal = num(r.ref.val, 1);
+      if (!(refR > 0)) return null;
+      const toVal = (v) => (v ? (Math.hypot(v.fx - r.center.fx, v.fy - r.center.fy) / refR) * refVal : 0);
+      const series = r.series
+        .map((se) => ({ label: se.label, values: se.vertices.map(toVal) }))
+        .filter((se) => se.values.some((x) => Math.abs(x) > 1e-9));
+      if (!series.length || r.axes.length < 3) return null;
+      return {
+        subplotLabel: s.label, xLabel: s.xLabel, yLabel: s.yLabel, chartKind: "radar", dataSource: "digitized",
+        digitized: { kind: "radar", source: src, axes: r.axes.map((a) => ({ name: a.name })), series },
+      };
+    }
+    // default: line / scatter
     const cal = calOf(s);
     if (!cal) return null;
     const series = s.curves
@@ -192,7 +295,7 @@ export default function DigitizerEditor({ fig, onSave, onClose }) {
     return {
       subplotLabel: s.label, xLabel: s.xLabel, yLabel: s.yLabel, chartKind: "line", dataSource: "digitized",
       digitized: {
-        source: `Traced from ${fig?.figureLabel || "the figure"} — ${s.label}`,
+        kind: "line", source: src,
         xLog: s.xLog, yLog: s.yLog, region: s.region, cal: s.cal, series,
       },
     };
@@ -238,15 +341,33 @@ export default function DigitizerEditor({ fig, onSave, onClose }) {
                 {subs.map((s, i) => <React.Fragment key={s.id}>{regionBox(s.region, i === activeSub)}</React.Fragment>)}
                 {dragRect && regionBox(dragRect, true)}
 
-                {/* active subplot calibration + traced points */}
-                <div className="pointer-events-none absolute inset-y-0 border-l-2 border-dashed border-blue-400/80" style={{ left: pct(sub.cal.xA.f) }} />
-                <div className="pointer-events-none absolute inset-y-0 border-l-2 border-dashed border-blue-400/80" style={{ left: pct(sub.cal.xB.f) }} />
-                <div className="pointer-events-none absolute inset-x-0 border-t-2 border-dashed border-emerald-400/80" style={{ top: pct(sub.cal.yA.f) }} />
-                <div className="pointer-events-none absolute inset-x-0 border-t-2 border-dashed border-emerald-400/80" style={{ top: pct(sub.cal.yB.f) }} />
-                {sub.curves[sub.activeCurve]?.points.map((p, i) => (
-                  <span key={i} className="pointer-events-none absolute h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full ring-1 ring-white"
-                    style={{ left: pct(p.fx), top: pct(p.fy), background: sub.curves[sub.activeCurve].colorHex }} />
-                ))}
+                {sub.kind === "radar" ? (() => {
+                  const r = sub.radar || {};
+                  const dot = (p, cls, key) => p && Number.isFinite(p.fx) && (
+                    <span key={key} className={`pointer-events-none absolute h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full ring-2 ring-white ${cls}`}
+                      style={{ left: pct(p.fx), top: pct(p.fy) }} />
+                  );
+                  const active = r.series?.[r.activeSeries];
+                  return (
+                    <>
+                      {dot(r.center, "bg-blue-500", "c")}
+                      {dot(r.ref, "bg-amber-400", "r")}
+                      {active?.vertices?.map((v, i) => dot(v, "bg-emerald-500", `v${i}`))}
+                    </>
+                  );
+                })() : (
+                  <>
+                    {/* line calibration marks + traced points */}
+                    <div className="pointer-events-none absolute inset-y-0 border-l-2 border-dashed border-blue-400/80" style={{ left: pct(sub.cal.xA.f) }} />
+                    <div className="pointer-events-none absolute inset-y-0 border-l-2 border-dashed border-blue-400/80" style={{ left: pct(sub.cal.xB.f) }} />
+                    <div className="pointer-events-none absolute inset-x-0 border-t-2 border-dashed border-emerald-400/80" style={{ top: pct(sub.cal.yA.f) }} />
+                    <div className="pointer-events-none absolute inset-x-0 border-t-2 border-dashed border-emerald-400/80" style={{ top: pct(sub.cal.yB.f) }} />
+                    {sub.curves[sub.activeCurve]?.points.map((p, i) => (
+                      <span key={i} className="pointer-events-none absolute h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full ring-1 ring-white"
+                        style={{ left: pct(p.fx), top: pct(p.fy), background: sub.curves[sub.activeCurve].colorHex }} />
+                    ))}
+                  </>
+                )}
               </>
             )}
           </div>
@@ -273,12 +394,26 @@ export default function DigitizerEditor({ fig, onSave, onClose }) {
                 </button>
               ))}
             </div>
-            <button onClick={() => setMode(mode === "region" ? "idle" : "region")}
-              className={`mt-2 flex w-full items-center justify-center gap-1.5 rounded px-2 py-1.5 text-[11px] font-medium ${mode === "region" ? "bg-amber-500 text-slate-900" : "bg-slate-700 hover:bg-slate-600"}`}>
-              <SquareDashedMousePointer size={12} /> {sub.region ? "Redraw" : "Draw"} box around this subplot's plot area
-            </button>
+            {/* chart type */}
+            <div className="mt-2 flex items-center gap-2 text-[11px]">
+              <span className="text-slate-400">Chart type</span>
+              <select value={sub.kind}
+                onChange={(e) => { const k = e.target.value; patchSub((s) => ({ ...s, kind: k, radar: k === "radar" ? ensureRadar(s) : s.radar })); setMode("idle"); }}
+                className="flex-1 rounded border border-slate-600 bg-slate-900 px-2 py-1 text-white focus:border-blue-400 focus:outline-none">
+                {CHART_KINDS.map((c) => <option key={c.k} value={c.k}>{c.label}</option>)}
+              </select>
+            </div>
+            {sub.kind === "line" && (
+              <button onClick={() => setMode(mode === "region" ? "idle" : "region")}
+                className={`mt-2 flex w-full items-center justify-center gap-1.5 rounded px-2 py-1.5 text-[11px] font-medium ${mode === "region" ? "bg-amber-500 text-slate-900" : "bg-slate-700 hover:bg-slate-600"}`}>
+                <SquareDashedMousePointer size={12} /> {sub.region ? "Redraw" : "Draw"} box around this subplot's plot area
+              </button>
+            )}
           </div>
 
+          {sub.kind === "radar" && <RadarControls sub={sub} mode={mode} setMode={setMode} patchSub={patchSub} />}
+
+          {sub.kind === "line" && <>
           {/* calibrate */}
           <div className="mb-4">
             <div className="mb-2 text-[11px] font-bold uppercase tracking-wider text-blue-300">Calibrate axes</div>
@@ -340,6 +475,7 @@ export default function DigitizerEditor({ fig, onSave, onClose }) {
               </div>
             ))}
           </div>
+          </>}
 
           {/* labels */}
           <div className="mb-4">
@@ -357,12 +493,14 @@ export default function DigitizerEditor({ fig, onSave, onClose }) {
           {/* preview + save */}
           <div className="mb-3 rounded-lg border border-slate-700 bg-slate-900/60 p-2 text-[11px]">
             <div className="mb-1 font-semibold text-slate-300">This subplot's data</div>
-            {dataSeries.map((s, i) => (
+            {sub.kind === "line" ? dataSeries.map((s, i) => (
               <div key={i} className="flex items-center justify-between tabular-nums text-slate-400">
                 <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full" style={{ background: s.colorHex }} />{s.label}</span>
                 <span>{s.data.length ? `${s.data.length} pts · x[${s.data[0][0].toPrecision(3)}…${s.data[s.data.length - 1][0].toPrecision(3)}]` : "no data"}</span>
               </div>
-            ))}
+            )) : (
+              <div className="text-slate-400">{sub.kind} · {(sub.radar?.series || []).length} series · {(sub.radar?.axes || []).length} axes</div>
+            )}
             <div className="mt-1 border-t border-slate-700 pt-1 text-slate-500">{builtPanels.length} of {subs.length} subplot(s) ready to save</div>
           </div>
 
