@@ -20,14 +20,16 @@ import {
   Activity, GitBranch, Pin, PinOff, FileText, Code2, Sigma, Waves, Cpu,
   ChevronRight, TriangleAlert, CircleCheck, CircleAlert, ArrowLeft, Image as ImageIcon, LogOut,
   Landmark, Maximize2, Lightbulb, LineChart as LineChartIcon, LayoutTemplate, Move,
-  Sparkles, BookMarked, Play, Pause, Puzzle, Rocket, Network, ChevronLeft, FileCode2,
+  Sparkles, BookMarked, Play, Pause, Puzzle, Rocket, Network, ChevronLeft, FileCode2, Crosshair,
 } from "lucide-react";
 import LayoutEditor from "./LayoutEditor.jsx";
+import DigitizerEditor from "./DigitizerEditor.jsx";
 import DesignBox from "./DesignBox.jsx";
 import { loadLayout, saveLayout, layoutStyle, sectionByKey } from "./layout.js";
 import {
   buildHelpers, defaultsFromSpec, compileSpec, runSpec, buildRows,
   compileResultFigures, runResultPanel, buildPanelRows, makeFigureHelpers,
+  digitizedRealRun, resampleRunToGrid,
 } from "./engine.js";
 
 /* categorical hues for multi-series result reproductions (validated set) */
@@ -1064,7 +1066,7 @@ function ResultFigureTooltip({ active, payload, label, xLabel, legend }) {
 
 /** One subplot. Hover values are NOT drawn on the plot (a floating box hides
  *  the curves) — they're forwarded to a dedicated readout box via onHover. */
-function PanelChart({ panel, baseRun, actRun, height = 170, onHover }) {
+function PanelChart({ panel, baseRun, actRun, height = 170, onHover, activeSuffix = "", baselineSuffix = "paper's value" }) {
   const kind = panel.chartKind || "line";
   const categories = actRun?.categories || baseRun?.categories || null;
   const { rows } = useMemo(() => {
@@ -1075,18 +1077,21 @@ function PanelChart({ panel, baseRun, actRun, height = 170, onHover }) {
     return r;
   }, [baseRun, actRun, kind, categories]);
   const err = actRun?.error || baseRun?.error;
+  const hasBase = !!(baseRun && !baseRun.error && baseRun.series?.length);
   const nSeries = (actRun?.series || baseRun?.series || []).length;
 
   // One legend entry PER SERIES (not one for "yours" + a separate grey one
   // for "paper's baseline") and the baseline keeps that series' OWN color,
   // just dashed — with 2+ series, a flat grey for every baseline made it
-  // impossible to tell which dashed line paired with which solid one.
+  // impossible to tell which dashed line paired with which solid one. A panel
+  // with no baseline (a digitized-only real curve, no model to chase it) shows
+  // just the solid series.
   const legend = [];
   for (let k = 0; k < nSeries; k++) {
     const name = (actRun?.series || baseRun?.series)[k]?.label || `series ${k + 1}`;
     const color = SERIES_HUES[k % SERIES_HUES.length];
-    legend.push({ key: `a${k}`, pairKey: `s${k}`, label: name, color });
-    legend.push({ key: `b${k}`, pairKey: `s${k}`, label: `${name} · paper's value`, color, dash: "5 4" });
+    legend.push({ key: `a${k}`, pairKey: `s${k}`, label: activeSuffix ? `${name} · ${activeSuffix}` : name, color });
+    if (hasBase) legend.push({ key: `b${k}`, pairKey: `s${k}`, label: `${name} · ${baselineSuffix}`, color, dash: "5 4" });
   }
 
   const [hidden, setHidden] = useState(() => new Set());
@@ -1140,11 +1145,16 @@ function PanelChart({ panel, baseRun, actRun, height = 170, onHover }) {
       <div className="mb-1 flex items-baseline justify-between px-1">
         <span className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-700">
           {panel.subplotLabel}
-          {panel.dataSource === "reported" && (
+          {panel.digitized ? (
+            <span className="rounded-full bg-blue-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-blue-700"
+              title={panel.digitized.source || "traced off the real figure"}>
+              traced from figure
+            </span>
+          ) : panel.dataSource === "reported" ? (
             <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-emerald-700">
               paper's numbers
             </span>
-          )}
+          ) : null}
         </span>
         <span className="text-[10px] text-slate-400">{panel.xLabel} → {panel.yLabel}</span>
       </div>
@@ -2043,7 +2053,7 @@ function ConceptLab({ spec, params, defaults, setParam, rows, compiled, pinnedT,
 
 /* ---------------- results lab window ---------------- */
 
-function ResultsLab({ spec, pipelineCompiled, helpers, baseOutputs, actOutputs, defaults, params, setParam, onOpenFig, layout }) {
+function ResultsLab({ spec, pipelineCompiled, helpers, baseOutputs, actOutputs, defaults, params, setParam, onOpenFig, layout, isOwner = false, onTrace }) {
   const figs = spec.resultFigures || [];
   const [pageId, setPageId] = useState(figs[0]?.figureLabel || "");
   const [showParams, setShowParams] = useState(false);
@@ -2063,6 +2073,20 @@ function ResultsLab({ spec, pipelineCompiled, helpers, baseOutputs, actOutputs, 
     if (!fig) return [];
     return (fig.panels || []).map((panel, pi) => {
       const fn = compiled.fns[`${figIndex}:${pi}`];
+
+      // Digitized panel: the traced REAL curve is the locked ground truth
+      // (solid, never moves). If the panel also has a model, resample it onto
+      // the same x grid and hand it in as the "baseline" (dashed) so it moves
+      // with the sliders — the reader watches the model chase the real data.
+      if (panel.digitized) {
+        const real = digitizedRealRun(panel.digitized);
+        const grid = real?.x || null;
+        const model = fn && grid
+          ? resampleRunToGrid(runResultPanel(fn, actOutputs, params, actFigHelpers), grid)
+          : null;
+        return { act: real, base: model, digitized: true };
+      }
+
       return {
         base: runResultPanel(fn, baseOutputs, defaults, baseFigHelpers),
         act:  runResultPanel(fn, actOutputs, params, actFigHelpers),
@@ -2152,13 +2176,25 @@ function ResultsLab({ spec, pipelineCompiled, helpers, baseOutputs, actOutputs, 
                 </div>
                 <div className={`grid gap-3 ${(fig.panels?.length || 0) > 1 ? "md:grid-cols-2" : ""}`}>
                   {(fig.panels || []).map((panel, pi) => (
-                    <PanelChart key={pi} panel={panel} baseRun={runs[pi]?.base} actRun={runs[pi]?.act} height={panelH} onHover={setHover} />
+                    <div key={pi}>
+                      {isOwner && fig.image && (
+                        <button onClick={() => onTrace(figIndex, pi)}
+                          className="mb-1 flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700 hover:bg-blue-100">
+                          <Crosshair size={10} /> {panel.digitized ? "Re-trace" : "Trace"} off the real figure
+                        </button>
+                      )}
+                      <PanelChart panel={panel} baseRun={runs[pi]?.base} actRun={runs[pi]?.act}
+                        height={panelH} onHover={setHover}
+                        activeSuffix={runs[pi]?.digitized ? "traced" : ""}
+                        baselineSuffix={runs[pi]?.digitized ? "live model" : "paper's value"} />
+                    </div>
                   ))}
                 </div>
                 <p className="mt-2 text-[11px] leading-relaxed text-slate-400">
-                  Plots marked <strong>paper's numbers</strong> are the paper's own published values, made
-                  interactive; the rest come from a simplified live simulation of the paper's own equations,
-                  built to move when you turn the dials — neither replaces the measured results on the left.
+                  Plots marked <strong>traced from figure</strong> are the paper's real curve, digitized
+                  point-for-point off the figure (solid, locked) — any dashed line is our live model
+                  chasing it as you turn the dials. <strong>Paper's numbers</strong> plots are the paper's
+                  published table values; the rest are a live simulation. None replace the measured figure on the left.
                 </p>
               </div>
             </div>
@@ -2179,6 +2215,12 @@ function ResultsLab({ spec, pipelineCompiled, helpers, baseOutputs, actOutputs, 
                     {fig.explanation}
                   </p>
                 </div>
+                {isOwner && fig.image && (
+                  <button onClick={() => onTrace(figIndex, 0)}
+                    className="mt-2 flex items-center gap-1.5 rounded-lg border border-blue-300 bg-blue-50 px-3 py-1.5 text-[11px] font-semibold text-blue-700 hover:bg-blue-100">
+                    <Crosshair size={12} /> Make this figure interactive — trace the real curve
+                  </button>
+                )}
               </div>
             </div>
           )}
@@ -2191,7 +2233,37 @@ function ResultsLab({ spec, pipelineCompiled, helpers, baseOutputs, actOutputs, 
 
 /* ---------------- main workspace ---------------- */
 
-export default function Workspace({ spec, onBack, onSignOut, isOwner = false }) {
+export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner = false }) {
+  // Digitized (traced-from-figure) data an owner authors live is layered onto
+  // the spec here — keyed "figIdx:panelIdx" — so tracing never mutates the
+  // original and every downstream memo just sees a spec with `digitized` blocks
+  // filled in. onSave from the editor writes into this map.
+  const [digitizedOverrides, setDigitizedOverrides] = useState({});
+  const [traceTarget, setTraceTarget] = useState(null); // {figIndex, panelIndex}
+  const spec = useMemo(() => {
+    if (!Object.keys(digitizedOverrides).length) return baseSpec;
+    const figs = (baseSpec.resultFigures || []).map((f, fi) => {
+      const panels = [...(f.panels || [])];
+      Object.entries(digitizedOverrides).forEach(([key, ov]) => {
+        const [ofi, opi] = key.split(":").map(Number);
+        if (ofi !== fi) return;
+        if (panels[opi]) {
+          // replace an eyeballed reproduction with the traced real data
+          panels[opi] = { ...panels[opi], dataSource: "digitized", digitized: ov.digitized };
+        } else {
+          // panel-less "guided tour" figure → a brand-new interactive plot
+          const m = ov.meta || {};
+          panels[opi] = {
+            subplotLabel: m.subplotLabel || f.figureLabel, xLabel: m.xLabel || "x", yLabel: m.yLabel || "y",
+            chartKind: "line", dataSource: "digitized", digitized: ov.digitized,
+          };
+        }
+      });
+      return { ...f, panels };
+    });
+    return { ...baseSpec, resultFigures: figs };
+  }, [baseSpec, digitizedOverrides]);
+
   // Papers whose method isn't honestly simulatable (measured data, theory,
   // surveys…) ship with no pipeline — story, figures and foundations carry
   // the dashboard, and every pipeline-dependent section hides itself.
@@ -2338,6 +2410,7 @@ export default function Workspace({ spec, onBack, onSignOut, isOwner = false }) 
         <ResultsLab
           spec={spec} pipelineCompiled={compiled} helpers={helpers} baseOutputs={baseline.outputs} actOutputs={active.outputs}
           defaults={defaults} params={params} setParam={setParam} onOpenFig={setLightbox} layout={layout}
+          isOwner={isOwner} onTrace={(figIndex, panelIndex) => setTraceTarget({ figIndex, panelIndex })}
         />
       ),
     },
@@ -2460,6 +2533,21 @@ export default function Workspace({ spec, onBack, onSignOut, isOwner = false }) 
       <Inspector inspect={inspect} rows={rows} onClose={() => setInspect(null)} />
       <Lightbox fig={lightbox} onClose={() => setLightbox(null)} />
       <LayoutEditor open={editorOpen} layout={layout} onChange={setLayout} onClose={() => setEditorOpen(false)} />
+      {traceTarget && (() => {
+        const f = baseSpec.resultFigures?.[traceTarget.figIndex];
+        const p = f?.panels?.[traceTarget.panelIndex];
+        if (!f) return null;
+        return (
+          <DigitizerEditor
+            fig={f} panel={p}
+            onClose={() => setTraceTarget(null)}
+            onSave={(digitized, meta) => {
+              setDigitizedOverrides((prev) => ({ ...prev, [`${traceTarget.figIndex}:${traceTarget.panelIndex}`]: { digitized, meta } }));
+              setTraceTarget(null);
+            }}
+          />
+        );
+      })()}
     </div>
   );
 }

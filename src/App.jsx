@@ -818,7 +818,7 @@ export default function App() {
           spec={spec}
           onBack={() => setSpec(null)}
           onSignOut={authEnabled && session ? signOut : null}
-          isOwner={isOwnerUser(session)}
+          isOwner={isOwnerUser(session) || import.meta.env.DEV}
         />
         {authModal}
         {libraryModal}

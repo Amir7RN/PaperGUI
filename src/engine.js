@@ -106,6 +106,7 @@ export function compileResultFigures(spec) {
   (spec.resultFigures || []).forEach((fig, fi) => {
     (fig.panels || []).forEach((panel, pi) => {
       const id = `${fi}:${pi}`;
+      if (!panel.computeJs) return; // digitized-only panel: no model to compile
       try {
         // eslint-disable-next-line no-new-func
         fns[id] = new Function("outputs", "params", "helpers", panel.computeJs);
@@ -165,6 +166,77 @@ export function runResultPanel(fn, outputs, params, figHelpers) {
   return { x, categories, series: res.series, error: null };
 }
 
+/* ---------------- digitized (traced-from-figure) result data ----------------
+ * A panel can carry `digitized`: real data points read straight off the paper's
+ * figure with the plot digitizer. That curve is the GROUND TRUTH — it never
+ * moves with the sliders. When the panel ALSO has a model (computeJs), the
+ * model is resampled onto the same x grid and overlaid, so the reader watches
+ * the live model chase the real, measured curve. */
+
+/** Linear-interpolate sorted [[x,y],…] points onto `grid`, holding the end
+ *  values outside the traced range (no dive-to-zero at the edges). */
+function resamplePoints(points, grid) {
+  const pts = (points || []).filter((p) => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1]));
+  if (!pts.length) return grid.map(() => null);
+  let j = 0;
+  return grid.map((gx) => {
+    if (gx <= pts[0][0]) return pts[0][1];
+    if (gx >= pts[pts.length - 1][0]) return pts[pts.length - 1][1];
+    while (j < pts.length - 1 && pts[j + 1][0] < gx) j++;
+    while (j > 0 && pts[j][0] > gx) j--;
+    const [x0, y0] = pts[j], [x1, y1] = pts[j + 1];
+    const t = x1 === x0 ? 0 : (gx - x0) / (x1 - x0);
+    return y0 + t * (y1 - y0);
+  });
+}
+
+/** Build a display x grid spanning [min,max] with `n` samples (log-spaced when
+ *  `log` and the range is strictly positive). */
+export function makeDisplayGrid(min, max, n = 140, log = false) {
+  if (!Number.isFinite(min) || !Number.isFinite(max) || min === max) return [min || 0];
+  if (log && min > 0 && max > 0) {
+    const a = Math.log(min), b = Math.log(max);
+    return Array.from({ length: n }, (_, i) => Math.exp(a + (b - a) * (i / (n - 1))));
+  }
+  return Array.from({ length: n }, (_, i) => min + (max - min) * (i / (n - 1)));
+}
+
+/** Turn a panel's `digitized` block into a run { x, series:[{label,data}] } on a
+ *  shared grid built from the union x-range of its traced series. Returns null
+ *  if there is nothing usable. `grid` (optional) forces a specific x grid. */
+export function digitizedRealRun(digitized, grid = null) {
+  const series = (digitized?.series || []).filter((s) => Array.isArray(s.points) && s.points.length > 1);
+  if (!series.length) return null;
+  let g = grid;
+  if (!g) {
+    let lo = Infinity, hi = -Infinity;
+    for (const s of series) for (const [x] of s.points) {
+      if (Number.isFinite(x)) { lo = Math.min(lo, x); hi = Math.max(hi, x); }
+    }
+    if (!Number.isFinite(lo) || !Number.isFinite(hi) || lo === hi) return null;
+    g = makeDisplayGrid(lo, hi, 140, digitized.xLog);
+  }
+  return {
+    x: g,
+    series: series.map((s) => ({ label: s.label, data: resamplePoints(s.points, g) })),
+    error: null,
+  };
+}
+
+/** Resample a model run (from runResultPanel, with its own x) onto `grid` so it
+ *  can be co-plotted with digitized real data. Returns null if it has no x. */
+export function resampleRunToGrid(run, grid) {
+  if (!run || run.error || !Array.isArray(run.x) || !run.series?.length) return null;
+  return {
+    x: grid,
+    series: run.series.map((s) => {
+      const pts = run.x.map((x, i) => [x, s.data[i]]).sort((a, b) => a[0] - b[0]);
+      return { label: s.label, data: resamplePoints(pts, grid) };
+    }),
+    error: null,
+  };
+}
+
 /** Recharts rows for one panel: baseline (b#) + active (a#) series interleaved. */
 export function buildPanelRows(baseRun, actRun) {
   const active = actRun && !actRun.error ? actRun : null;
@@ -199,6 +271,17 @@ export function validateResultFigures(spec, pipelineCompiled, helpers, baseParam
   return (spec.resultFigures || []).map((fig, fi) => {
     const goodPanels = (fig.panels || []).filter((panel, pi) => {
       const id = `${fi}:${pi}`;
+      // A panel carrying real digitized data is always kept — it's traced off
+      // the figure, not generated, so it can't be a "fake" reproduction. If its
+      // optional model kernel is broken, we simply drop the model overlay by
+      // stripping computeJs, not the whole (real) panel.
+      if (digitizedRealRun(panel.digitized)) {
+        if (panel.computeJs && (figCompiled.errors[id] ||
+            runResultPanel(figCompiled.fns[id], base.outputs, baseParams, figHelpers).error)) {
+          delete panel.computeJs;
+        }
+        return true;
+      }
       if (figCompiled.errors[id]) return false;
       const r = runResultPanel(figCompiled.fns[id], base.outputs, baseParams, figHelpers);
       if (r.error) return false;

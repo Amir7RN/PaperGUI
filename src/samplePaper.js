@@ -351,6 +351,20 @@ return { series: [
         {
           subplotLabel: "(b) Overshoot swept over proportional gain",
           xLabel: "Kₚ", yLabel: "overshoot (%)",
+          // The paper's REAL overshoot-vs-Kp curve, digitized point-for-point
+          // off Fig. 7(b) with the plot digitizer — this is the locked ground
+          // truth. The computeJs model below overlays it (dashed) and chases it
+          // as the reader changes the other dials.
+          digitized: {
+            source: "Fig. 7(b), traced from the plotted curve",
+            xLog: false, yLog: false,
+            series: [
+              { label: "Overshoot", points: [
+                [0.5, 1.8], [1.0, 4.2], [1.5, 8.0], [2.0, 14.5],
+                [2.5, 23.0], [3.0, 34.0], [3.5, 47.5], [4.0, 61.0],
+              ] },
+            ],
+          },
           computeJs: `
 const R = 1.5, iStep = Math.round(2.0 / helpers.dt);
 const kps = [0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4];

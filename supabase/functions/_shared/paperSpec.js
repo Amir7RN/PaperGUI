@@ -365,6 +365,51 @@ export const SPEC_SCHEMA = {
             },
             description: "3-6 numbered markers pinned onto the REAL figure — the interactive version of the guided tour. Put each marker on the exact visual event that matters: a peak, a crossover, the gap between two curves, the winning bar. The reader clicks the markers instead of reading a wall of text.",
           },
+          digitizeHint: {
+            type: "object",
+            additionalProperties: false,
+            required: ["xTicks", "yTicks"],
+            properties: {
+              xLabel: { type: "string", description: "The x-axis label/units, verbatim from the figure" },
+              yLabel: { type: "string", description: "The y-axis label/units, verbatim from the figure" },
+              xLog: { type: "boolean", description: "true if the x-axis is logarithmic (decade ticks)" },
+              yLog: { type: "boolean", description: "true if the y-axis is logarithmic" },
+              xTicks: {
+                type: "array", minItems: 2, maxItems: 8,
+                items: {
+                  type: "object", additionalProperties: false, required: ["atFrac", "value"],
+                  properties: {
+                    atFrac: { type: "number", description: "Where this x tick sits as a fraction (0-1) of the FIGURE'S OWN width (its bbox), left→right" },
+                    value: { type: "number", description: "The numeric value printed at that x tick" },
+                  },
+                },
+                description: "The labelled x-axis ticks: at least the two end ticks, in order. Read the printed tick numbers and their positions — you are reliable at reading axis text, so this seeds an accurate pixel→data calibration.",
+              },
+              yTicks: {
+                type: "array", minItems: 2, maxItems: 8,
+                items: {
+                  type: "object", additionalProperties: false, required: ["atFrac", "value"],
+                  properties: {
+                    atFrac: { type: "number", description: "Where this y tick sits as a fraction (0-1) of the FIGURE'S OWN height (its bbox), top→bottom" },
+                    value: { type: "number", description: "The numeric value printed at that y tick" },
+                  },
+                },
+                description: "The labelled y-axis ticks: at least the two end ticks, top→bottom order.",
+              },
+              curves: {
+                type: "array", maxItems: 6,
+                items: {
+                  type: "object", additionalProperties: false, required: ["label", "colorHex"],
+                  properties: {
+                    label: { type: "string", description: "What this plotted line/series is (from the legend), e.g. 'proposed', 'baseline'" },
+                    colorHex: { type: "string", description: "The curve's colour as #rrggbb, read off the figure — used to auto-trace it" },
+                  },
+                },
+                description: "One entry per plotted curve in the subplot, with its legend label and its colour. This lets the digitizer auto-extract each curve. Do NOT estimate the curve's data values — only its colour; the digitizer reads the real values from the pixels.",
+              },
+            },
+            description: "Axis-calibration seed for the plot digitizer: the labelled ticks (positions + values) and each curve's colour. Provide this for every figure that is a QUANTITATIVE plot (line/scatter/bar) with readable numeric axes — it lets the reader (or an owner) trace the figure's real curve into accurate, interactive data. Omit for photographs, diagrams, and qualitative panels. You supply the axes and colours; you must NOT supply the curve data itself.",
+          },
           panels: {
             type: "array",
             items: {
@@ -577,6 +622,12 @@ The reader always sees the ORIGINAL figure, cropped from the PDF via your page +
 HOTSPOTS (3-6 per figure — the visual guided tour):
 - Look at the figure image and pin each marker on the exact visual event that proves something: the peak, the crossover where the proposed method overtakes the baseline, the gap between two curves, the bar that wins, the moment the error collapses. x/y are fractions of the CROPPED region (bbox), origin top-left.
 - Each hotspot's note answers "what am I looking at here and why does it matter?" in 1-2 sentences. A reader who clicks all the markers has understood the figure without reading anything else.
+
+DIGITIZE HINT (per figure — the seed for tracing the REAL curve into accurate data):
+- For every figure that is a QUANTITATIVE plot with readable numeric axes (line, scatter, bar over numbers), emit digitizeHint. This is how the paper's ACTUAL plotted curve becomes exact interactive data instead of numbers eyeballed off the plot.
+- Give the axis LABELS, whether each axis is log, the labelled TICKS (their fraction-position along the figure's own width/height AND the number printed at each — at least the two end ticks per axis), and each plotted curve's LEGEND LABEL and COLOUR (#rrggbb read off the line).
+- Report ONLY the axes, ticks, and colours. Do NOT report the curve's y-values — the digitizer extracts those from the pixels far more accurately than you can read them. Reading tick text and colours is your job; reading curve values is the digitizer's.
+- Omit digitizeHint for photographs, schematics, and purely qualitative figures.
 
 PANELS — EVERY SUBPLOT STAYS INTERACTIVE VIA THE RIGHT SOURCE:
 - dataSource 'simulated' when the pipeline honestly regenerates the subplot (via outputs / helpers.simulate): time responses of the simulated controller, convergence of the simulated learning rule. These reshape live with the sliders.
