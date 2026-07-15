@@ -41,7 +41,7 @@ function newSubplot(label, region) {
     id: ++SUB_ID, label: label || `subplot ${SUB_ID}`, xLabel: "x", yLabel: "y",
     region: region || null, xLog: false, yLog: false,
     cal: defaultCal(region), curves: [{ label: "curve 1", colorHex: CURVE_HUES[0], tol: 0.12, points: [] }],
-    activeCurve: 0, kind: "line", radar: null, box: null, heatmap: null,
+    activeCurve: 0, kind: "line", radar: null, box: null, heatmap: null, violin: null,
   };
 }
 
@@ -71,11 +71,19 @@ function ensureHeatmap(s) {
     rowLabels: "", colLabels: "",
   };
 }
+/** Lazily-initialised violin extraction state (Y calibration shared via cal). */
+function ensureViolin(s) {
+  return s.violin || {
+    categories: [{ name: "cat 1", centreFx: null, points: [] }],
+    activeCat: 0,
+  };
+}
 const CHART_KINDS = [
   { k: "line", label: "line / scatter" },
   { k: "radar", label: "radar / spider" },
   { k: "box", label: "box plot" },
   { k: "heatmap", label: "heat map" },
+  { k: "violin", label: "violin plot" },
 ];
 
 /** Linear (or log) map of a y fraction → data value using two Y reference marks. */
@@ -289,6 +297,55 @@ function HeatmapControls({ sub, mode, setMode, patchSub, readHeatmap, imageData 
   );
 }
 
+/** Violin extraction: calibrate Y, then per category click the centre line and
+ *  click points down the RIGHT outline (density width). It's mirrored on render. */
+function ViolinControls({ sub, mode, setMode, patchSub }) {
+  const vi = ensureViolin(sub);
+  const ci = vi.activeCat || 0;
+  const cat = vi.categories[ci];
+  const setV = (patch) => patchSub((s) => ({ ...s, violin: { ...ensureViolin(s), ...(typeof patch === "function" ? patch(ensureViolin(s)) : patch) } }));
+  return (
+    <div className="mb-4">
+      <div className="mb-2 text-[11px] font-bold uppercase tracking-wider text-blue-300">Calibrate Y axis</div>
+      {[["yA", "Y ref A", sub.cal.yA], ["yB", "Y ref B", sub.cal.yB]].map(([k, label, ref]) => (
+        <div key={k} className="mb-1.5 flex items-center gap-2">
+          <button onClick={() => setMode(k)} className={`flex w-20 shrink-0 items-center gap-1 rounded px-2 py-1 text-[11px] font-medium ${mode === k ? "bg-blue-600 text-white" : "bg-slate-700 hover:bg-slate-600"}`}>
+            <Crosshair size={11} /> {label}
+          </button>
+          <input type="number" value={ref.val} onChange={(e) => patchSub((s) => ({ ...s, cal: { ...s.cal, [k]: { ...s.cal[k], val: e.target.value } } }))}
+            placeholder="value at tick" className="w-full rounded border border-slate-600 bg-slate-900 px-2 py-1 text-[12px] text-white focus:border-blue-400 focus:outline-none" />
+        </div>
+      ))}
+
+      <div className="mb-2 mt-3 flex items-center justify-between">
+        <span className="text-[11px] font-semibold text-slate-300">Categories</span>
+        <button onClick={() => setV((v) => ({ categories: [...v.categories, { name: `cat ${v.categories.length + 1}`, centreFx: null, points: [] }], activeCat: v.categories.length }))}
+          className="flex items-center gap-1 rounded bg-slate-700 px-2 py-0.5 text-[11px] hover:bg-slate-600"><Plus size={10} /> Add</button>
+      </div>
+      <div className="mb-2 flex flex-wrap gap-1.5">
+        {vi.categories.map((c, k) => (
+          <span key={k} onClick={() => setV({ activeCat: k })}
+            className={`flex cursor-pointer items-center gap-1 rounded px-2 py-1 text-[11px] ${k === ci ? "bg-blue-600 text-white" : "bg-slate-700 hover:bg-slate-600"}`}>
+            <input value={c.name} onClick={(e) => e.stopPropagation()} onChange={(e) => setV((v) => ({ categories: v.categories.map((x, j) => j === k ? { ...x, name: e.target.value } : x) }))}
+              className="w-16 bg-transparent focus:outline-none" />
+            {vi.categories.length > 1 && <button onClick={(e) => { e.stopPropagation(); setV((v) => ({ categories: v.categories.filter((_, j) => j !== k), activeCat: 0 })); }}><X size={9} /></button>}
+          </span>
+        ))}
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        <button onClick={() => setMode(`vc:${ci}`)} className={`rounded px-2 py-1 text-[11px] ${mode === `vc:${ci}` ? "bg-blue-600 text-white" : cat?.centreFx != null ? "bg-emerald-700 text-white" : "bg-slate-700 hover:bg-slate-600"}`}>
+          {cat?.centreFx != null ? "✓ centre" : "Set centre line"}
+        </button>
+        <button onClick={() => setMode(mode === `vp:${ci}` ? "idle" : `vp:${ci}`)} className={`flex items-center gap-1 rounded px-2 py-1 text-[11px] ${mode === `vp:${ci}` ? "bg-blue-600 text-white" : "bg-slate-700 hover:bg-slate-600"}`}>
+          <MousePointerClick size={11} /> Click right outline ({cat?.points.length || 0})
+        </button>
+        <button onClick={() => setV((v) => ({ categories: v.categories.map((x, j) => j === ci ? { ...x, points: [] } : x) }))} className="flex items-center gap-1 rounded bg-slate-700 px-2 py-1 text-[11px] hover:bg-slate-600"><Trash2 size={11} /> Clear</button>
+      </div>
+      <p className="mt-1 text-[11px] text-slate-400">Click the centre, then click points down the right edge of the shape — it's mirrored to the left automatically.</p>
+    </div>
+  );
+}
+
 export default function DigitizerEditor({ fig, onSave, onClose }) {
   const imgRef = useRef(null);
   const [imgNat, setImgNat] = useState(null);
@@ -391,6 +448,15 @@ export default function DigitizerEditor({ fig, onSave, onClose }) {
     // ---- heatmap colour-bar endpoints ----
     else if (mode === "hlow") { patchSub((s) => ({ ...s, heatmap: { ...ensureHeatmap(s), barLow: { fx, fy } } })); setMode("idle"); }
     else if (mode === "hhigh") { patchSub((s) => ({ ...s, heatmap: { ...ensureHeatmap(s), barHigh: { fx, fy } } })); setMode("idle"); }
+    // ---- violin: vc:<catIndex> (centre) · vp:<catIndex> (outline point) ----
+    else if (mode.startsWith("vc:")) {
+      const ci = +mode.split(":")[1];
+      patchSub((s) => { const vi = ensureViolin(s); return { ...s, violin: { ...vi, categories: vi.categories.map((c, k) => k !== ci ? c : { ...c, centreFx: fx }) } }; });
+      setMode("idle");
+    } else if (mode.startsWith("vp:")) {
+      const ci = +mode.split(":")[1];
+      patchSub((s) => { const vi = ensureViolin(s); return { ...s, violin: { ...vi, categories: vi.categories.map((c, k) => k !== ci ? c : { ...c, points: [...c.points, { fx, fy }] }) } }; });
+    }
   };
 
   /** Sample the colour bar + grid to fill the heat-map values. */
@@ -455,6 +521,26 @@ export default function DigitizerEditor({ fig, onSave, onClose }) {
       return {
         subplotLabel: s.label, xLabel: s.xLabel, yLabel: s.yLabel, chartKind: "box", dataSource: "digitized",
         digitized: { kind: "box", source: src, yLog: s.yLog, categories: cats },
+      };
+    }
+    if (s.kind === "violin") {
+      const vi = s.violin;
+      const cats = (vi?.categories || []).map((c) => {
+        if (!Number.isFinite(c.centreFx) || c.points.length < 2) return null;
+        const dist = c.points
+          .map((p) => ({ y: yValueOf(s.cal, p.fy, s.yLog), w: Math.abs(p.fx - c.centreFx) }))
+          .filter((d) => Number.isFinite(d.y))
+          .sort((a, b) => a.y - b.y);
+        return dist.length >= 2 ? { name: c.name, dist } : null;
+      }).filter(Boolean);
+      if (!cats.length) return null;
+      // normalise half-widths so the widest point across all violins = 1
+      let wmax = 0;
+      for (const c of cats) for (const d of c.dist) wmax = Math.max(wmax, d.w);
+      if (wmax > 0) for (const c of cats) for (const d of c.dist) d.w /= wmax;
+      return {
+        subplotLabel: s.label, xLabel: s.xLabel, yLabel: s.yLabel, chartKind: "violin", dataSource: "digitized",
+        digitized: { kind: "violin", source: src, yLog: s.yLog, categories: cats },
       };
     }
     if (s.kind === "heatmap") {
@@ -568,6 +654,20 @@ export default function DigitizerEditor({ fig, onSave, onClose }) {
                       {dot(h.barHigh, "bg-slate-900", "hi")}
                     </>
                   );
+                })() : sub.kind === "violin" ? (() => {
+                  const vi = sub.violin || {};
+                  const cat = vi.categories?.[vi.activeCat];
+                  return (
+                    <>
+                      <div className="pointer-events-none absolute inset-x-0 border-t-2 border-dashed border-emerald-400/80" style={{ top: pct(sub.cal.yA.f) }} />
+                      <div className="pointer-events-none absolute inset-x-0 border-t-2 border-dashed border-emerald-400/80" style={{ top: pct(sub.cal.yB.f) }} />
+                      {cat && Number.isFinite(cat.centreFx) && <div className="pointer-events-none absolute inset-y-0 border-l-2 border-blue-400/80" style={{ left: pct(cat.centreFx) }} />}
+                      {cat?.points.map((p, i) => (
+                        <span key={i} className="pointer-events-none absolute h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-emerald-500 ring-1 ring-white"
+                          style={{ left: pct(p.fx), top: pct(p.fy) }} />
+                      ))}
+                    </>
+                  );
                 })() : (
                   <>
                     {/* line calibration marks + traced points */}
@@ -611,7 +711,7 @@ export default function DigitizerEditor({ fig, onSave, onClose }) {
             <div className="mt-2 flex items-center gap-2 text-[11px]">
               <span className="text-slate-400">Chart type</span>
               <select value={sub.kind}
-                onChange={(e) => { const k = e.target.value; patchSub((s) => ({ ...s, kind: k, radar: k === "radar" ? ensureRadar(s) : s.radar, box: k === "box" ? ensureBox(s) : s.box, heatmap: k === "heatmap" ? ensureHeatmap(s) : s.heatmap })); setMode("idle"); }}
+                onChange={(e) => { const k = e.target.value; patchSub((s) => ({ ...s, kind: k, radar: k === "radar" ? ensureRadar(s) : s.radar, box: k === "box" ? ensureBox(s) : s.box, heatmap: k === "heatmap" ? ensureHeatmap(s) : s.heatmap, violin: k === "violin" ? ensureViolin(s) : s.violin })); setMode("idle"); }}
                 className="flex-1 rounded border border-slate-600 bg-slate-900 px-2 py-1 text-white focus:border-blue-400 focus:outline-none">
                 {CHART_KINDS.map((c) => <option key={c.k} value={c.k}>{c.label}</option>)}
               </select>
@@ -627,6 +727,7 @@ export default function DigitizerEditor({ fig, onSave, onClose }) {
           {sub.kind === "radar" && <RadarControls sub={sub} mode={mode} setMode={setMode} patchSub={patchSub} />}
           {sub.kind === "box" && <BoxControls sub={sub} mode={mode} setMode={setMode} patchSub={patchSub} />}
           {sub.kind === "heatmap" && <HeatmapControls sub={sub} mode={mode} setMode={setMode} patchSub={patchSub} readHeatmap={readHeatmap} imageData={imageData} />}
+          {sub.kind === "violin" && <ViolinControls sub={sub} mode={mode} setMode={setMode} patchSub={patchSub} />}
 
           {sub.kind === "line" && <>
           {/* calibrate */}
@@ -719,6 +820,8 @@ export default function DigitizerEditor({ fig, onSave, onClose }) {
               <div className="text-slate-400">box · {(sub.box?.categories || []).length} categories</div>
             ) : sub.kind === "heatmap" ? (
               <div className="text-slate-400">heatmap · {sub.heatmap?.grid ? `${sub.heatmap.grid.length}×${sub.heatmap.grid[0]?.length} cells read` : "cells not read yet"}</div>
+            ) : sub.kind === "violin" ? (
+              <div className="text-slate-400">violin · {(sub.violin?.categories || []).length} categories</div>
             ) : (
               <div className="text-slate-400">{sub.kind}</div>
             )}
