@@ -545,10 +545,11 @@ function Landing({
               disabled={busy}
               className="group flex flex-col items-start gap-1 rounded-2xl border border-slate-200/80 bg-white/90 p-4 text-left shadow-sm backdrop-blur transition hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-xl disabled:opacity-50"
             >
-              <span className="text-sm font-semibold text-slate-800">AR/VR adoption in construction (survey)</span>
+              <span className="text-sm font-semibold text-slate-800">Multi-phase hierarchical ML forecasting</span>
               <span className="text-xs leading-relaxed text-slate-500">
-                A survey paper — no simulation. Shows the paper's own reported numbers as interactive
-                charts (incl. a radar), a clickable trend story, and its real figures.
+                A supply-chain machine-learning paper — every figure digitized (bars, lines, calendar
+                heat-map, radars), the HyperOpt + successive-halving tuning made interactive, and the
+                method drawn as animated flow diagrams.
               </span>
             </button>
           </div>

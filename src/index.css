@@ -1,1 +1,16 @@
 @import "tailwindcss";
+
+/* ---- lightweight, zero-dependency motion layer ----
+ * These entrance animations live in the shared stylesheet, so EVERY paper
+ * (the bundled samples and any uploaded PDF) gets them for free — they cost no
+ * extra analysis tokens because they are presentation, not model output. All
+ * are one-shot on mount and fully disabled under prefers-reduced-motion. */
+@keyframes pp-rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@keyframes pp-fade { from { opacity: 0; } to { opacity: 1; } }
+
+.pp-rise { animation: pp-rise .55s cubic-bezier(.22, .61, .36, 1) both; }
+.pp-fade { animation: pp-fade .5s ease both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .pp-rise, .pp-fade { animation: none !important; }
+}

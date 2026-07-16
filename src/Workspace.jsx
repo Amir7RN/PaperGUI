@@ -205,7 +205,7 @@ const SECTION_TONES = {
 function SectionHeader({ num, tone, icon: IconCmp, title, sub }) {
   const t = SECTION_TONES[tone];
   return (
-    <div className="mb-4 flex items-start gap-3" style={{ marginTop: "var(--sec-gap, 40px)" }}>
+    <div className="pp-rise mb-4 flex items-start gap-3" style={{ marginTop: "var(--sec-gap, 40px)" }}>
       <div
         className={`flex shrink-0 items-center justify-center rounded-xl ${t.badge} font-bold text-white shadow-md ring-4 ${t.ring}`}
         style={{ width: "var(--sec-badge, 36px)", height: "var(--sec-badge, 36px)", fontSize: "calc(var(--sec-badge, 36px) * 0.4)" }}
@@ -676,12 +676,16 @@ function ConceptFigures({ figures, onOpen }) {
             </span>
           </div>
           <div className="px-4 py-3">
-            {/* only the paper's real figure — never a fabricated stand-in */}
+            {/* the paper's real figure, or an inline (e.g. animated) SVG the
+                spec provides — never a fabricated stand-in */}
             {fig.image ? (
               <div className="mb-3 flex items-center justify-center overflow-hidden rounded-lg border border-slate-100 bg-white">
                 <img src={fig.image} alt={fig.title}
                   className="max-h-64 w-auto max-w-full object-contain" loading="lazy" />
               </div>
+            ) : fig.svg ? (
+              <div className="mb-3 flex items-center justify-center overflow-hidden rounded-lg border border-slate-100 bg-white p-2"
+                dangerouslySetInnerHTML={{ __html: fig.svg }} />
             ) : fig.page != null ? (
               <div className="mb-3 rounded-lg border border-dashed border-slate-200 px-3 py-2 text-[11px] text-slate-400">
                 Figure on PDF page {fig.page} (preview unavailable)
