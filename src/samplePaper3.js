@@ -188,25 +188,48 @@ const PHASE_II_SVG = `
   <text class="cap" x="512" y="176">repeat up every level of the hierarchy</text>
 </svg>`;
 
-/* ---- Fig 4 · a calendar heat map reconstructed from the described pattern
- * (weekends sell more; sales rise through the year; a couple of near-zero days
- * in December). The company's true daily values are proprietary, so this grid
- * is illustrative of the SHAPE the paper reports, not traced pixel values. ---- */
-const CAL_GRID = (() => {
-  const wk = [0.95, 0.34, 0.30, 0.33, 0.42, 0.62, 1.0]; // Sun..Sat — weekend-heavy
+/* ---- Fig 4 · the three calendar heat maps (2015 / 2016 / 2017), rebuilt to
+ * match the original's SHAPE and its red→yellow→green color bar: weekends sell
+ * more, sales climb year over year, one near-zero December day in 2015 and one
+ * in 2016 (the paper's "two days in December with the least sales"), and 2017
+ * ends around September (the dataset is 935 days). The company's true daily
+ * values are proprietary, so cells reproduce the pattern, not pixel values. */
+const CAL_PALETTE = ["#d73027", "#fc8d59", "#fee08b", "#a6d96a", "#4dae52"]; // the figure's own color bar, low → high
+const makeYearGrid = (base, { anomaly = null, lastMonth = 11 } = {}) => {
+  const wk = [0.85, 0.18, 0.12, 0.16, 0.26, 0.48, 1.0]; // Sun..Sat — weekend-heavy
+  const jit = (d, m) => 0.06 * Math.sin(12.9898 * (d * 12 + m) + base * 40); // deterministic texture
   const g = [];
   for (let d = 0; d < 7; d++) {
     const row = [];
     for (let m = 0; m < 12; m++) {
-      const trend = 0.28 + 0.5 * (m / 11);            // rising through the year
-      let v = 0.30 * wk[d] + 0.62 * trend * (0.6 + 0.4 * wk[d]);
-      if (m === 11 && (d === 2 || d === 3)) v = 0.03; // the two near-zero Dec days
+      if (m > lastMonth) { row.push(NaN); continue; }
+      let v = base + 0.10 * (m / 11) + 0.24 * wk[d] + jit(d, m);
+      if (anomaly && anomaly[0] === d && anomaly[1] === m) v = 0.02;
       row.push(Math.max(0, Math.min(1, +v.toFixed(3))));
     }
     g.push(row);
   }
   return g;
-})();
+};
+const CAL_2015 = makeYearGrid(0.22, { anomaly: [2, 11] }); // near-zero Tuesday in Dec 2015
+const CAL_2016 = makeYearGrid(0.38, { anomaly: [3, 11] }); // near-zero Wednesday in Dec 2016
+const CAL_2017 = makeYearGrid(0.55, { lastMonth: 8 });     // 935 days ⇒ data ends around Sep 2017
+
+/* Fig 5 · all TEN SKU curves, color-traced off the figure with the plot
+ * digitizer (per-SKU color matching + continuity tracking, axes calibrated on
+ * the 10,000/20,000/30,000 gridlines). Units sold per month, months 1–12. */
+const SKU_MONTHLY = {
+  "SKU 1":  [12650, 21100, 21250, 21100, 21100, 21850, 22300, 22550, 21400, 21600, 20300, 21700],
+  "SKU 2":  [8900, 14500, 16050, 15750, 15500, 16250, 17200, 17050, 16700, 16700, 16500, 16250],
+  "SKU 3":  [17850, 28600, 30800, 28900, 29200, 31750, 32850, 33950, 32700, 33500, 30150, 31750],
+  "SKU 4":  [6600, 9700, 10600, 10450, 10600, 10700, 11000, 11200, 11550, 11900, 10950, 11500],
+  "SKU 5":  [8800, 13950, 15350, 15700, 16100, 16450, 16650, 17500, 17050, 16850, 15500, 16750],
+  "SKU 6":  [12150, 19450, 21200, 20850, 21150, 22300, 22400, 23400, 22500, 23100, 21000, 22600],
+  "SKU 7":  [9150, 14500, 15700, 15150, 15750, 17450, 17900, 18700, 17950, 18100, 16350, 17100],
+  "SKU 8":  [6050, 9950, 10700, 10100, 10150, 10950, 10800, 10050, 10150, 10200, 13200, 14350],
+  "SKU 9":  [6600, 11000, 10800, 9750, 10750, 14800, 15750, 16150, 15900, 15750, 15100, 16350],
+  "SKU 10": [13050, 21150, 22100, 20600, 21350, 22150, 22950, 22000, 21950, 22350, 21150, 22550],
+};
 
 export const SAMPLE_SPEC_3 = {
   meta: {
@@ -387,6 +410,11 @@ return { x, series: [
   { label: "aggregated brand demand CV", data: parent },
   { label: "a single SKU's CV", data: single },
 ] };`,
+        insightJs: `
+const at10 = params.cv / Math.sqrt(10);
+return "With " + params.cv + "% noise per SKU, this paper's 10-SKU brand series has only ≈ " +
+  at10.toFixed(1) + "% relative noise — " + (params.cv / at10).toFixed(1) +
+  "× smoother. That calmer parent signal is what Phase II leans on.";`,
       },
     },
     {
@@ -420,6 +448,13 @@ while (r <= 12) {
   r++;
 }
 return { categories: cats, series: [ { label: "configs still competing", data: alive } ] };`,
+        insightJs: `
+const N = Math.round(params.N);
+let a = N, rounds = 1, cheap = 0, total = 0, budget = 1;
+while (a > 1 && rounds < 12) { total += a * budget; if (rounds === 1) cheap = a * budget; a = Math.max(1, Math.round(a * params.keep)); budget *= 2; rounds++; }
+return N + " configurations are whittled down to 1 in " + rounds +
+  " rounds. A full search at final budget would cost " + (N * budget / 2).toFixed(0) +
+  " units of compute — halving spends only " + total.toFixed(0) + ".";`,
       },
     },
     {
@@ -468,6 +503,11 @@ return { x, series: [
   { label: "random search", data: rand },
   { label: "grid search", data: grid },
 ] };`,
+        insightJs: `
+const last = (s) => s.data[s.data.length - 1];
+const t = last(result.series[0]), r = last(result.series[1]), g = last(result.series[2]);
+return "After 40 trials: TPE reaches error " + t.toFixed(2) + " vs random " + r.toFixed(2) +
+  " and grid " + g.toFixed(2) + " — the same budget, spent where the model of past trials says it pays off.";`,
       },
     },
     {
@@ -502,6 +542,10 @@ return { categories: cats, series: [
   { label: "training days (past)", data: train },
   { label: "validation days (future)", data: validation },
 ] };`,
+        insightJs: `
+const k = Math.round(params.k), val = Math.round(params.days / (k + 1));
+return "Each of the " + k + " folds validates on " + val +
+  " future days after training only on days before them — the models never peek ahead, which is why Tables 1–6 report honest errors.";`,
       },
     },
   ],
@@ -597,22 +641,42 @@ return { categories: cats, series: [
       title: "Total gross sales by category & subcategory",
       explanation:
         "The data behind the study: gross units sold for the shoe brand, split into three parent categories (Casual, " +
-        "Formal, Outdoor) and their subcategories. Formal shoes dominate — Loafers are the single biggest subcategory — " +
-        "followed by Casual (Slides lead) and Outdoor (Trail Running leads Beach and Backpacking). This uneven, nested " +
-        "structure is exactly the hierarchy MPH forecasts. The interactive panel reads the subcategory heights off the plot.",
+        "Formal, Outdoor) and their ten subcategories — the exact two-level hierarchy MPH forecasts. Formal shoes dominate " +
+        "(Loafers alone ≈ 5.4M units), Casual follows (Slides lead at ≈ 3.5M), Outdoor trails (Trail Running ≈ 2.7M over " +
+        "Beach and Backpacking). The interactive panel mirrors the original exactly: same three clusters, same per-" +
+        "subcategory colors, bar heights read off the plot with the digitizer.",
       hotspots: [
-        { x: 0.44, y: 0.10, label: "Formal leads (Loafers)", note: "The Formal category — Loafers especially — has the highest gross sales, so it dominates the brand total." },
-        { x: 0.16, y: 0.28, label: "Casual next (Slides)", note: "Within Casual, Slides sell most — versatile, worn on many occasions." },
-        { x: 0.78, y: 0.40, label: "Outdoor smallest", note: "Outdoor trails the other two; Trail Running outsells Beach and Backpacking." },
+        { x: 0.39, y: 0.10, label: "Loafers tower over everything", note: "≈ 5.38M units — the single biggest subcategory; it alone makes Formal the top parent category." },
+        { x: 0.145, y: 0.36, label: "Slides lead Casual", note: "≈ 3.49M units — versatile shoes worn on many occasions; the rest of Casual sits near 2.7–2.8M." },
+        { x: 0.615, y: 0.47, label: "Outdoor is the smallest parent", note: "Trail Running ≈ 2.74M leads; Beach (2.06M) and Backpacking (1.92M) close out the ten SKUs." },
       ],
       panels: [
         {
-          subplotLabel: "Subcategory gross sales (read off Fig. 3)",
-          xLabel: "subcategory", yLabel: "units sold (millions)",
-          chartKind: "bar", dataSource: "reported",
-          computeJs: `return { categories: ["Slides","Classic","Perf.","Lifestyle","Loafers","Oxfords","HighTops","TrailRun","Beach","Backpack"], series: [
-  { label: "units sold (millions, approx.)", data: [3.4, 2.75, 2.65, 2.5, 5.1, 3.6, 3.5, 2.7, 2.05, 1.9] },
-] };`,
+          subplotLabel: "Units sold by category & subcategory (traced)",
+          xLabel: "category", yLabel: "units sold (millions)",
+          chartKind: "bar",
+          digitized: {
+            kind: "groupedBar",
+            source: "bar heights digitized off Fig. 3 (axis calibrated on the 2M/4M gridlines); colors match the original legend",
+            unit: "M",
+            colors: {
+              "Slides": "#f4a8b0", "Classic": "#d193a5", "Performance": "#8a6b8e", "Lifestyle": "#3a3341",
+              "Loafers": "#e7ecd8", "Oxfords": "#5b8a63", "High Tops": "#3f513b",
+              "Trail Running": "#f9a35f", "Beach": "#f5c86e", "Backpacking": "#dcb95e",
+            },
+            groups: [
+              { name: "Casual", bars: [
+                { label: "Slides", value: 3.49 }, { label: "Classic", value: 2.84 },
+                { label: "Performance", value: 2.74 }, { label: "Lifestyle", value: 2.68 },
+              ] },
+              { name: "Formal", bars: [
+                { label: "Loafers", value: 5.38 }, { label: "Oxfords", value: 3.75 }, { label: "High Tops", value: 3.67 },
+              ] },
+              { name: "Outdoor", bars: [
+                { label: "Trail Running", value: 2.74 }, { label: "Beach", value: 2.06 }, { label: "Backpacking", value: 1.92 },
+              ] },
+            ],
+          },
         },
       ],
     },
@@ -620,29 +684,54 @@ return { categories: cats, series: [
       figureLabel: "Figure 4",
       page: 7,
       image: FIG("sc-fig4"),
-      title: "Calendar heat map of unit sales",
+      title: "Calendar heat maps of unit sales — 2015, 2016, 2017",
       explanation:
-        "Three years (2015–2017) of daily sales as a calendar heat map: rows are days of the week, columns are the months, " +
-        "colour is that day's sales. Two patterns jump out and both matter for forecasting — weekends sell more than weekdays " +
-        "(so the weekday dummy features earn their keep), and sales rise over the years (a growing brand). A couple of near-" +
-        "zero days in December stand out as anomalies. The panel reconstructs this weekend-up, year-up SHAPE (the true daily " +
-        "values are proprietary).",
+        "Three years of daily sales as calendar heat maps: rows are days of the week, columns run through the year, and " +
+        "the color bar goes red (no sales) through yellow to green (peak sales) — the same scale as the original. Three " +
+        "patterns matter for forecasting: weekends (Sat/Sun rows) run hotter than midweek, the whole map warms from 2015 " +
+        "to 2017 (a growing brand), and one near-zero red day appears in December 2015 and one in December 2016 — the " +
+        "paper's two anomaly days. 2017 fades out around September because the dataset is 935 days long. The three " +
+        "interactive panels reproduce each year with the original's own color scale.",
       hotspots: [
-        { x: 0.5, y: 0.12, label: "Weekends darker", note: "Saturday/Sunday rows are consistently higher than mid-week — the weekday feature captures this." },
-        { x: 0.92, y: 0.2, label: "Rising over time", note: "The palette warms across 2015→2017: an overall upward sales trend." },
-        { x: 0.88, y: 0.5, label: "Two near-zero Dec days", note: "A pair of December days with almost no sales — likely weather or a supply-chain disruption." },
+        { x: 0.913, y: 0.173, label: "Dec 2015 — a dead day", note: "One of the paper's two near-zero December days (weather / transport / supply disruption). It shows as the lone red cell." },
+        { x: 0.914, y: 0.538, label: "Dec 2016 — the other dead day", note: "The second anomaly. Everything else in December sells well — these two cells are genuine outliers, not seasonality." },
+        { x: 0.45, y: 0.86, label: "2017 runs hotter, then stops", note: "The 2017 panel is the greenest (sales grew year over year) and ends around September — 935 days of data, not three full years." },
       ],
       panels: [
         {
-          subplotLabel: "Sales pattern: weekday × month",
+          subplotLabel: "2015 — weekday × month",
           xLabel: "month", yLabel: "day of week",
-          chartKind: "heatmap", dataSource: "reported",
+          chartKind: "heatmap",
           digitized: {
-            kind: "heatmap",
-            source: "reconstructed from the pattern described for Fig. 4 (weekends higher, sales rising through the year) — the company's true daily values are proprietary",
+            kind: "heatmap", badge: "paper's pattern",
+            source: "reconstructed from the pattern Fig. 4 reports (weekend-heavy, rising trend, Dec anomaly) with the original's red→yellow→green color bar; true daily values are proprietary",
             rows: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
             cols: ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
-            min: 0, max: 1, grid: CAL_GRID,
+            min: 0, max: 1, palette: CAL_PALETTE, grid: CAL_2015,
+          },
+        },
+        {
+          subplotLabel: "2016 — weekday × month",
+          xLabel: "month", yLabel: "day of week",
+          chartKind: "heatmap",
+          digitized: {
+            kind: "heatmap", badge: "paper's pattern",
+            source: "reconstructed from the pattern Fig. 4 reports; the near-zero day sits in December 2016",
+            rows: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
+            cols: ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
+            min: 0, max: 1, palette: CAL_PALETTE, grid: CAL_2016,
+          },
+        },
+        {
+          subplotLabel: "2017 — data ends around September",
+          xLabel: "month", yLabel: "day of week",
+          chartKind: "heatmap",
+          digitized: {
+            kind: "heatmap", badge: "paper's pattern",
+            source: "reconstructed from the pattern Fig. 4 reports; blank cells = beyond the 935-day dataset",
+            rows: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
+            cols: ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
+            min: 0, max: 1, palette: CAL_PALETTE, grid: CAL_2017,
           },
         },
       ],
@@ -651,28 +740,28 @@ return { categories: cats, series: [
       figureLabel: "Figure 5",
       page: 8,
       image: FIG("sc-fig5"),
-      title: "Monthly sales of the ten SKUs",
+      title: "Monthly sales of all ten SKUs",
       explanation:
-        "Each line is one SKU's sales by month, showing the seasonality the models must learn: a sharp climb over months 1–4 " +
-        "(post-holiday, into spring/summer), a plateau through months 4–10, a dip in month 11 (buyers waiting for holiday " +
-        "deals) and a rebound in month 12 (holiday shopping). One SKU sells far above the rest. The panel traces the top " +
-        "seller and a typical mid-pack SKU straight off the figure.",
+        "Every line is one SKU's units sold per month — all ten are here, color-traced off the figure with the plot " +
+        "digitizer. The seasonality the models must learn is plain: a steep climb over months 1–4 (post-holiday into " +
+        "spring), a long plateau through month 10, a dip in month 11 (buyers waiting for holiday deals) and a December " +
+        "rebound. SKU 3 is the runaway leader (peaking ≈ 34,000), a mid-pack bundle (SKUs 1, 6, 10) rides ≈ 20–23,000, " +
+        "and SKU 4 stays lowest ≈ 10–12,000. Click a legend entry in the panel to isolate any SKU.",
       hotspots: [
-        { x: 0.5, y: 0.12, label: "One runaway SKU", note: "The top green line sits ~10,000 units above the pack all year — a very different series to forecast." },
-        { x: 0.18, y: 0.6, label: "Climb, months 1–4", note: "All SKUs rise into spring/summer after the post-holiday reset." },
-        { x: 0.82, y: 0.45, label: "Dip 11 → rebound 12", note: "A November lull before holiday shopping lifts December." },
+        { x: 0.30, y: 0.13, label: "SKU 3 — the runaway leader", note: "Peaks at ≈ 34,000 units in month 8, roughly 10,000 above the pack. One SKU dominating the brand is exactly why per-series models help." },
+        { x: 0.13, y: 0.75, label: "The month-1 reset", note: "Every SKU starts the year low (6–18k) after the holidays, then climbs steeply through month 3." },
+        { x: 0.845, y: 0.42, label: "Dip at 11, rebound at 12", note: "The November lull before holiday shopping lifts December — visible on nearly every SKU." },
       ],
       panels: [
         {
-          subplotLabel: "Monthly units (traced off Fig. 5)",
+          subplotLabel: "All ten SKUs, traced (click legend to isolate)",
           xLabel: "month", yLabel: "units sold",
           chartKind: "line",
           digitized: {
-            source: "traced off Fig. 5 — the leading SKU and a typical SKU",
-            series: [
-              { label: "top-selling SKU", points: [[1, 17000], [2, 28500], [3, 31200], [4, 28600], [5, 29500], [6, 32000], [7, 33000], [8, 34500], [9, 33200], [10, 34000], [11, 30000], [12, 32200]] },
-              { label: "a typical SKU", points: [[1, 8500], [2, 13800], [3, 15200], [4, 15000], [5, 15600], [6, 16200], [7, 16800], [8, 17000], [9, 16500], [10, 16600], [11, 15200], [12, 16000]] },
-            ],
+            source: "all 10 curves color-traced off Fig. 5 (per-SKU color matching, axes calibrated on the 10k/20k/30k gridlines)",
+            series: Object.entries(SKU_MONTHLY).map(([label, vals]) => ({
+              label, points: vals.map((v, i) => [i + 1, v]),
+            })),
           },
         },
       ],
@@ -683,25 +772,36 @@ return { categories: cats, series: [
       image: FIG("sc-fig6"),
       title: "Sales during special events & holidays",
       explanation:
-        "Units sold around eight holidays, split by category. Thanksgiving, Labor Day and New Year drive the biggest spikes " +
-        "(promotions plus gift-buying), and within them Casual and Formal shoes lead while Outdoor lags — people buy dressier " +
-        "shoes for holiday events, not hiking boots. This is why the holiday feature helps the models. The original stacks the " +
-        "three categories; the panel shows them grouped so you can compare category by category.",
+        "Horizontal stacked bars — one per holiday, stacked Outdoor → Formal → Casual exactly like the original, " +
+        "smallest event at the top and Thanksgiving at the bottom. Thanksgiving is the biggest spike (≈ 12,200 units), " +
+        "then Labor Day and New Year (≈ 9,500–10,500); Father's Day is the smallest (≈ 4,000). In every bar the Formal " +
+        "and Casual segments dwarf Outdoor — people buy dressier shoes for holidays, not hiking boots — which is why the " +
+        "holiday indicator earns its place as a model feature. Values and colors are read straight off the figure.",
       hotspots: [
-        { x: 0.7, y: 0.9, label: "Thanksgiving biggest", note: "The largest holiday spike (~12,000 units) — deep promotions and gift demand." },
-        { x: 0.55, y: 0.5, label: "Formal & Casual lead", note: "Dressier shoes dominate holiday sales; Outdoor is the smallest slice." },
-        { x: 0.2, y: 0.1, label: "Father's Day smallest", note: "Among the tracked events, Father's Day moves the fewest units." },
+        { x: 0.53, y: 0.90, label: "Thanksgiving ≈ 12,200 units", note: "The year's biggest sales event: promotions plus gift demand. Formal alone ≈ 5,100 units." },
+        { x: 0.42, y: 0.60, label: "The mid-tier: Memorial, New Year, Labor Day", note: "≈ 9,200–10,500 units each, with the same Formal-heavy mix." },
+        { x: 0.24, y: 0.08, label: "Father's Day is the smallest", note: "≈ 4,000 units — holidays differ 3× in volume, which a model without the holiday feature would completely miss." },
       ],
       panels: [
         {
-          subplotLabel: "Holiday sales by category (read off Fig. 6)",
-          xLabel: "holiday", yLabel: "units sold",
-          chartKind: "bar", dataSource: "reported",
-          computeJs: `return { categories: ["Thanksgiving","Labor Day","New Year","Memorial Day","Valentine's","Halloween","Mother's Day","Father's Day"], series: [
-  { label: "Casual",  data: [4700, 3800, 3400, 3300, 3000, 1700, 1600, 1300] },
-  { label: "Formal",  data: [5000, 4400, 4000, 4000, 2900, 1900, 1900, 1600] },
-  { label: "Outdoor", data: [2500, 2300, 2100, 2000, 1800, 1200, 1100, 1100] },
-] };`,
+          subplotLabel: "Units sold per holiday, stacked by category (traced)",
+          xLabel: "units sold", yLabel: "event",
+          chartKind: "bar",
+          digitized: {
+            kind: "stackedBarH",
+            source: "segment boundaries digitized off Fig. 6 (axis calibrated on the 0/2500/…/12500 ticks); original stack order and colors",
+            colors: { "Outdoor": "#332c3b", "Formal": "#c62d67", "Casual": "#57a0a5" },
+            rows: [
+              { name: "Father's day", segments: [ { label: "Outdoor", value: 920 }, { label: "Formal", value: 1720 }, { label: "Casual", value: 1370 } ] },
+              { name: "Halloween", segments: [ { label: "Outdoor", value: 1060 }, { label: "Formal", value: 1880 }, { label: "Casual", value: 1800 } ] },
+              { name: "Mother's day", segments: [ { label: "Outdoor", value: 1050 }, { label: "Formal", value: 1900 }, { label: "Casual", value: 1630 } ] },
+              { name: "Valentines Day", segments: [ { label: "Outdoor", value: 1650 }, { label: "Formal", value: 2970 }, { label: "Casual", value: 3070 } ] },
+              { name: "Memorial Day", segments: [ { label: "Outdoor", value: 2000 }, { label: "Formal", value: 3980 }, { label: "Casual", value: 3230 } ] },
+              { name: "New Year", segments: [ { label: "Outdoor", value: 2050 }, { label: "Formal", value: 4010 }, { label: "Casual", value: 3410 } ] },
+              { name: "Labor Day", segments: [ { label: "Outdoor", value: 2270 }, { label: "Formal", value: 4410 }, { label: "Casual", value: 3780 } ] },
+              { name: "Thanksgiving", segments: [ { label: "Outdoor", value: 2480 }, { label: "Formal", value: 5070 }, { label: "Casual", value: 4610 } ] },
+            ],
+          },
         },
       ],
     },
@@ -711,42 +811,76 @@ return { categories: cats, series: [
       image: FIG("sc-fig7"),
       title: "Phase I vs Phase II, by model and metric",
       explanation:
-        "The core result. For each of the four models (XGB, RF, MLP, GB) the tall red bar is the Phase-I parent error and the " +
-        "short blue bar is the Phase-II error after the child forecasts are added as features — the collapse from red to blue " +
-        "is the value of MPH's second phase. The dashed lines in the paper mark the top-down (3068) and bottom-up (1672) " +
-        "baselines. All three metrics tell the same story; XGBoost wins Phase II with MAE 303. These are the exact reported numbers.",
+        "The core result, reproduced with the original's encoding: red bars = Phase I (each model forecasting the brand " +
+        "alone), blue bars = Phase II (same model after the child forecasts join as features), and the dashed lines mark " +
+        "the top-down and bottom-up baselines exactly where the paper draws them. The red-to-blue collapse is the value " +
+        "of MPH's second phase: XGBoost falls from MAE 3118 to 303 — under both baselines — and the same story repeats " +
+        "for MAPE and MRAE. Numbers are the paper's own (Tables 2 & 3).",
       hotspots: [
-        { x: 0.16, y: 0.75, label: "Phase I (red)", note: "Parent forecast from the model alone — comparable to the top-down baseline." },
-        { x: 0.22, y: 0.9, label: "Phase II (blue)", note: "After child forecasts join as features, error drops sharply — XGB reaches MAE 303." },
-        { x: 0.5, y: 0.25, label: "Baselines dashed", note: "The paper overlays top-down (3068) and bottom-up (1672) as reference lines." },
+        { x: 0.115, y: 0.42, label: "Phase I ≈ the baselines", note: "Alone, every model lands near the top-down error (dashed, 3068) — no better than the classic rules." },
+        { x: 0.145, y: 0.80, label: "Phase II collapses the error", note: "With child forecasts as features, XGB reaches MAE 303 — a 90% cut below top-down, 82% below bottom-up." },
+        { x: 0.72, y: 0.30, label: "Same story on every metric", note: "MAPE (middle) and MRAE (right) show the same red-to-blue drop; only its size changes with the metric." },
       ],
       panels: [
         {
           subplotLabel: "MAE — Phase I vs Phase II",
           xLabel: "model", yLabel: "MAE (units)",
-          chartKind: "bar", dataSource: "reported",
-          computeJs: `return { categories: ["XGB","RF","MLP","GB"], series: [
-  { label: "Phase I (parent alone)", data: [3118, 3182, 3972, 3068] },
-  { label: "Phase II (+ child forecasts)", data: [303, 610, 445, 528] },
-] };`,
+          chartKind: "bar",
+          digitized: {
+            kind: "groupedBar", badge: "paper's numbers",
+            source: "Tables 2 & 3 — parent-level MAE per model, with the paper's top-down / bottom-up baselines",
+            colors: { "Phase I": "#d64541", "Phase II": "#3fa9f5" },
+            refLines: [
+              { label: "Top-down", value: 3068, color: "#52514e" },
+              { label: "Bottom-up", value: 1672, color: "#8a6d3b" },
+            ],
+            groups: [
+              { name: "XGB", bars: [ { label: "Phase I", value: 3118 }, { label: "Phase II", value: 303 } ] },
+              { name: "RF", bars: [ { label: "Phase I", value: 3182 }, { label: "Phase II", value: 610 } ] },
+              { name: "MLP", bars: [ { label: "Phase I", value: 3972 }, { label: "Phase II", value: 445 } ] },
+              { name: "GB", bars: [ { label: "Phase I", value: 3068 }, { label: "Phase II", value: 528 } ] },
+            ],
+          },
         },
         {
-          subplotLabel: "MAPE — Phase I vs Phase II",
+          subplotLabel: "MAPE (%) — Phase I vs Phase II",
           xLabel: "model", yLabel: "MAPE (%)",
-          chartKind: "bar", dataSource: "reported",
-          computeJs: `return { categories: ["XGB","RF","MLP","GB"], series: [
-  { label: "Phase I", data: [3.26, 3.31, 3.98, 3.02] },
-  { label: "Phase II", data: [1.33, 1.69, 1.51, 1.59] },
-] };`,
+          chartKind: "bar",
+          digitized: {
+            kind: "groupedBar", badge: "paper's numbers",
+            source: "Tables 2 & 3 — parent-level MAPE per model, with the paper's baselines",
+            colors: { "Phase I": "#d64541", "Phase II": "#3fa9f5" },
+            refLines: [
+              { label: "Top-down", value: 4.43, color: "#52514e" },
+              { label: "Bottom-up", value: 1.89, color: "#8a6d3b" },
+            ],
+            groups: [
+              { name: "XGB", bars: [ { label: "Phase I", value: 3.26 }, { label: "Phase II", value: 1.33 } ] },
+              { name: "RF", bars: [ { label: "Phase I", value: 3.31 }, { label: "Phase II", value: 1.69 } ] },
+              { name: "MLP", bars: [ { label: "Phase I", value: 3.98 }, { label: "Phase II", value: 1.51 } ] },
+              { name: "GB", bars: [ { label: "Phase I", value: 3.02 }, { label: "Phase II", value: 1.59 } ] },
+            ],
+          },
         },
         {
           subplotLabel: "MRAE — Phase I vs Phase II",
           xLabel: "model", yLabel: "MRAE",
-          chartKind: "bar", dataSource: "reported",
-          computeJs: `return { categories: ["XGB","RF","MLP","GB"], series: [
-  { label: "Phase I", data: [2.95, 2.11, 4.47, 1.62] },
-  { label: "Phase II", data: [2.61, 1.81, 2.09, 1.51] },
-] };`,
+          chartKind: "bar",
+          digitized: {
+            kind: "groupedBar", badge: "paper's numbers",
+            source: "Tables 2 & 3 — parent-level MRAE per model, with the paper's baselines",
+            colors: { "Phase I": "#d64541", "Phase II": "#3fa9f5" },
+            refLines: [
+              { label: "Top-down", value: 8.06, color: "#52514e" },
+              { label: "Bottom-up", value: 4.36, color: "#8a6d3b" },
+            ],
+            groups: [
+              { name: "XGB", bars: [ { label: "Phase I", value: 2.95 }, { label: "Phase II", value: 2.61 } ] },
+              { name: "RF", bars: [ { label: "Phase I", value: 2.11 }, { label: "Phase II", value: 1.81 } ] },
+              { name: "MLP", bars: [ { label: "Phase I", value: 4.47 }, { label: "Phase II", value: 2.09 } ] },
+              { name: "GB", bars: [ { label: "Phase I", value: 1.62 }, { label: "Phase II", value: 1.51 } ] },
+            ],
+          },
         },
       ],
     },
@@ -757,13 +891,14 @@ return { categories: cats, series: [
       title: "MPH vs eight classical methods (radar)",
       explanation:
         "Three radar charts — one per metric — with the eight classical forecasters on the axes and MPH drawn as the tight " +
-        "inner ring. The classical polygon balloons out toward naïve forecasting and the simpler smoothers; MPH sits near the " +
-        "centre on every axis, i.e. far lower error than all of them. Because each metric has its own scale, the shape of the " +
-        "outer polygon changes between panels, but MPH stays small throughout. Values are the paper's own (Table 5, Phase I).",
+        "inner ring, matching the original's radar form. The classical polygon balloons out toward naïve forecasting and the " +
+        "simpler smoothers; MPH sits near the centre on every axis, i.e. far lower error than all of them. Because each metric " +
+        "has its own scale, the outer polygon changes shape between panels, but MPH stays small throughout. Values are the " +
+        "paper's own (Table 5, Phase I).",
       hotspots: [
-        { x: 0.16, y: 0.5, label: "MPH near the centre", note: "The dashed inner ring is MPH's error — small on every axis." },
-        { x: 0.5, y: 0.12, label: "Naïve worst", note: "The outer polygon spikes toward naïve forecasting — the weakest classical baseline." },
-        { x: 0.83, y: 0.5, label: "One panel per metric", note: "MAE, MAPE and MRAE each get their own radar; MPH wins all three." },
+        { x: 0.16, y: 0.5, label: "MPH hugs the centre", note: "The dashed inner ring is MPH's error — small on every axis, on all three metrics." },
+        { x: 0.5, y: 0.12, label: "Naïve is the worst axis", note: "The outer polygon spikes toward naïve forecasting — MAE ≈ 25,000 vs MPH's 3,068." },
+        { x: 0.83, y: 0.5, label: "One radar per metric", note: "MAE, MAPE and MRAE each get their own panel; MPH wins all three." },
       ],
       panels: [
         {
@@ -771,7 +906,7 @@ return { categories: cats, series: [
           xLabel: "method", yLabel: "MAE",
           chartKind: "radar", dataSource: "reported",
           digitized: {
-            kind: "radar",
+            kind: "radar", badge: "paper's numbers",
             source: "Table 5 — MPH (Phase I, MAE 3068) vs eight classical methods",
             axes: [
               { name: "Naïve" }, { name: "Moving avg" }, { name: "Simple exp." }, { name: "Holt linear" },
@@ -788,7 +923,7 @@ return { categories: cats, series: [
           xLabel: "method", yLabel: "MAPE (%)",
           chartKind: "radar", dataSource: "reported",
           digitized: {
-            kind: "radar",
+            kind: "radar", badge: "paper's numbers",
             source: "Table 5 — MPH (Phase I, MAPE 3.02) vs eight classical methods",
             axes: [
               { name: "Naïve" }, { name: "Moving avg" }, { name: "Simple exp." }, { name: "Holt linear" },
@@ -805,7 +940,7 @@ return { categories: cats, series: [
           xLabel: "method", yLabel: "MRAE",
           chartKind: "radar", dataSource: "reported",
           digitized: {
-            kind: "radar",
+            kind: "radar", badge: "paper's numbers",
             source: "Table 5 — MPH (Phase I, MRAE 1.62) vs eight classical methods",
             axes: [
               { name: "Naïve" }, { name: "Moving avg" }, { name: "Simple exp." }, { name: "Holt linear" },

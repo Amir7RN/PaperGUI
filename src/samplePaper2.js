@@ -389,6 +389,11 @@ return { series: [
   { label: "CoM velocity (m/s)", data: vel },
   { label: "CoM drift (m)", data: pos },
 ] };`,
+        insightJs: `
+const dv = (params.F * params.dur) / 66;
+return "A " + params.F.toFixed(0) + " N push for " + params.dur.toFixed(2) +
+  " s injects " + (params.F * params.dur).toFixed(0) + " N·s of momentum → the 66 kg robot drifts at " +
+  dv.toFixed(2) + " m/s until the feet push back. Only foot forces can undo it — that's the centroidal view.";`,
       },
     },
     {
@@ -425,6 +430,12 @@ return { x, series: [
   { label: "with repetitive learning", data: learn },
   { label: "no learning", data: none },
 ] };`,
+        insightJs: `
+if (params.g <= 0) return "Γ = 0 learns nothing — the error never shrinks. Give it some learning rate.";
+const cyclesTo10 = Math.ceil(Math.log(0.1) / Math.log(1 - params.g));
+return "At Γ = " + params.g.toFixed(2) + ", the repeating error falls 90% in ≈ " + cyclesTo10 +
+  " gait cycles; only the random " + Math.round(params.floor * 100) +
+  "% floor survives. The paper's per-joint Γ (20–30) does this at every joint independently.";`,
       },
     },
     {
@@ -462,6 +473,11 @@ return { x, series: [
   { label: "priority 1: keep balance", data: hi },
   { label: "priority 2: elegant posture", data: lo },
 ] };`,
+        insightJs: `
+const failAt = Math.min(1, params.budget / 1.6);
+return "With a torque budget of " + params.budget.toFixed(2) +
+  ", posture starts giving way at demand ≈ " + failAt.toFixed(2) +
+  " while balance holds far beyond — the strict hierarchy is WHY pushing the robot harder degrades elegance before safety.";`,
       },
     },
     {
@@ -497,6 +513,10 @@ return { x, series: [
   { label: "friction needed for this angle", data: need },
   { label: "friction the ground provides", data: have },
 ] };`,
+        insightJs: `
+const slipDeg = Math.atan(params.mu) * 180 / Math.PI;
+return "μ = " + params.mu.toFixed(2) + " ⇒ the foot slips when the force tilts beyond ±" +
+  slipDeg.toFixed(0) + "° from vertical. The paper plans inside μ = 0.7 (±35°), which is why its ground-reaction forces stay physical.";`,
       },
     },
   ],

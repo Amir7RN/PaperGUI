@@ -21,6 +21,7 @@ import ContactModal from "./ContactModal.jsx";
 import { SAMPLE_SPEC } from "./samplePaper.js";
 import { SAMPLE_SPEC_2 } from "./samplePaper2.js";
 import { SAMPLE_SPEC_3 } from "./samplePaper3.js";
+import { SAMPLE_SPEC_4 } from "./samplePaper4.js";
 import { analyzePaper, MODEL_TIERS, getModelTier, setModelTier } from "./api.js";
 import { fileToBase64, renderPdfRegions } from "./pdf.js";
 import {
@@ -547,9 +548,21 @@ function Landing({
             >
               <span className="text-sm font-semibold text-slate-800">Multi-phase hierarchical ML forecasting</span>
               <span className="text-xs leading-relaxed text-slate-500">
-                A supply-chain machine-learning paper — every figure digitized (bars, lines, calendar
-                heat-map, radars), the HyperOpt + successive-halving tuning made interactive, and the
-                method drawn as animated flow diagrams.
+                A supply-chain machine-learning paper — every figure digitized in its original form
+                (grouped bars, 10-curve lines, three calendar heat-maps, radars), tuning made
+                interactive, method drawn as animated flow diagrams.
+              </span>
+            </button>
+            <button
+              onClick={() => onSample(SAMPLE_SPEC_4)}
+              disabled={busy}
+              className="group flex flex-col items-start gap-1 rounded-2xl border border-slate-200/80 bg-white/90 p-4 text-left shadow-sm backdrop-blur transition hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-xl disabled:opacity-50"
+            >
+              <span className="text-sm font-semibold text-slate-800">Quadruped robots in the wild (Science Robotics)</span>
+              <span className="text-xs leading-relaxed text-slate-500">
+                APT-RL multiskill locomotion — every panel plots the authors' own published source
+                data: latent-space point clouds, torque decompositions, learning curves, radial
+                gait charts, and the 6 m/s stair-jump trace.
               </span>
             </button>
           </div>
@@ -747,7 +760,9 @@ export default function App() {
         const results = newSpec.resultFigures || [];
         const items = [...concept, ...results].map((f) => ({ page: f.page, bbox: f.bbox }));
         const crops = await renderPdfRegions(arrayBuffer, items);
-        concept.forEach((f, i) => { if (crops[i]) f.image = crops[i]; });
+        // A concept figure carrying an animated SVG rebuild shows THAT instead
+        // of the flat page crop — don't attach an image that would override it.
+        concept.forEach((f, i) => { if (crops[i] && !f.svg) f.image = crops[i]; });
         results.forEach((f, i) => { if (crops[concept.length + i]) f.image = crops[concept.length + i]; });
       } catch {
         // figure previews are optional — explanations still show

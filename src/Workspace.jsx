@@ -24,7 +24,7 @@ import {
 } from "lucide-react";
 import LayoutEditor from "./LayoutEditor.jsx";
 import DigitizerEditor from "./DigitizerEditor.jsx";
-import { DigitizedPanel, isSpecialDigitized } from "./DigitizedPanels.jsx";
+import { DigitizedPanel, isSpecialDigitized, PALETTE } from "./DigitizedPanels.jsx";
 import DesignBox from "./DesignBox.jsx";
 import { loadLayout, saveLayout, layoutStyle, sectionByKey } from "./layout.js";
 import {
@@ -34,7 +34,7 @@ import {
 } from "./engine.js";
 
 /* categorical hues for multi-series result reproductions (validated set) */
-const SERIES_HUES = ["#2a78d6", "#1baf7a", "#eda100", "#e34948", "#4a3aa7", "#e87ba4"];
+const SERIES_HUES = PALETTE; // shared 10-hue validated categorical palette
 
 /* Palette — validated (CVD ΔE ≥ 16.6, ≥3:1 contrast on light surface) */
 const C = {
@@ -1517,12 +1517,26 @@ function useDemo(demo) {
     catch (e) { return { error: `demo error: ${e.message}` }; }
   }, [fn, params, helpers]);
   const setParam = (key, v) => setParams((p) => ({ ...p, [key]: Number.isFinite(v) ? v : p[key] }));
-  return { helpers, params, setParam, result };
+
+  // Live insight: an optional second kernel that turns the CURRENT slider
+  // state + computed result into one plain-language sentence — the "so what"
+  // that makes a demo informative instead of an arbitrary slider toy.
+  const insight = useMemo(() => {
+    if (!demo?.insightJs || result.error) return null;
+    try {
+      // eslint-disable-next-line no-new-func
+      const f = new Function("params", "result", "helpers", demo.insightJs);
+      const s = f(params, result.value, helpers);
+      return typeof s === "string" && s.trim() ? s : null;
+    } catch { return null; }
+  }, [demo, params, result, helpers]);
+
+  return { helpers, params, setParam, result, insight };
 }
 
 /** Chart demo (line / bar / scatter) with its own dials and a readout. */
 function DemoChart({ demo }) {
-  const { helpers, params, setParam, result } = useDemo(demo);
+  const { helpers, params, setParam, result, insight } = useDemo(demo);
   const [readout, setReadout] = useState(null);
   const [pinned, setPinned] = useState(null);
   const [hidden, setHidden] = useState(() => new Set());
@@ -1639,6 +1653,12 @@ function DemoChart({ demo }) {
                 : <span className="text-slate-400">hover for values</span>}
             </div>
           </div>
+        </div>
+      )}
+      {insight && (
+        <div className="mt-2 flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50/80 px-3 py-2">
+          <Lightbulb size={13} className="mt-0.5 shrink-0 text-emerald-600" />
+          <p className="text-[12px] font-medium leading-relaxed text-emerald-900 tabular-nums">{insight}</p>
         </div>
       )}
       {demo.params?.length ? (
@@ -1770,6 +1790,10 @@ function FoundationsLab({ foundations }) {
               <span className="font-semibold">What this paper adds: </span>{f.whyItMatters}
             </p>
           </div>
+          {f.svg && (
+            <div className="mt-3 rounded-lg border border-slate-100 bg-white p-2"
+              dangerouslySetInnerHTML={{ __html: f.svg }} />
+          )}
         </div>
         <div className="min-w-0 xl:col-span-3">
           {f.demo ? (

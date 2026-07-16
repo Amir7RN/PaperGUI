@@ -269,6 +269,32 @@ export function buildPanelRows(baseRun, actRun) {
  * plus its guided-tour explanation is the primary content, with or without
  * interactive panels.
  */
+/** Digitized kinds rendered by dedicated components (not the x–y PanelChart).
+ *  Kept in sync with DigitizedPanels.jsx (which imports this list's superset
+ *  logic via its own SPECIAL_DIGITIZED_KINDS export). */
+const SPECIAL_KINDS = new Set([
+  "radar", "box", "heatmap", "violin", "groupedBar", "stackedBarH", "scatter", "radialBar",
+]);
+
+/** Minimal shape check per special kind so a malformed digitized panel from
+ *  the analyzer is dropped instead of rendering an empty card. */
+export function specialDigitizedValid(d) {
+  if (!d || !SPECIAL_KINDS.has(d.kind)) return false;
+  switch (d.kind) {
+    case "radar":
+      return (d.axes?.length >= 3) && (d.series?.length >= 1) &&
+        d.series.every((s) => s.values?.length === d.axes.length);
+    case "box": return d.categories?.length >= 1 && d.categories.every((c) => c.box);
+    case "heatmap": return Array.isArray(d.grid) && d.grid.length >= 1 && Array.isArray(d.grid[0]);
+    case "violin": return d.categories?.length >= 1 && d.categories.every((c) => c.dist?.length > 2);
+    case "groupedBar": return d.groups?.length >= 1 && d.groups.every((g) => g.bars?.length >= 1);
+    case "stackedBarH": return d.rows?.length >= 1 && d.rows.every((r) => r.segments?.length >= 1);
+    case "scatter": return d.series?.length >= 1 && d.series.some((s) => s.points?.length >= 3);
+    case "radialBar": return d.groups?.length >= 1 && d.groups.every((g) => g.bars?.length >= 1);
+    default: return false;
+  }
+}
+
 export function validateResultFigures(spec, pipelineCompiled, helpers, baseParams) {
   const figCompiled = compileResultFigures(spec);
   const base = runSpec(spec, pipelineCompiled, baseParams, helpers);
@@ -276,6 +302,9 @@ export function validateResultFigures(spec, pipelineCompiled, helpers, baseParam
   return (spec.resultFigures || []).map((fig, fi) => {
     const goodPanels = (fig.panels || []).filter((panel, pi) => {
       const id = `${fi}:${pi}`;
+      // Special digitized kinds (radar/heatmap/groupedBar/…) carry the paper's
+      // real values in their own shape — keep them if structurally valid.
+      if (SPECIAL_KINDS.has(panel.digitized?.kind)) return specialDigitizedValid(panel.digitized);
       // A panel carrying real digitized data is always kept — it's traced off
       // the figure, not generated, so it can't be a "fake" reproduction. If its
       // optional model kernel is broken, we simply drop the model overlay by

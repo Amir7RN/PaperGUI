@@ -1,10 +1,17 @@
 /**
  * Renderers for digitized result panels whose data isn't an x–y curve:
- * radar, box, heatmap, violin. Each takes a panel whose `digitized.kind`
- * selects the renderer and carries the traced real values. These render the
- * paper's OWN numbers (read off the figure with the digitizer) interactively —
- * no live-model overlay, because these chart types have no slider-driven model
- * to chase; the traced data IS the panel.
+ * radar, box, heatmap, violin, grouped bars, horizontal stacked bars,
+ * scatter clouds, and radial (polar) bars. Each takes a panel whose
+ * `digitized.kind` selects the renderer and carries the real values read off
+ * the paper's figure (or its published source data). These render the paper's
+ * OWN numbers interactively — no live-model overlay, because these chart
+ * types have no slider-driven model to chase; the data IS the panel.
+ *
+ * Fidelity rule: a reproduction must match the ORIGINAL figure's chart type
+ * and orientation — a horizontal stacked bar is never redrawn as vertical
+ * grouped bars, a red-to-green heat map is never recolored blue. When the
+ * original encodes with its own colors, the spec passes them via
+ * `colors` / `palette`; otherwise the shared validated PALETTE applies.
  */
 
 import React, { useState } from "react";
@@ -13,7 +20,22 @@ import {
   ResponsiveContainer, Tooltip, Legend,
 } from "recharts";
 
-const HUES = ["#2a78d6", "#1baf7a", "#eda100", "#e34948", "#4a3aa7", "#e87ba4"];
+/** Categorical palette — order fixed, never cycled mid-chart. Validated:
+ *  worst adjacent-pair ΔE(Lab) = 46.4 in both normal vision and deuteranopia
+ *  (Viénot projection), all L* in the 35–75 band on a white surface. */
+export const PALETTE = [
+  "#2a78d6", // blue
+  "#eda100", // amber
+  "#1baf7a", // green
+  "#e34948", // red
+  "#5b4bc4", // indigo
+  "#e87ba4", // pink
+  "#64748b", // slate (neutral — always paired with a legend/label)
+  "#8a6d3b", // brown
+  "#0e9aa7", // teal
+  "#b83280", // magenta
+];
+const HUES = PALETTE;
 const fmt = (v, d = 2) => (v === undefined || v === null || Number.isNaN(+v) ? "–" : (+v).toFixed(d));
 
 /** Shared card chrome + "traced from figure" badge. */
@@ -25,13 +47,38 @@ function PanelShell({ panel, children, footer }) {
           {panel.subplotLabel}
           <span className="rounded-full bg-blue-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-blue-700"
             title={panel.digitized?.source || "traced off the real figure"}>
-            traced from figure
+            {panel.digitized?.badge || "traced from figure"}
           </span>
         </span>
         {panel.xLabel && <span className="text-[10px] text-slate-400">{panel.xLabel}{panel.yLabel ? ` · ${panel.yLabel}` : ""}</span>}
       </div>
       {children}
       {footer}
+    </div>
+  );
+}
+
+/** Hover readout footer used by every renderer here. */
+function Readout({ hover, idle }) {
+  return (
+    <div className={`mt-1 rounded-md px-2 py-1 text-[11px] tabular-nums ${hover ? "bg-slate-800 text-white" : "bg-slate-50 text-slate-400"}`}>
+      {hover || idle}
+    </div>
+  );
+}
+
+/** Small color-chip legend (identity never rides on color alone — labels sit
+ *  beside every chip, and the hover readout names the mark). */
+function ChipLegend({ items }) {
+  if (!items?.length || items.length < 2) return null;
+  return (
+    <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 px-1">
+      {items.map((it, i) => (
+        <span key={i} className="flex items-center gap-1 text-[9.5px] text-slate-500">
+          <span className="inline-block h-2 w-2 rounded-sm" style={{ background: it.color }} />
+          {it.label}
+        </span>
+      ))}
     </div>
   );
 }
@@ -58,8 +105,8 @@ function RadarPanel({ panel, height = 220 }) {
           <PolarAngleAxis dataKey="axis" tick={{ fill: "#52514e", fontSize: 10 }} />
           <PolarRadiusAxis tick={{ fill: "#94a3b8", fontSize: 9 }} tickFormatter={(v) => fmt(v, 1)} />
           {series.map((s, k) => (
-            <Radar key={k} name={s.label} dataKey={`s${k}`} stroke={HUES[k % HUES.length]}
-              fill={HUES[k % HUES.length]} fillOpacity={0.14} strokeWidth={2} isAnimationActive={false} />
+            <Radar key={k} name={s.label} dataKey={`s${k}`} stroke={s.color || HUES[k % HUES.length]}
+              fill={s.color || HUES[k % HUES.length]} fillOpacity={0.14} strokeWidth={2} isAnimationActive={false} />
           ))}
           <Tooltip formatter={(v) => fmt(v, 2)} contentStyle={{ fontSize: 11 }} />
           {series.length > 1 && <Legend wrapperStyle={{ fontSize: 10 }} />}
@@ -88,10 +135,8 @@ function BoxPanel({ panel, height = 220 }) {
 
   return (
     <PanelShell panel={panel} footer={
-      <div className={`mt-1 rounded-md px-2 py-1 text-[11px] tabular-nums ${hover ? "bg-slate-800 text-white" : "bg-slate-50 text-slate-400"}`}>
-        {hover ? <><strong>{hover.name}</strong> · min {fmt(hover.box.min)} · Q1 {fmt(hover.box.q1)} · med {fmt(hover.box.med)} · Q3 {fmt(hover.box.q3)} · max {fmt(hover.box.max)}</>
-          : "hover a box for its five-number summary"}
-      </div>}>
+      <Readout idle="hover a box for its five-number summary" hover={hover &&
+        <><strong>{hover.name}</strong> · min {fmt(hover.box.min)} · Q1 {fmt(hover.box.q1)} · med {fmt(hover.box.med)} · Q3 {fmt(hover.box.q3)} · max {fmt(hover.box.max)}</>} />}>
       <div className="overflow-x-auto">
         <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ minWidth: 260 }}>
           {Array.from({ length: ticks }, (_, i) => { const v = lo + (hi - lo) * (i / (ticks - 1)); const y = yPix(v); return (
@@ -106,12 +151,10 @@ function BoxPanel({ panel, height = 220 }) {
             const b = c.box;
             return (
               <g key={i} onMouseEnter={() => setHover(c)} onMouseLeave={() => setHover(null)} style={{ cursor: "pointer" }}>
-                {/* whiskers */}
                 <line x1={cx} y1={yPix(b.max)} x2={cx} y2={yPix(b.q3)} stroke={col} strokeWidth="1.2" />
                 <line x1={cx} y1={yPix(b.q1)} x2={cx} y2={yPix(b.min)} stroke={col} strokeWidth="1.2" />
                 <line x1={cx - bw / 3} y1={yPix(b.max)} x2={cx + bw / 3} y2={yPix(b.max)} stroke={col} strokeWidth="1.2" />
                 <line x1={cx - bw / 3} y1={yPix(b.min)} x2={cx + bw / 3} y2={yPix(b.min)} stroke={col} strokeWidth="1.2" />
-                {/* box */}
                 <rect x={cx - bw / 2} y={yPix(b.q3)} width={bw} height={Math.max(1, yPix(b.q1) - yPix(b.q3))} fill={col} fillOpacity="0.18" stroke={col} strokeWidth="1.4" />
                 <line x1={cx - bw / 2} y1={yPix(b.med)} x2={cx + bw / 2} y2={yPix(b.med)} stroke={col} strokeWidth="2" />
                 <text x={cx} y={H - 8} textAnchor="middle" fontSize="9" fill="#52514e">{c.name}</text>
@@ -124,7 +167,22 @@ function BoxPanel({ panel, height = 220 }) {
   );
 }
 
-/* ---------------- heat map (custom SVG) ---------------- */
+/* ---------------- heat map (custom SVG) ----------------
+ * `palette`: array of hex stops, low → high (defaults to a single-hue blue
+ * ramp). Reproductions pass the ORIGINAL figure's stops (e.g. red→yellow→green)
+ * so the interactive panel reads like the paper's own color bar. NaN cells
+ * render as empty (no data). */
+
+const hex2rgbArr = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+function makeRamp(stops) {
+  const cols = (stops && stops.length >= 2 ? stops : ["#deebfa", "#0d366b"]).map(hex2rgbArr);
+  return (u) => {
+    const t = Math.max(0, Math.min(1, u)) * (cols.length - 1);
+    const i = Math.min(cols.length - 2, Math.floor(t));
+    const k = t - i;
+    return `rgb(${cols[i].map((c, j) => Math.round(c + (cols[i + 1][j] - c) * k)).join(",")})`;
+  };
+}
 
 function HeatmapPanel({ panel, height = 240 }) {
   const d = panel.digitized || {};
@@ -134,23 +192,17 @@ function HeatmapPanel({ panel, height = 240 }) {
 
   const nR = grid.length, nC = grid[0].length;
   const lo = d.min, hi = d.max, span = (hi - lo) || 1;
-  const rows = d.rows || grid.map((_, i) => `${i + 1}`);
-  const cols = d.cols || grid[0].map((_, i) => `${i + 1}`);
-  // sequential blue ramp (light → dark) — same family as the frames demo
-  const cellColor = (v) => {
-    if (!Number.isFinite(v)) return "#f1f5f9";
-    const u = (v - lo) / span;
-    const light = [222, 235, 250], dark = [13, 54, 107];
-    return `rgb(${light.map((l, i) => Math.round(l + (dark[i] - l) * u)).join(",")})`;
-  };
+  const rows = d.rows || d.rowLabels || grid.map((_, i) => `${i + 1}`);
+  const cols = d.cols || d.colLabels || grid[0].map((_, i) => `${i + 1}`);
+  const ramp = makeRamp(d.palette);
+  const cellColor = (v) => (Number.isFinite(v) ? ramp((v - lo) / span) : "#f4f4f2");
   const labW = 46, labT = 18, W = 320, cellH = Math.max(14, Math.min(34, (height - labT) / nR));
   const gridW = W - labW, cellW = gridW / nC, svgH = labT + nR * cellH;
 
   return (
     <PanelShell panel={panel} footer={
-      <div className={`mt-1 rounded-md px-2 py-1 text-[11px] tabular-nums ${hover ? "bg-slate-800 text-white" : "bg-slate-50 text-slate-400"}`}>
-        {hover ? <><strong>{hover.row} · {hover.col}</strong> = {fmt(hover.v, 3)}</> : "hover a cell for its value"}
-      </div>}>
+      <Readout idle="hover a cell for its value" hover={hover &&
+        <><strong>{hover.row} · {hover.col}</strong> = {Number.isFinite(hover.v) ? fmt(hover.v, 3) : "no data"}</>} />}>
       <div className="overflow-x-auto">
         <svg width="100%" viewBox={`0 0 ${W} ${svgH}`} style={{ minWidth: 260 }}>
           {cols.map((c, ci) => (
@@ -192,9 +244,7 @@ function ViolinPanel({ panel, height = 240 }) {
 
   return (
     <PanelShell panel={panel} footer={
-      <div className={`mt-1 rounded-md px-2 py-1 text-[11px] tabular-nums ${hover ? "bg-slate-800 text-white" : "bg-slate-50 text-slate-400"}`}>
-        {hover ? <><strong>{hover}</strong> · density outline traced off the figure</> : "hover a violin"}
-      </div>}>
+      <Readout idle="hover a violin" hover={hover && <><strong>{hover}</strong> · density outline traced off the figure</>} />}>
       <div className="overflow-x-auto">
         <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ minWidth: 260 }}>
           {Array.from({ length: ticks }, (_, i) => { const v = lo + (hi - lo) * (i / (ticks - 1)); const y = yPix(v); return (
@@ -223,7 +273,333 @@ function ViolinPanel({ panel, height = 240 }) {
   );
 }
 
+/* ---------------- grouped bars (custom SVG) ----------------
+ * digitized: {
+ *   kind: "groupedBar",
+ *   groups: [{ name, bars: [{ label, value, err?, color? }] }],
+ *   refLines?: [{ label, value, color? }],   // dashed baselines (e.g. top-down)
+ *   colors?: { <barLabel>: hex },            // fixed per-label colors
+ *   yMax?, unit?
+ * }
+ * Matches the classic "clusters along x, one bar per series" figure exactly:
+ * per-label colors are stable across groups, error whiskers optional, dashed
+ * reference lines with right-edge labels. */
+
+function GroupedBarPanel({ panel, height = 220 }) {
+  const d = panel.digitized || {};
+  const groups = d.groups || [];
+  const [hover, setHover] = useState(null);
+  if (!groups.length) return <PanelShell panel={panel}><div className="p-4 text-[11px] text-slate-400">No bar data.</div></PanelShell>;
+
+  // stable label → color map, in first-appearance order (never re-cycled)
+  const labels = [];
+  for (const g of groups) for (const b of g.bars) if (!labels.includes(b.label)) labels.push(b.label);
+  const colorOf = (lab) => d.colors?.[lab] || HUES[labels.indexOf(lab) % HUES.length];
+
+  let hi = d.yMax ?? -Infinity;
+  if (!Number.isFinite(hi)) {
+    for (const g of groups) for (const b of g.bars) hi = Math.max(hi, b.value + (b.err || 0));
+    for (const r of d.refLines || []) hi = Math.max(hi, r.value);
+    hi *= 1.08;
+  }
+  const W = 340, H = height, padL = 44, padR = d.refLines?.length ? 8 : 8, padT = 10, padB = 26;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const yPix = (v) => padT + plotH * (1 - v / hi);
+  const slot = plotW / groups.length;
+  const ticks = 5;
+
+  return (
+    <PanelShell panel={panel} footer={
+      <>
+        <Readout idle="hover a bar for its exact value" hover={hover &&
+          <><strong>{hover.g} · {hover.b.label}</strong> = {fmt(hover.b.value, 2)}{d.unit || ""}{Number.isFinite(hover.b.err) ? <> ± {fmt(hover.b.err, 2)}</> : null}</>} />
+        <ChipLegend items={labels.map((l) => ({ label: l, color: colorOf(l) }))} />
+      </>}>
+      <div className="overflow-x-auto">
+        <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ minWidth: 280 }}>
+          {Array.from({ length: ticks }, (_, i) => { const v = hi * (i / (ticks - 1)); const y = yPix(v); return (
+            <g key={i}>
+              <line x1={padL} y1={y} x2={W - padR} y2={y} stroke="#e1e0d9" strokeWidth="1" />
+              <text x={padL - 5} y={y + 3} textAnchor="end" fontSize="9" fill="#94a3b8">{fmt(v, hi >= 100 ? 0 : 1)}</text>
+            </g>
+          ); })}
+          {(d.refLines || []).map((r, i) => (
+            <g key={`r${i}`}>
+              <line x1={padL} y1={yPix(r.value)} x2={W - padR} y2={yPix(r.value)}
+                stroke={r.color || "#52514e"} strokeWidth="1.3" strokeDasharray="6 4" />
+              <text x={W - padR - 2} y={yPix(r.value) - 3} textAnchor="end" fontSize="8.5" fill={r.color || "#52514e"} fontWeight="600">
+                {r.label}: {fmt(r.value, r.value >= 100 ? 0 : 2)}
+              </text>
+            </g>
+          ))}
+          {groups.map((g, gi) => {
+            const gx = padL + slot * gi;
+            const innerW = slot * 0.82, off = slot * 0.09;
+            const bw = Math.max(4, innerW / g.bars.length - 2); // 2px surface gap
+            return (
+              <g key={gi}>
+                {g.bars.map((b, bi) => {
+                  const x = gx + off + (innerW / g.bars.length) * bi + 1;
+                  const y = yPix(Math.max(0, b.value));
+                  const col = colorOf(b.label);
+                  const hovered = hover && hover.g === g.name && hover.b === b;
+                  return (
+                    <g key={bi} onMouseEnter={() => setHover({ g: g.name, b })} onMouseLeave={() => setHover(null)} style={{ cursor: "pointer" }}>
+                      <rect x={x} y={y} width={bw} height={Math.max(1, H - padB - y)} rx="2"
+                        fill={col} opacity={hovered ? 1 : 0.88} />
+                      {Number.isFinite(b.err) && b.err > 0 && (
+                        <g stroke="#52514e" strokeWidth="1">
+                          <line x1={x + bw / 2} y1={yPix(b.value - b.err)} x2={x + bw / 2} y2={yPix(b.value + b.err)} />
+                          <line x1={x + bw / 2 - 2.5} y1={yPix(b.value + b.err)} x2={x + bw / 2 + 2.5} y2={yPix(b.value + b.err)} />
+                          <line x1={x + bw / 2 - 2.5} y1={yPix(b.value - b.err)} x2={x + bw / 2 + 2.5} y2={yPix(b.value - b.err)} />
+                        </g>
+                      )}
+                    </g>
+                  );
+                })}
+                <text x={gx + slot / 2} y={H - 8} textAnchor="middle" fontSize="8.5" fill="#52514e">{g.name}</text>
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+    </PanelShell>
+  );
+}
+
+/* ---------------- horizontal stacked bars (custom SVG) ----------------
+ * digitized: {
+ *   kind: "stackedBarH",
+ *   rows: [{ name, segments: [{ label, value }] }],
+ *   colors?: { <segLabel>: hex }, unit?
+ * }
+ * For figures like "sales per holiday, stacked by category" — kept HORIZONTAL
+ * and STACKED exactly like the original, with 2px surface gaps between
+ * segments and a per-segment hover readout. */
+
+function StackedBarHPanel({ panel, height = 240 }) {
+  const d = panel.digitized || {};
+  const rows = d.rows || [];
+  const [hover, setHover] = useState(null);
+  if (!rows.length) return <PanelShell panel={panel}><div className="p-4 text-[11px] text-slate-400">No bar data.</div></PanelShell>;
+
+  const labels = [];
+  for (const r of rows) for (const s of r.segments) if (!labels.includes(s.label)) labels.push(s.label);
+  const colorOf = (lab) => d.colors?.[lab] || HUES[labels.indexOf(lab) % HUES.length];
+
+  const totals = rows.map((r) => r.segments.reduce((a, s) => a + s.value, 0));
+  const hi = Math.max(...totals) * 1.05;
+  const W = 340, labW = 78, padR = 10, padT = 6, padB = 20;
+  const rowH = Math.max(16, Math.min(30, (height - padT - padB) / rows.length));
+  const H = padT + rows.length * rowH + padB;
+  const plotW = W - labW - padR;
+  const xPix = (v) => labW + plotW * (v / hi);
+
+  return (
+    <PanelShell panel={panel} footer={
+      <>
+        <Readout idle="hover a segment for its exact value" hover={hover &&
+          <><strong>{hover.r} · {hover.s.label}</strong> = {fmt(hover.s.value, 0)}{d.unit || ""} of {fmt(hover.total, 0)} total</>} />
+        <ChipLegend items={labels.map((l) => ({ label: l, color: colorOf(l) }))} />
+      </>}>
+      <div className="overflow-x-auto">
+        <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ minWidth: 280 }}>
+          {Array.from({ length: 5 }, (_, i) => { const v = hi * (i / 4); const x = xPix(v); return (
+            <g key={i}>
+              <line x1={x} y1={padT} x2={x} y2={H - padB} stroke="#e1e0d9" strokeWidth="1" />
+              <text x={x} y={H - 8} textAnchor="middle" fontSize="8.5" fill="#94a3b8">{fmt(v, 0)}</text>
+            </g>
+          ); })}
+          {rows.map((r, ri) => {
+            const y = padT + rowH * ri + 2;
+            const bh = rowH - 5;
+            let acc = 0;
+            return (
+              <g key={ri}>
+                <text x={labW - 5} y={y + bh / 2 + 3} textAnchor="end" fontSize="8.5" fill="#52514e">{r.name}</text>
+                {r.segments.map((s, si) => {
+                  const x0 = xPix(acc); acc += s.value;
+                  const x1 = xPix(acc);
+                  const hovered = hover && hover.r === r.name && hover.s === s;
+                  return (
+                    <rect key={si} x={x0 + (si ? 1 : 0)} y={y} width={Math.max(1, x1 - x0 - (si ? 1 : 0) - 1)} height={bh} rx="1.5"
+                      fill={colorOf(s.label)} opacity={hovered ? 1 : 0.88}
+                      onMouseEnter={() => setHover({ r: r.name, s, total: totals[ri] })} onMouseLeave={() => setHover(null)}
+                      style={{ cursor: "pointer" }} />
+                  );
+                })}
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+    </PanelShell>
+  );
+}
+
+/* ---------------- scatter cloud (custom SVG) ----------------
+ * digitized: {
+ *   kind: "scatter",
+ *   series: [{ label, color?, marker? ("dot"|"x"|"diamond"), points: [[x,y],…] }],
+ *   xLabel?, yLabel?
+ * }
+ * For PCA / t-SNE embeddings and other point clouds. Marker shape doubles the
+ * color so clusters stay tellable under CVD. Hover names the series. */
+
+function ScatterPanel({ panel, height = 240 }) {
+  const d = panel.digitized || {};
+  const series = (d.series || []).filter((s) => s.points?.length);
+  const [hover, setHover] = useState(null);
+  if (!series.length) return <PanelShell panel={panel}><div className="p-4 text-[11px] text-slate-400">No scatter data.</div></PanelShell>;
+
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+  for (const s of series) for (const [x, y] of s.points) {
+    x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
+  }
+  const sx = (x1 - x0) || 1, sy = (y1 - y0) || 1;
+  x0 -= sx * 0.06; x1 += sx * 0.06; y0 -= sy * 0.06; y1 += sy * 0.06;
+  const W = 320, H = height, padL = 36, padR = 8, padT = 8, padB = 22;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const px = (x) => padL + plotW * ((x - x0) / (x1 - x0));
+  const py = (y) => padT + plotH * (1 - (y - y0) / (y1 - y0));
+
+  const mark = (m, x, y, col, dim) => {
+    const o = dim ? 0.25 : 0.75;
+    if (m === "x") return <path d={`M${x - 2.6} ${y - 2.6} L${x + 2.6} ${y + 2.6} M${x - 2.6} ${y + 2.6} L${x + 2.6} ${y - 2.6}`} stroke={col} strokeWidth="1.4" opacity={o} />;
+    if (m === "diamond") return <path d={`M${x} ${y - 3.2} L${x + 3.2} ${y} L${x} ${y + 3.2} L${x - 3.2} ${y} Z`} fill={col} opacity={o} />;
+    return <circle cx={x} cy={y} r="2.6" fill={col} opacity={o} />;
+  };
+
+  return (
+    <PanelShell panel={panel} footer={
+      <>
+        <Readout idle="hover a cluster to isolate it" hover={hover &&
+          <><strong>{hover.label}</strong> · {hover.n} points</>} />
+        <ChipLegend items={series.map((s, i) => ({ label: s.label, color: s.color || HUES[i % HUES.length] }))} />
+      </>}>
+      <div className="overflow-x-auto">
+        <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ minWidth: 260 }}>
+          {[0.25, 0.5, 0.75].map((t, i) => (
+            <g key={i} stroke="#eceae4" strokeWidth="1">
+              <line x1={padL + plotW * t} y1={padT} x2={padL + plotW * t} y2={H - padB} />
+              <line x1={padL} y1={padT + plotH * t} x2={W - padR} y2={padT + plotH * t} />
+            </g>
+          ))}
+          <text x={padL + plotW / 2} y={H - 6} textAnchor="middle" fontSize="8.5" fill="#94a3b8">{d.xLabel || panel.xLabel || ""}</text>
+          {series.map((s, si) => {
+            const col = s.color || HUES[si % HUES.length];
+            const dim = hover && hover.label !== s.label;
+            return (
+              <g key={si} onMouseEnter={() => setHover({ label: s.label, n: s.points.length })} onMouseLeave={() => setHover(null)}
+                style={{ cursor: "pointer" }}>
+                {s.points.map(([x, y], i) => <g key={i}>{mark(s.marker, px(x), py(y), col, dim)}</g>)}
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+    </PanelShell>
+  );
+}
+
+/* ---------------- radial / polar grouped bars (custom SVG) ----------------
+ * digitized: {
+ *   kind: "radialBar",
+ *   groups: [{ name, bars: [{ label, value, err?, hatch? }] }],
+ *   max, unit?, colors?: { <groupName>: hex }
+ * }
+ * For circular "sector" figures (bars radiating from a ring). Each GROUP gets
+ * one hue (matching how the original colors by gait/family); bars within a
+ * group are its members. `hatch` renders the low-speed variant like the
+ * original's hatched bars. */
+
+function RadialBarPanel({ panel, height = 260 }) {
+  const d = panel.digitized || {};
+  const groups = d.groups || [];
+  const [hover, setHover] = useState(null);
+  if (!groups.length) return <PanelShell panel={panel}><div className="p-4 text-[11px] text-slate-400">No radial data.</div></PanelShell>;
+
+  const W = 320, H = height;
+  const cx = W / 2, cy = H / 2 + 4;
+  const r0 = 34, r1 = Math.min(W, H) / 2 - 26;
+  const max = d.max || Math.max(...groups.flatMap((g) => g.bars.map((b) => b.value))) * 1.05;
+  const nBars = groups.reduce((a, g) => a + g.bars.length, 0);
+  const gapA = 0.10; // radians between groups
+  const totalA = 2 * Math.PI - gapA * groups.length;
+  const barA = totalA / nBars;
+  const rOf = (v) => r0 + (r1 - r0) * Math.max(0, Math.min(1, v / max));
+
+  let a = -Math.PI / 2; // start at 12 o'clock
+  const wedges = [];
+  groups.forEach((g, gi) => {
+    const col = d.colors?.[g.name] || HUES[gi % HUES.length];
+    const groupStart = a;
+    g.bars.forEach((b) => {
+      wedges.push({ g: g.name, b, col, a0: a + barA * 0.12, a1: a + barA * 0.88 });
+      a += barA;
+    });
+    wedges.push({ groupLabel: g.name, mid: (groupStart + a) / 2, col });
+    a += gapA;
+  });
+
+  const arcPath = (aa0, aa1, rr0, rr1) => {
+    const large = aa1 - aa0 > Math.PI ? 1 : 0;
+    const p = (ang, r) => `${cx + r * Math.cos(ang)} ${cy + r * Math.sin(ang)}`;
+    return `M ${p(aa0, rr0)} L ${p(aa0, rr1)} A ${rr1} ${rr1} 0 ${large} 1 ${p(aa1, rr1)} L ${p(aa1, rr0)} A ${rr0} ${rr0} 0 ${large} 0 ${p(aa0, rr0)} Z`;
+  };
+
+  return (
+    <PanelShell panel={panel} footer={
+      <>
+        <Readout idle="hover a bar — hatched = low speed, solid = high speed" hover={hover &&
+          <><strong>{hover.g} · {hover.b.label}</strong> = {fmt(hover.b.value, 2)}{d.unit || ""}{Number.isFinite(hover.b.err) ? <> ± {fmt(hover.b.err, 2)}</> : null}</>} />
+        <ChipLegend items={groups.map((g, i) => ({ label: g.name, color: d.colors?.[g.name] || HUES[i % HUES.length] }))} />
+      </>}>
+      <div className="overflow-x-auto">
+        <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ minWidth: 260 }}>
+          <defs>
+            {groups.map((g, gi) => {
+              const col = d.colors?.[g.name] || HUES[gi % HUES.length];
+              return (
+                <pattern key={gi} id={`rbh${gi}`} width="4" height="4" patternTransform="rotate(45)" patternUnits="userSpaceOnUse">
+                  <rect width="4" height="4" fill="white" />
+                  <rect width="2.2" height="4" fill={col} />
+                </pattern>
+              );
+            })}
+          </defs>
+          {[0.25, 0.5, 0.75, 1].map((t, i) => (
+            <circle key={i} cx={cx} cy={cy} r={r0 + (r1 - r0) * t} fill="none" stroke="#eceae4" strokeWidth="1" />
+          ))}
+          <circle cx={cx} cy={cy} r={r0} fill="none" stroke="#d5d3cb" strokeWidth="1" />
+          <text x={cx} y={cy + 3} textAnchor="middle" fontSize="8.5" fill="#94a3b8">{d.unit ? `0–${fmt(max, 0)}${d.unit}` : `0–${fmt(max, 1)}`}</text>
+          {wedges.map((w, i) => {
+            if (w.groupLabel) {
+              const lr = r1 + 12;
+              const lx = cx + lr * Math.cos(w.mid), ly = cy + lr * Math.sin(w.mid);
+              return <text key={i} x={lx} y={ly + 3} textAnchor="middle" fontSize="9" fontWeight="700" fill={w.col}>{w.groupLabel}</text>;
+            }
+            const gi = groups.findIndex((g) => g.name === w.g);
+            const hovered = hover && hover.g === w.g && hover.b === w.b;
+            return (
+              <path key={i} d={arcPath(w.a0, w.a1, r0, rOf(w.b.value))}
+                fill={w.b.hatch ? `url(#rbh${gi})` : w.col}
+                stroke={w.col} strokeWidth="0.8" opacity={hovered ? 1 : 0.9}
+                onMouseEnter={() => setHover({ g: w.g, b: w.b })} onMouseLeave={() => setHover(null)}
+                style={{ cursor: "pointer" }} />
+            );
+          })}
+        </svg>
+      </div>
+    </PanelShell>
+  );
+}
+
 /* ---------------- dispatcher ---------------- */
+
+export const SPECIAL_DIGITIZED_KINDS = [
+  "radar", "box", "heatmap", "violin", "groupedBar", "stackedBarH", "scatter", "radialBar",
+];
 
 /** Picks the renderer for a non-line digitized kind. Returns null for kinds
  *  that should go through the normal x–y PanelChart path (line/scatter/bar). */
@@ -233,11 +609,15 @@ export function DigitizedPanel({ panel, height }) {
     case "box": return <BoxPanel panel={panel} height={height} />;
     case "heatmap": return <HeatmapPanel panel={panel} height={height} />;
     case "violin": return <ViolinPanel panel={panel} height={height} />;
+    case "groupedBar": return <GroupedBarPanel panel={panel} height={height} />;
+    case "stackedBarH": return <StackedBarHPanel panel={panel} height={height} />;
+    case "scatter": return <ScatterPanel panel={panel} height={height} />;
+    case "radialBar": return <RadialBarPanel panel={panel} height={height} />;
     default: return null;
   }
 }
 
 /** True when this panel needs one of the special (non x–y) renderers. */
 export function isSpecialDigitized(panel) {
-  return ["radar", "box", "heatmap", "violin"].includes(panel?.digitized?.kind);
+  return SPECIAL_DIGITIZED_KINDS.includes(panel?.digitized?.kind);
 }

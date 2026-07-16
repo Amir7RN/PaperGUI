@@ -177,6 +177,12 @@ return { series: [
   { label: "noisy measurement", data: raw },
   { label: "filtered", data: out },
 ] };`,
+        insightJs: `
+const a = params.alpha;
+const attDb = -20 * Math.log10(Math.sqrt(a / (2 - a)));   // white-noise std reduction of an EMA
+const lagS = ((1 - a) / a) * 0.02;                        // group delay ≈ (1-α)/α samples
+return "α = " + a.toFixed(2) + " cuts the noise by ≈ " + attDb.toFixed(1) +
+  " dB but delays the signal by ≈ " + lagS.toFixed(2) + " s. The paper's α = 0.18 buys ≈11 dB while keeping the loop stable.";`,
       },
     },
     {
@@ -214,6 +220,15 @@ return { series: [
   { label: "target", data: r },
   { label: "response", data: y },
 ] };`,
+        insightJs: `
+const y = result.series[1].data;
+let peak = 0; for (const v of y) peak = Math.max(peak, v);
+const over = Math.max(0, (peak - 1) * 100);
+let settle = null;
+for (let i = y.length - 1; i >= 0; i--) { if (Math.abs(y[i] - 1) > 0.05) { settle = (i + 1) * 0.02 - 1; break; } }
+return "Kp = " + params.Kp.toFixed(1) + ": overshoot ≈ " + over.toFixed(0) + "%, settling ≈ " +
+  (settle === null || settle < 0 ? "instant" : settle.toFixed(1) + " s") +
+  ". The paper's headline (<9% overshoot, 2.1 s settling) is this same trade-off, held under noise.";`,
       },
     },
     {
@@ -248,6 +263,10 @@ return { x, series: [
   { label: "squashed output", data: out },
   { label: "no squash (for comparison)", data: ident },
 ] };`,
+        insightJs: `
+const u95 = params.S * Math.atanh(0.95);
+return "With S = " + params.S.toFixed(2) + ", inputs beyond ≈ ±" + u95.toFixed(2) +
+  " hit the ceiling — no spike, however large, can push more than that into the loop. That bound is the robustness guarantee.";`,
       },
     },
   ],

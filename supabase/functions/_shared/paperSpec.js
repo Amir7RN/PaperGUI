@@ -144,6 +144,10 @@ const demoSchema = {
       type: "string",
       description: "Body of function(params, helpers). chart kind: return {x?: number[], categories?: string[] (bar), series: [{label, data: number[]}]} (1-4 series, same length, x defaults to helpers.t). frames kind: return {frames: [{grid: number[][] (<=10x10), note: string}]} with 4-25 frames showing the idea converging step by step. Only Math + helpers {n,dt,t,T,noise,clamp,step}. Deterministic.",
     },
+    insightJs: {
+      type: "string",
+      description: "OPTIONAL but strongly encouraged for demos with sliders: body of function(params, result, helpers) => string — ONE plain-language sentence, computed from the CURRENT slider values (and optionally the computed result.series), stating what the reader is seeing and tying it to the paper's own numbers (e.g. 'At Γ=0.4 the repeating error falls 90% in 5 cycles — the paper's per-joint law does this at every joint'). This line is what turns a slider toy into a lesson. Include concrete computed numbers.",
+    },
   },
 };
 
@@ -289,6 +293,10 @@ export const SPEC_SCHEMA = {
             type: "string",
             description: "3-6 sentences a newcomer can follow: what the figure shows and why it matters for the method. This replaces reading the paper.",
           },
+          svg: {
+            type: "string",
+            description: "OPTIONAL, for the paper's MAIN method/pipeline/architecture diagram only (max one per paper): a complete inline <svg> that REBUILDS the diagram as a clean ANIMATED flow chart (viewBox ~720x300, system-ui fonts, boxes+arrows with staggered fade-in via a scoped <style> whose selectors are all prefixed by a unique svg id, dashed 'flow' lines animated by stroke-dashoffset, the final output node gently pulsing, and a @media (prefers-reduced-motion: reduce) block disabling all animation). Every label must come from the paper. When provided, this animated rebuild is shown INSTEAD of the flat page crop, so it must be self-sufficient and accurate.",
+          },
           bbox: {
             type: "object",
             additionalProperties: false,
@@ -432,7 +440,29 @@ export const SPEC_SCHEMA = {
                 yLabel: { type: "string" },
                 computeJs: {
                   type: "string",
-                  description: "Body of function(outputs, params, helpers) => {x?: number[], categories?: string[], series: [{label, data: number[]}]}. For chartKind 'bar', return categories (the bin/condition names from the original axis) and one data value per category per series. dataSource 'reported': return the paper's published values as literals. Reproduce EVERY series shown in this subplot.",
+                  description: "Body of function(outputs, params, helpers) => {x?: number[], categories?: string[], series: [{label, data: number[]}]}. For chartKind 'bar', return categories (the bin/condition names from the original axis) and one data value per category per series. dataSource 'reported': return the paper's published values as literals. Reproduce EVERY series shown in this subplot. When `digitized` is provided instead, set this to the empty string.",
+                },
+                digitized: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["kind", "source"],
+                  properties: {
+                    kind: { type: "string", enum: ["groupedBar", "stackedBarH", "heatmap", "radar", "scatter", "radialBar", "box", "violin"], description: "Chart family MATCHING THE ORIGINAL subplot exactly: groupedBar = vertical bar clusters; stackedBarH = HORIZONTAL stacked bars (use for any horizontal bar figure — never rotate it vertical); heatmap = colour-coded grid; radar = spider chart; scatter = embedding/point cloud; radialBar = circular/polar bar sectors; box/violin = distribution summaries." },
+                    source: { type: "string", description: "Where these values come from in the paper (table / figure / supplementary data)" },
+                    groups: { type: "array", items: { type: "object", additionalProperties: false, required: ["name", "bars"], properties: { name: { type: "string" }, bars: { type: "array", items: { type: "object", additionalProperties: false, required: ["label", "value"], properties: { label: { type: "string" }, value: { type: "number" }, err: { type: "number", description: "optional ± error whisker" }, hatch: { type: "boolean", description: "hatched variant (e.g. the original's low-speed bars)" } } } } } }, description: "For groupedBar/radialBar" },
+                    rows: { type: "array", items: { type: "object", additionalProperties: false, required: ["name", "segments"], properties: { name: { type: "string" }, segments: { type: "array", items: { type: "object", additionalProperties: false, required: ["label", "value"], properties: { label: { type: "string" }, value: { type: "number" } } } } } }, description: "For stackedBarH — rows in the ORIGINAL's top-to-bottom order" },
+                    axes: { type: "array", items: { type: "object", additionalProperties: false, required: ["name"], properties: { name: { type: "string" } } }, description: "For radar" },
+                    series: { type: "array", items: { type: "object", additionalProperties: false, required: ["label"], properties: { label: { type: "string" }, values: { type: "array", items: { type: "number" }, description: "radar: one value per axis" }, points: { type: "array", items: { type: "array", items: { type: "number" } }, description: "scatter: [x,y] pairs (≤150 per series)" }, color: { type: "string", description: "#rrggbb from the original figure" }, marker: { type: "string", description: "scatter marker: dot | x | diamond" } } }, description: "For radar/scatter" },
+                    grid: { type: "array", items: { type: "array", items: { type: "number" } }, description: "For heatmap: rows×cols of values (use null-free numbers; NaN cells not expressible — use the min value)" },
+                    rowLabels: { type: "array", items: { type: "string" }, description: "heatmap row names" },
+                    colLabels: { type: "array", items: { type: "string" }, description: "heatmap column names" },
+                    min: { type: "number" }, max: { type: "number" },
+                    palette: { type: "array", items: { type: "string" }, description: "heatmap colour stops low→high as #rrggbb, READ OFF THE ORIGINAL'S COLOUR BAR (e.g. red→yellow→green). Never substitute a different scale." },
+                    colors: { type: "object", additionalProperties: true, description: "map of bar/segment label → #rrggbb matching the ORIGINAL figure's colours" },
+                    refLines: { type: "array", items: { type: "object", additionalProperties: false, required: ["label", "value"], properties: { label: { type: "string" }, value: { type: "number" }, color: { type: "string" } } }, description: "dashed baselines the original draws (e.g. 'Top-down: 3068')" },
+                    unit: { type: "string" },
+                  },
+                  description: "OPTIONAL: for subplots whose ORIGINAL form is not a plain x-y line/bar — horizontal stacked bars, heatmaps, radars, polar bars, scatters — carry the paper's OWN values in the matching structure so the client renders the same chart family, orientation and colours as the original. This is the fidelity path: use it whenever plain computeJs would change the chart's form.",
                 },
               },
             },
@@ -633,6 +663,9 @@ PANELS — EVERY SUBPLOT STAYS INTERACTIVE VIA THE RIGHT SOURCE:
 - dataSource 'simulated' when the pipeline honestly regenerates the subplot (via outputs / helpers.simulate): time responses of the simulated controller, convergence of the simulated learning rule. These reshape live with the sliders.
 - dataSource 'reported' for everything the pipeline cannot produce: experimental histograms, benchmark comparisons, human-subject statistics, ablation tables. Return the PAPER'S OWN numbers — read them from its tables and its plots' axes — as literal arrays. Still interactive (hover for exact values, series toggles), and accurate BY CONSTRUCTION because the numbers are the paper's.
 - FIRST LOOK AT THE FIGURE IMAGE and identify each subplot's plot type. chartKind MUST match it: histograms and bar charts → "bar" (return categories with the original bin/condition names and one value per category per series); point clouds → "scatter"; curves → "line". Redrawing a histogram as a line chart is the single worst failure this system has produced. Never do it.
+- FORM AND ORIENTATION ARE PART OF FIDELITY. If the original subplot is a HORIZONTAL stacked bar, a heat map, a radar/spider chart, a circular/polar bar chart, a PCA/t-SNE point cloud, or a box/violin plot, do NOT flatten it into a plain vertical bar or line — emit the panel's 'digitized' object with the matching kind (stackedBarH, heatmap, radar, radialBar, scatter, box, violin, groupedBar) carrying the paper's own values, and set computeJs to the empty string. Keep the original's row order, stack order, group structure and dashed reference lines (refLines).
+- COLOURS ARE PART OF FIDELITY TOO. When the original encodes with specific colours (a red→green heat-map colour bar, per-category bar colours, red-vs-blue phase bars), read them off the figure and pass them via digitized.palette / digitized.colors / series.color so the reproduction reads like the paper. Never substitute a different colour scale for a heat map.
+- Reproduce EVERY series/curve the subplot shows (a 10-curve figure gets 10 series — the legend + click-to-isolate handles density). Collapsing a multi-series figure to 1-2 series is a fidelity failure.
 - Omit a subplot ONLY when neither source exists (photographs, hardware snapshots, qualitative diagrams). Fabricating dynamics is forbidden; switching to 'reported' is the correct fallback, always.
 
 INFER THE INPUT SIGNAL (for the panels you DO emit — the paper won't give you its raw data — reconstruct a compatible one):
@@ -667,6 +700,7 @@ RULES FOR foundations (the borrowed background — TEACH IT INTERACTIVELY):
     * kind "chart" for signal/response/tradeoff ideas: e.g. a filter demo where a noise slider and a smoothing slider fight; a feedback demo where a gain slider trades speed against overshoot; a learning-rate slider making error die out over iterations.
     * kind "frames" for inherently spatial or iterative ideas: an animated colored grid stepping through time — value iteration filling a gridworld from the goal outward, activations/weights updating in a small network, information propagating across cells. 4-25 frames, grid <= 10x10, each frame with a one-line note narrating what just happened.
 - The demo must be about the CONCEPT (a minimal toy), not the paper's full system — small, punchy, obvious cause-and-effect within 2 seconds of dragging a slider.
+- EVERY demo with sliders should also carry insightJs: one computed sentence (with concrete numbers derived from the current slider values) telling the reader what they are seeing and tying it back to the paper's own numbers. This line is the difference between an informative lesson and an arbitrary slider toy.
 - These must be genuinely from prior literature (the paper's related-work / preliminaries), distinct from the paper's own contribution blocks.
 
 RULES FOR blocks.plain (the story layer — this is what makes the platform addictive):
@@ -677,6 +711,7 @@ OTHER FIELDS
 - theory: closely paraphrase the paper's explanation for that step, with the section number.
 - pythonCode: clean NumPy translation of the same block.
 - conceptFigures: pick the 1-3 INTRODUCTORY/architecture figures (not results plots), give their 1-indexed PDF page and bbox, and explain each in 3-6 sentences so the reader can follow the idea without the paper.
+- For the paper's MAIN pipeline/architecture diagram (one figure only), ALSO emit conceptFigures[i].svg: an accurate ANIMATED SVG rebuild (staggered fade-ins, animated dashed flow arrows, pulsing output node, scoped styles, reduced-motion fallback — see the svg field description). Visual-first is this product's core promise; a clean animated flow chart teaches faster than a flat crop.
 - conclusion: the paper's core finding, naming the coefficient values it depends on.
 
 FINAL CHECK before you answer — the trust test:

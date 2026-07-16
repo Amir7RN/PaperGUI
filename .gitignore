@@ -11,3 +11,6 @@ playground/
 
 # root copy (tracked version lives in public/)
 /Background.png
+
+# local paper source folders (PDFs + raw supplementary data; crops and extracted data are committed instead)
+papers/
