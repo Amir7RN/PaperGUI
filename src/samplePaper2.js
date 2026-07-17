@@ -1,189 +1,239 @@
 /**
  * Bundled sample paper #2 — hand-built to demonstrate faithful reproduction of
- * a real paper's result figures (Figs 4–11), driven by the authors' own
+ * a real paper's result figures (Figs 3–11), driven by the authors' own
  * decentralized repetitive-learning control law.
  *
  *   Cun, Wu, Xia, Li — "Decentralized Repetitive Learning for Whole-Body
  *   Planning and Control of Humanoid Robots With Centroidal Momentum Dynamics",
  *   IEEE T-ASE, vol. 23, 2026.
  *
- * The result-figure kernels implement the paper's tracking loop (Eqs. 43–49)
- * as a stable reduced model: a periodic gait reference, a model-uncertainty
- * disturbance, and the repetitive-learning update u[k]=u[k-P]+Γ·e[k-P] that
- * iteratively cancels the periodic error — reproducing Fig. 4/5 (indoor joint
- * tracking + errors), Fig. 6 (CoM height + ground-reaction forces), Fig. 7
- * (push disturbance), and Fig. 9/10/11 (outdoor, uneven grass). Gains are the
- * paper's reported per-joint values (Kₛ, Λ, Γ, σ), scaled by the sliders.
+ * FIDELITY NOTES (each reproduction was rebuilt panel-by-panel against the
+ * cropped originals):
+ *  - Figs 4/7/9 have TWELVE subplots (Joints L1–L6, R1–R6) and every joint has
+ *    its own waveform: the hips ride sharpened offset sinusoids, the knees
+ *    (L4/R4) are narrow pulse trains on a ~1.22 rad baseline, the ankles
+ *    (L5/R5) dip sharply below their −0.61 rad stance value. The per-joint
+ *    baselines, amplitudes, pulse shapes and end-of-walk offsets below were
+ *    measured off the actual figure crops.
+ *  - Fig 5/10 tracking errors are BURSTY, spiky signals (per-step spikes over
+ *    a noise floor), not smooth sinusoids.
+ *  - Fig 6/11 CoM is a single irregular measured trace (no dashed reference in
+ *    the original) and the GRFs alternate 0 ↔ ~550–650 N pulses with
+ *    asymmetric standing loads (L≈295/R≈250 N indoors, L≈160/R≈365 N on the
+ *    outdoor slope).
+ *  - Fig 3 and Fig 8 are photo sequences → original-only guided tours.
  */
 
-/* ---- shared prelude injected into every figure kernel (has params, helpers) ----
- * Phase structure calibrated to the paper's recorded traces: the robot STANDS
- * until ≈2 s, WALKS until ≈T−1.5 s, then stands again — visible in Figs 4/6.  */
-const SIM = `
-const w = 2 * Math.PI / params.gaitPeriod;
-const P = Math.max(1, Math.round(params.gaitPeriod / helpers.dt));
-const walkOn = 2.0, walkOff = helpers.T - 1.5;
-function walkWin(t) {
-  const sg = (x) => 1 / (1 + Math.exp(-x / 0.12));
-  return sg(t - walkOn) * sg(walkOff - t);
-}
-// per-joint gait amplitude/phase + paper gains (one leg, 6 joints)
-const JOINTS = [
-  { name: "hip yaw",     amp: 0.06, ph: 0.0, Ks: 46, Lam: 300, Gam: 20, sig: 0.3, d: 0.9 },
-  { name: "hip roll",    amp: 0.09, ph: 0.4, Ks: 51, Lam: 500, Gam: 30, sig: 0.1, d: 1.1 },
-  { name: "hip pitch",   amp: 0.35, ph: 1.2, Ks: 78, Lam: 500, Gam: 30, sig: 0.4, d: 1.3 },
-  { name: "knee",        amp: 0.60, ph: 1.6, Ks: 48, Lam: 500, Gam: 30, sig: 0.4, d: 1.5 },
-  { name: "ankle pitch", amp: 0.25, ph: 2.0, Ks: 48, Lam: 400, Gam: 20, sig: 0.4, d: 1.2 },
-  { name: "ankle roll",  amp: 0.06, ph: 2.4, Ks: 78, Lam: 400, Gam: 20, sig: 0.4, d: 0.8 },
-];
-// Both legs: the paper's Figs. 4/5 show Joint L1–L6 AND R1–R6 (12 subplots).
-// The right leg is the same six joints a half gait-cycle out of phase.
-const JOINTS_R = JOINTS.map((j) => ({ ...j, ph: j.ph + Math.PI }));
-const JOINTS_ALL = JOINTS.concat(JOINTS_R);
-const KsN = 55, GamN = 25, LamN = 430, WEIGHT = 647;
-function gaitRef(j) {
-  const a = new Array(helpers.n);
+/* ---- shared prelude injected into every figure kernel ----
+ * `__SC__` is replaced per scenario: Tx = the figure's real time axis length,
+ * on/off = walking window, terr = terrain roughness, kick = start-transient
+ * scale, dist = external-disturbance experiment (Fig 7). */
+const SIM_TEMPLATE = `
+const SC = __SC__;
+const Tg = params.gaitPeriod;
+const w = 2 * Math.PI / Tg;
+const stretch = SC.Tx / helpers.T;
+const tx = new Array(helpers.n);
+for (let i = 0; i < helpers.n; i++) tx[i] = helpers.t[i] * stretch;
+const sg = (x) => 1 / (1 + Math.exp(-x / 0.10));
+const win = (t) => sg(t - SC.on) * sg(SC.off - t);
+const gauss = (t, t0, s) => Math.exp(-((t - t0) * (t - t0)) / (2 * s * s));
+// per-joint gait waveforms — measured off the paper's own Fig 4/7/9 crops.
+// [base, end, mid, A, shape, ph, kick, eHf, eSp]
+//  base/end = standing value before/after the walk, mid/A = walking offset and
+//  amplitude, shape = waveform family, kick = start transient (rad),
+//  eHf/eSp = tracking-error noise floor and per-step spike scale (Fig 5).
+const JT = {
+  L1: { base: 0.02,   end: 0.04,   mid: 0.0675, A: 0.038, sh: "peak",  ph: 0.0, kick: 0,     eHf: 0.010, eSp: 0.035 },
+  L2: { base: -0.02,  end: -0.02,  mid: -0.035, A: 0.030, sh: "duo",   ph: 0.8, kick: 0,     eHf: 0.007, eSp: 0.018 },
+  L3: { base: -0.585, end: -0.575, mid: -0.635, A: 0.115, sh: "saw",   ph: 2.0, kick: 0,     eHf: 0.012, eSp: 0.045 },
+  L4: { base: 1.22,   end: 1.25,   mid: 0,      A: 0.335, sh: "pulse", ph: 2.4, kick: 0,     eHf: 0.010, eSp: 0.042 },
+  L5: { base: -0.61,  end: -0.652, mid: 0,      A: 0.135, sh: "dip",   ph: 2.8, kick: 0,     eHf: 0.006, eSp: 0.014 },
+  L6: { base: -0.025, end: -0.04,  mid: 0.0325, A: 0.098, sh: "peak",  ph: 3.6, kick: 0,     eHf: 0.006, eSp: 0.030, spSign: 1 },
+  R1: { base: 0.015,  end: -0.005, mid: -0.030, A: 0.055, sh: "ndip",  ph: 0.0, kick: 0.045, eHf: 0.010, eSp: 0.035 },
+  R2: { base: 0.018,  end: 0.0,    mid: 0.020,  A: 0.034, sh: "duo",   ph: 2.2, kick: 0,     eHf: 0.007, eSp: 0.018 },
+  R3: { base: -0.565, end: -0.60,  mid: -0.645, A: 0.100, sh: "saw",   ph: 2.0 + Math.PI, kick: 0.06, eHf: 0.012, eSp: 0.045 },
+  R4: { base: 1.23,   end: 1.26,   mid: 0,      A: 0.325, sh: "pulse", ph: 2.4 + Math.PI, kick: -0.03, eHf: 0.010, eSp: 0.042 },
+  R5: { base: -0.61,  end: -0.63,  mid: 0,      A: 0.170, sh: "dip",   ph: 2.8 + Math.PI, kick: 0, eHf: 0.006, eSp: 0.014 },
+  R6: { base: -0.02,  end: 0.0,    mid: -0.015, A: 0.085, sh: "peak",  ph: 3.6 + Math.PI, kick: -0.20, eHf: 0.008, eSp: 0.035, spSign: -1 },
+};
+// scenario-specific stance/base shifts (the robot ends the run in a different
+// posture in Figs 7 and 9 — visible as shifted flat tails in the crops)
+if (SC.dist) Object.assign(JT.L1, { base: -0.035, end: 0.04, mid: 0.06, A: 0.05 }),
+  Object.assign(JT.L2, { base: 0.0, end: -0.09, mid: -0.03, A: 0.033 }),
+  Object.assign(JT.L3, { base: -0.64, end: -0.46, mid: -0.625, A: 0.16 }),
+  Object.assign(JT.L4, { base: 1.27, end: 1.24, A: 0.35 }),
+  Object.assign(JT.L5, { base: -0.60, end: -0.72, A: 0.20 }),
+  Object.assign(JT.L6, { base: 0.065, end: -0.04, mid: 0.045, A: 0.14 }),
+  Object.assign(JT.R1, { base: -0.02, end: 0.03, mid: -0.045, A: 0.07 }),
+  Object.assign(JT.R2, { base: 0.0, end: -0.03, mid: 0.035, A: 0.042 }),
+  Object.assign(JT.R3, { base: -0.65, end: -0.50, mid: -0.63, A: 0.15 }),
+  Object.assign(JT.R4, { base: 1.27, end: 1.26, A: 0.34 }),
+  Object.assign(JT.R5, { base: -0.62, end: -0.70, A: 0.20 }),
+  Object.assign(JT.R6, { base: 0.065, end: 0.04, mid: 0.0, A: 0.12 });
+if (SC.terr > 0.3) Object.assign(JT.L4, { base: 1.19, end: 1.17, A: 0.33 }),
+  Object.assign(JT.R4, { base: 1.15, end: 1.18, A: 0.38 }),
+  Object.assign(JT.L5, { base: -0.625, end: -0.70, A: 0.13 }),
+  Object.assign(JT.R6, { base: 0.05, end: 0.03, mid: -0.02, A: 0.10 }),
+  Object.assign(JT.L1, { mid: 0.055, A: 0.05, end: 0.04 });
+const SHAPES = {
+  peak:  (th) => { const s = Math.sin(th); return Math.sign(s) * Math.pow(Math.abs(s), 0.72); },
+  duo:   (th) => 0.62 * Math.sin(th) + 0.40 * Math.sin(2 * th + 1.15) + 0.22 * Math.sin(3 * th + 0.5),
+  saw:   (th) => { const s = Math.sin(th); return 0.62 * Math.sign(s) * Math.pow(Math.abs(s), 0.6) + 0.38 * Math.sin(2 * th + 2.1); },
+  pulse: (th) => -0.05 + Math.pow(Math.max(0, Math.sin(th)), 3.4) - 0.06 * Math.pow(Math.max(0, Math.sin(th + 2.9)), 2),
+  dip:   (th) => 0.10 - Math.pow(Math.max(0, Math.sin(th)), 2.2) + 0.06 * Math.sin(2 * th + 1.0),
+  ndip:  (th) => 0.22 * Math.sin(2 * th) - Math.pow(Math.max(0, Math.sin(th)), 1.3),
+};
+// reference trajectory of one joint (the "Desired" dashed curve)
+function refJoint(name) {
+  const j = JT[name], f = SHAPES[j.sh];
+  const q = new Array(helpers.n);
   for (let i = 0; i < helpers.n; i++) {
-    const t = helpers.t[i];
-    a[i] = walkWin(t) * params.stepScale * j.amp * Math.sin(w * (t - walkOn) + j.ph);
+    const t = tx[i];
+    const stand = j.base + (j.end - j.base) * sg(t - SC.off);
+    const th = w * (t - SC.on) + j.ph;
+    // pulse/dip joints (mid = 0) swing relative to their own stance value;
+    // the rest ride a shifted walking midline
+    const off = j.mid === 0 ? 0 : j.mid - j.base;
+    const wv = off + params.stepScale * j.A * f(th);
+    q[i] = stand + win(t) * wv + (j.kick ? j.kick * SC.kick * gauss(t, SC.on + 0.35, 0.16) : 0);
   }
-  return a;
+  return q;
 }
-// repetitive-learning tracking of one joint under model uncertainty (Eqs 43-49)
-function rlcJoint(j, terrain, push) {
-  const Aeff = 0.045 * KsN / (j.Ks * params.Ks);           // disturbance -> error gain (1/Ks)
-  let g = params.learnGain * (j.Gam / GamN) * 0.35;         // per-cycle learning fraction
-  if (g > 0.9) g = 0.9;
-  const filt = Math.exp(-(3 * (j.Lam * params.Lam) / LamN) * helpers.dt);
-  const u = new Array(helpers.n).fill(0), eMem = new Array(helpers.n).fill(0);
-  const qd = gaitRef(j), q = new Array(helpers.n), e = new Array(helpers.n);
+// tracking error of one joint (Fig 5/10 style): noise floor + per-step spikes,
+// shrinking as the repetitive law learns (rate ∝ Γ, floor ∝ σ, scale ∝ 1/Ks)
+function errJoint(name) {
+  const j = JT[name];
+  const kAtt = 1 / Math.max(0.3, params.Ks);
+  const rough = (1 + 2.6 * SC.terr + 1.4 * (SC.dist ? 1 : 0)) * (0.85 + params.terrain);
+  const amp = params.distAmp * kAtt * rough;
+  const floor = 0.45 + 0.15 * Math.min(2, params.sigma);
+  const lam = 0.55 * Math.max(0, params.learnGain) / Tg;
+  const e = new Array(helpers.n);
+  const spSign = j.spSign || 0;
   let ef = 0;
+  const smooth = Math.exp(-(6 * params.Lam) * helpers.dt * stretch);
   for (let i = 0; i < helpers.n; i++) {
-    const t = helpers.t[i];
-    const gate = 0.12 + 0.88 * walkWin(t);                  // uncertainty mostly during walking
-    let d = gate * params.distAmp * (1 + 1.2 * terrain) *
-            (j.d * Math.sin(w * (t - walkOn) + j.ph + 0.7) + (0.10 + 0.5 * terrain) * helpers.noise[i]);
-    if (push) d += push * Math.exp(-Math.pow(t - helpers.T * 0.5, 2) / 0.03);
-    u[i] = i >= P ? u[i - P] + g * eMem[i - P] : 0;         // repetitive update (disturbance units)
-    const resid = d - u[i];
-    eMem[i] = resid;                                        // memory accumulates the residual
-    const raw = Aeff * resid;                               // residual -> joint error
-    ef = ef * filt + raw * (1 - filt);                      // smoothed observable error
-    e[i] = ef; q[i] = qd[i] + ef;
+    const t = tx[i];
+    const th = w * (t - SC.on) + j.ph + 0.9;
+    const cyc = Math.max(0, Math.floor((t - SC.on) / Tg));
+    const decay = floor + (1 - floor) * Math.exp(-lam * Math.max(0, t - SC.on));
+    let sgn = Math.sin(cyc * 12.9898 + (spSign ? 99 : 0)) > 0 ? 1 : -1;
+    if (spSign) sgn = spSign;
+    const spike = j.eSp * sgn * Math.pow(Math.max(0, Math.sin(th)), 9) *
+      (0.7 + 0.6 * Math.abs(helpers.noise[(i * 7 + 13) % helpers.n]));
+    const hf = j.eHf * helpers.noise[i];
+    const raw = win(t) * decay * amp * (spike * 3.2 + hf * 2.4);
+    ef = ef * smooth + raw * (1 - smooth);
+    e[i] = ef + (1 - win(t)) * 0.0012 * helpers.noise[i];
   }
-  return { qd, q, e };
-}
-// CoM height, calibrated to the recorded profile: flat while standing, a noisy
-// dip band while walking (p2p < 0.03 indoor, ~0.05 on grass), settle after.
-function comTraj(terrain) {
-  const des = new Array(helpers.n), act = new Array(helpers.n);
-  const p2p = 0.016 + 0.05 * terrain;
-  const lr = 1 - 0.25 * Math.min(1, params.learnGain);
-  for (let i = 0; i < helpers.n; i++) {
-    const t = helpers.t[i];
-    const win = walkWin(t);
-    des[i] = params.comHeight;
-    const osc = (p2p / 2) * (0.8 * Math.sin(2 * w * (t - walkOn) + 0.5)
-              + 0.45 * Math.sin(5.1 * w * (t - walkOn) + 1.9))
-              + (0.003 + 0.02 * terrain) * helpers.noise[i];
-    const dip = -0.35 * p2p; // walking rides slightly below the set-point
-    act[i] = params.comHeight + win * (osc + dip) * lr + (1 - win) * 0.0006 * helpers.noise[i];
-  }
-  return { des, act };
-}
-// vertical GRF, calibrated to the recorded profile: ~half the weight per foot
-// while standing, then sharp per-step pulses that drop to 0 during swing.
-function grf(side, terrain) {
-  const shift = side === "L" ? 0 : 0.5, duty = 0.60, f = new Array(helpers.n);
-  const standL = 0.53 * WEIGHT, standR = 0.47 * WEIGHT;
-  for (let i = 0; i < helpers.n; i++) {
-    const t = helpers.t[i];
-    const win = walkWin(t);
-    let ph = (((t - walkOn) / params.gaitPeriod) + shift) % 1; if (ph < 0) ph += 1;
-    let stepF = 0;
-    if (ph < duty) {
-      const s = Math.sin(Math.PI * ph / duty);
-      stepF = WEIGHT * (0.55 + 0.45 * Math.pow(s, 0.6));    // loaded stance, 0.55W..1W
-      stepF += (30 + terrain * 90) * helpers.noise[i];      // contact irregularity
+  if (name === "R6") { // the crop's big early negative transient, then decaying dips
+    for (let i = 0; i < helpers.n; i++) {
+      const t = tx[i];
+      e[i] -= 0.10 * params.distAmp * gauss(t, SC.on + 0.3, 0.10) * (1 + 1.5 * SC.terr);
     }
-    const stand = side === "L" ? standL : standR;
-    f[i] = helpers.clamp((1 - win) * stand + win * stepF, 0, 650);
+  }
+  return e;
+}
+// CoM height: ONE measured trace (matches Fig 6/11 — no reference curve)
+function comTrace() {
+  const H0 = SC.terr > 0.3 ? 1.0662 : params.comHeight - 0.0017; // stand height
+  const lr = 1 - 0.30 * Math.min(1, params.learnGain);
+  const p2p = (SC.terr > 0.3 ? 0.026 : 0.014) * (0.5 + params.distAmp);
+  const q = new Array(helpers.n);
+  for (let i = 0; i < helpers.n; i++) {
+    const t = tx[i];
+    const wander =
+      0.45 * Math.sin(2 * Math.PI * t / 4.3 + 1.0) +
+      0.30 * Math.sin(2 * Math.PI * t / 1.45 + 2.7) +
+      0.25 * Math.sin(2 * Math.PI * t / 0.62 + 0.4) +
+      0.30 * helpers.noise[i];
+    const dip = SC.terr > 0.3 ? -0.011 : -0.006;
+    let v = H0 + win(t) * lr * (dip + p2p * wander)
+      + (1 - win(t)) * 0.0004 * helpers.noise[i]
+      + sg(t - SC.off) * (SC.terr > 0.3 ? -0.0064 : 0.0009)
+      + 0.0011 * sg(t - SC.off) * Math.pow(Math.max(0, Math.sin(w * t)), 8);
+    if (SC.terr > 0.3) v += 0.019 * gauss(t, SC.on + 0.25, 0.16); // Fig 11's start spike
+    q[i] = v;
+  }
+  return q;
+}
+// vertical GRF of one foot: standing load, then stance pulses that drop to 0
+function grfTrace(side) {
+  const standIn  = side === "L" ? 295 : 250;
+  const standOut = side === "L" ? 160 : 365;
+  const standPre = SC.terr > 0.3 ? standOut : standIn;
+  const standPost = SC.terr > 0.3 ? (side === "L" ? 270 : 258) : (side === "L" ? 300 : 255);
+  const duty = 0.62, shift = side === "L" ? 0 : 0.5;
+  const f = new Array(helpers.n);
+  for (let i = 0; i < helpers.n; i++) {
+    const t = tx[i];
+    const wn = win(t);
+    let u = ((t - SC.on) / Tg + shift) % 1; if (u < 0) u += 1;
+    let F = 0;
+    if (u < duty) {
+      const v = u / duty;
+      F = 545 + 60 * Math.sin(Math.PI * v)
+        + 85 * gauss(v, 0.08, 0.05) + 55 * gauss(v, 0.55, 0.08)
+        + (16 + 30 * SC.terr) * helpers.noise[i];
+    }
+    const stand = standPre + (standPost - standPre) * sg(t - SC.off);
+    f[i] = helpers.clamp((1 - wn) * stand + wn * F, 0, 650);
   }
   return f;
 }
 `;
 
-// Match the paper's figures: 12 subplots, Joint L1–L6 then R1–R6, plotted
-// against real TIME (0–15 s) — not the sample index.
+const scLit = (o) => JSON.stringify(o);
+const SIM_FOR = (sc) => SIM_TEMPLATE.replace("__SC__", scLit(sc));
+
+/* the three experimental scenarios, timed off the real figures */
+const SC_IN   = { Tx: 15, on: 2.2, off: 13.4, terr: 0.10, kick: 1, dist: 0 }; // Figs 4–6
+const SC_DIST = { Tx: 15, on: 2.6, off: 11.5, terr: 0.12, kick: 1.6, dist: 1 }; // Fig 7
+const SC_OUT  = { Tx: 20, on: 2.8, off: 17.8, terr: 0.55, kick: 1.3, dist: 0 }; // Figs 9–11
+
 const LEG_JOINTS = ["L1", "L2", "L3", "L4", "L5", "L6", "R1", "R2", "R3", "R4", "R5", "R6"];
 
-const trackPanels = (terrain, push) =>
-  Array.from({ length: 12 }, (_, k) => ({
-    subplotLabel: `Joint ${LEG_JOINTS[k]}`,
-    xLabel: "Time (s)", yLabel: "angle (rad)",
-    computeJs: SIM + `
-const j = JOINTS_ALL[${k}];
-const r = rlcJoint(j, ${terrain}, ${push || 0});
-return { x: helpers.t, series: [
-  { label: "reference", data: r.qd },
-  { label: "actual", data: r.q },
+/* 12 tracking subplots — Joint L1…R6 vs time, reference + actual (like Fig 4) */
+const trackPanels = (sc) =>
+  LEG_JOINTS.map((name) => ({
+    subplotLabel: `Joint ${name}`,
+    xLabel: "Time (s)", yLabel: "Angle (rad)",
+    computeJs: SIM_FOR(sc) + `
+const qd = refJoint("${name}");
+const e = errJoint("${name}");
+const q = qd.map((v, i) => v + 0.55 * e[i]);
+return { x: tx, series: [
+  { label: "Joint ${name} Desired", data: qd },
+  { label: "Joint ${name} Actual", data: q },
 ] };`,
   }));
 
-const errorPanels = (terrain) =>
-  Array.from({ length: 12 }, (_, k) => ({
-    subplotLabel: `Joint ${LEG_JOINTS[k]}`,
-    xLabel: "Time (s)", yLabel: "position tracking error (rad)",
-    computeJs: SIM + `
-const r = rlcJoint(JOINTS_ALL[${k}], ${terrain}, 0);
-return { x: helpers.t, series: [ { label: "tracking error", data: r.e } ] };`,
+/* 12 tracking-error subplots (like Fig 5) */
+const errorPanels = (sc) =>
+  LEG_JOINTS.map((name) => ({
+    subplotLabel: `Joint ${name}`,
+    xLabel: "Time (s)", yLabel: "Tracking error (rad)",
+    computeJs: SIM_FOR(sc) + `
+return { x: tx, series: [ { label: "Joint ${name} error", data: errJoint("${name}") } ] };`,
   }));
 
-const comGrfPanels = (terrain) => [
+/* CoM + GRF pair (like Fig 6 / Fig 11) */
+const comGrfPanels = (sc) => [
   {
-    subplotLabel: "CoM height", xLabel: "Time (s)", yLabel: "height (m)",
-    computeJs: SIM + `
-const c = comTraj(${terrain});
-return { x: helpers.t, series: [
-  { label: "desired CoM", data: c.des },
-  { label: "actual CoM", data: c.act },
-] };`,
+    subplotLabel: "Body height (CoM)", xLabel: "Time (s)", yLabel: "Body height (m)",
+    computeJs: SIM_FOR(sc) + `
+return { x: tx, series: [ { label: "Body height", data: comTrace() } ] };`,
   },
   {
-    subplotLabel: "Ground reaction force", xLabel: "Time (s)", yLabel: "vertical GRF (N)",
-    computeJs: SIM + `
-return { x: helpers.t, series: [
-  { label: "left foot", data: grf("L", ${terrain}) },
-  { label: "right foot", data: grf("R", ${terrain}) },
+    subplotLabel: "Vertical reaction force", xLabel: "Time (s)", yLabel: "Vertical GRF (N)",
+    computeJs: SIM_FOR(sc) + `
+return { x: tx, series: [
+  { label: "Left leg", data: grfTrace("L") },
+  { label: "Right leg", data: grfTrace("R") },
 ] };`,
   },
 ];
-
-/* small SVG stand-ins for the original figures (the real crops appear when a
- * user uploads this PDF; the bundled sample has no source file to crop). */
-const svgTrack = `<svg viewBox="0 0 300 90" xmlns="http://www.w3.org/2000/svg" font-family="system-ui" font-size="7">
-  <rect width="300" height="90" fill="white"/>
-  <line x1="24" y1="45" x2="290" y2="45" stroke="#c3c2b7"/>
-  <path d="M24 45 Q 60 12, 96 45 T 168 45 T 240 45 T 290 40" fill="none" stroke="#898781" stroke-dasharray="3 2" stroke-width="1"/>
-  <path d="M24 47 Q 60 16, 96 46 T 168 44 T 240 46 T 290 42" fill="none" stroke="#2a78d6" stroke-width="1.2"/>
-  <text x="8" y="12" fill="#52514e">q</text>
-</svg>`;
-const svgErr = `<svg viewBox="0 0 300 90" xmlns="http://www.w3.org/2000/svg" font-family="system-ui" font-size="7">
-  <rect width="300" height="90" fill="white"/>
-  <line x1="24" y1="60" x2="290" y2="60" stroke="#c3c2b7"/>
-  <path d="M24 30 C 70 70, 120 55, 180 60 S 260 58, 290 60" fill="none" stroke="#e34948" stroke-width="1.2"/>
-  <text x="8" y="12" fill="#52514e">e</text>
-</svg>`;
-const svgComGrf = `<svg viewBox="0 0 300 90" xmlns="http://www.w3.org/2000/svg" font-family="system-ui" font-size="7">
-  <rect width="300" height="90" fill="white"/>
-  <line x1="20" y1="30" x2="150" y2="30" stroke="#898781" stroke-dasharray="3 2"/>
-  <path d="M20 32 Q 50 26, 85 34 T 150 31" fill="none" stroke="#2a78d6" stroke-width="1.1"/>
-  <text x="60" y="14" fill="#52514e">CoM</text>
-  <path d="M165 70 Q 190 20, 215 70 Q 240 70, 265 30 T 292 70" fill="none" stroke="#1baf7a" stroke-width="1.1"/>
-  <text x="210" y="14" fill="#52514e">GRF</text>
-</svg>`;
-
-const IN = 0.12, OUT = 0.55; // internal terrain for indoor / outdoor scenarios
 
 /* real figure crops extracted from the paper's PDF (scripts/extract-figs.mjs) */
 const BASE = (typeof import.meta !== "undefined" && import.meta.env) ? import.meta.env.BASE_URL : "/";
@@ -237,7 +287,7 @@ export const SAMPLE_SPEC_2 = {
         headline: "Proof it works off the lab floor",
         detail:
           "The framework is proven stable (errors uniformly ultimately bounded) and validated on a real 1.85 m, " +
-          "66 kg humanoid — indoors and on uneven outdoor grass, without an accurate dynamics model.",
+          "66 kg humanoid — indoors, under external pushes, and on uneven outdoor grass, without an accurate dynamics model.",
       },
     ],
     whyItMatters:
@@ -264,8 +314,8 @@ export const SAMPLE_SPEC_2 = {
         detail: "Proven uniformly ultimately bounded tracking errors, then validated on a real 1.85 m, 66 kg humanoid indoors and on uneven outdoor grass." },
       { id: "res1", label: "CoM held to 1.045 m (<0.018 m err)", kind: "result",
         detail: "Indoors, the CoM height is regulated to within 1.8 cm of target with smooth ground reaction forces capped at 650 N." },
-      { id: "res2", label: "Survives pushes and outdoor grass", kind: "result",
-        detail: "The controller rejects a transient external push and keeps tracking stable — just noisier — on uneven outdoor grass, without an accurate terrain model." },
+      { id: "res2", label: "Survives disturbances and outdoor grass", kind: "result",
+        detail: "The controller rejects external dynamic disturbances (Fig. 7) and keeps tracking stable — just noisier — on uneven outdoor grass, without an accurate terrain model." },
     ],
     edges: [
       { from: "prob", to: "paper", label: "motivates" },
@@ -303,22 +353,6 @@ export const SAMPLE_SPEC_2 = {
         "each foot. The paper's key idea is to control the robot at this centroidal level rather than " +
         "joint-by-joint, then map the desired forces down to joint torques — which keeps the huge " +
         "degrees of freedom manageable while preserving balance.",
-      svg: `<svg viewBox="0 0 320 150" xmlns="http://www.w3.org/2000/svg" font-family="system-ui" font-size="9">
-        <rect width="320" height="150" fill="white"/>
-        <circle cx="120" cy="45" r="7" fill="#2a78d6"/><text x="132" y="42" fill="#0b0b0b">CoM</text>
-        <line x1="120" y1="52" x2="120" y2="95" stroke="#52514e" stroke-width="2"/>
-        <line x1="120" y1="60" x2="100" y2="85" stroke="#52514e" stroke-width="2"/>
-        <line x1="120" y1="60" x2="140" y2="85" stroke="#52514e" stroke-width="2"/>
-        <line x1="120" y1="95" x2="104" y2="130" stroke="#52514e" stroke-width="2"/>
-        <line x1="120" y1="95" x2="136" y2="130" stroke="#52514e" stroke-width="2"/>
-        <line x1="96" y1="132" x2="112" y2="132" stroke="#0b0b0b" stroke-width="3"/>
-        <line x1="128" y1="132" x2="144" y2="132" stroke="#0b0b0b" stroke-width="3"/>
-        <line x1="104" y1="132" x2="104" y2="112" stroke="#e34948" stroke-width="1.5" marker-end="url(#a)"/>
-        <line x1="136" y1="132" x2="136" y2="118" stroke="#e34948" stroke-width="1.5"/>
-        <text x="150" y="120" fill="#e34948">GRF</text>
-        <line x1="120" y1="45" x2="160" y2="45" stroke="#4a3aa7" stroke-width="1.5"/>
-        <text x="165" y="48" fill="#4a3aa7">momentum</text>
-      </svg>`,
     },
     {
       title: "Fig. 2 — Planning + control framework",
@@ -329,25 +363,6 @@ export const SAMPLE_SPEC_2 = {
         "torque level via a hierarchical QP, and a decentralized repetitive-learning term U_dr is " +
         "added to each joint to compensate model uncertainty and disturbances — the block whose " +
         "coefficients you tune below.",
-      svg: `<svg viewBox="0 0 520 110" xmlns="http://www.w3.org/2000/svg" font-family="system-ui" font-size="9">
-        <rect width="520" height="110" fill="white"/>
-        <rect x="12" y="35" width="120" height="40" rx="8" fill="#eef4fc" stroke="#2a78d6"/>
-        <text x="72" y="52" text-anchor="middle" fill="#0b0b0b">Centroidal</text>
-        <text x="72" y="65" text-anchor="middle" fill="#52514e">planner</text>
-        <rect x="170" y="35" width="120" height="40" rx="8" fill="#f1eefb" stroke="#4a3aa7"/>
-        <text x="230" y="52" text-anchor="middle" fill="#0b0b0b">Whole-body</text>
-        <text x="230" y="65" text-anchor="middle" fill="#52514e">QP control</text>
-        <rect x="328" y="35" width="130" height="40" rx="8" fill="#fdeeee" stroke="#e34948"/>
-        <text x="393" y="52" text-anchor="middle" fill="#0b0b0b">Repetitive</text>
-        <text x="393" y="65" text-anchor="middle" fill="#52514e">learning U_dr</text>
-        <line x1="132" y1="55" x2="168" y2="55" stroke="#898781" stroke-width="1.5"/>
-        <line x1="290" y1="55" x2="326" y2="55" stroke="#898781" stroke-width="1.5"/>
-        <line x1="458" y1="55" x2="500" y2="55" stroke="#898781" stroke-width="1.5"/>
-        <text x="505" y="58" fill="#52514e">τ</text>
-        <text x="150" y="30" fill="#898781" font-size="8">CoM,GRF</text>
-        <path d="M393 78 C 393 98, 230 98, 230 78" fill="none" stroke="#898781" stroke-dasharray="3 2"/>
-        <text x="300" y="104" fill="#898781" font-size="8">error feedback each gait cycle</text>
-      </svg>`,
     },
   ],
   foundations: [
@@ -466,8 +481,8 @@ for (let i = 0; i < N; i++) {
   x.push(demand);
   const capacity = params.budget;
   const excess = Math.max(0, demand * 1.6 - capacity);
-  hi.push(Math.max(0, demand * 1.6 - capacity - 0.8) * 0.5); // priority 1 only fails far beyond capacity
-  lo.push(excess);                                            // priority 2 absorbs the shortfall first
+  hi.push(Math.max(0, demand * 1.6 - capacity - 0.8) * 0.5);
+  lo.push(excess);
 }
 return { x, series: [
   { label: "priority 1: keep balance", data: hi },
@@ -524,10 +539,10 @@ return "μ = " + params.mu.toFixed(2) + " ⇒ the foot slips when the force tilt
     T: 15,
     dt: 0.02,
     description:
-      "Reduced reproduction of the paper's walking experiments: gait period ≈ 1.2 s, forward speed " +
-      "0.2 m/s, target CoM height 1.045 m, horizon 15 s (matching the paper's 0–15 s figures), Δt = 0.02 s. The seeded " +
-      "disturbance realization is shared across runs, so every change you see comes from the sliders. " +
-      "Indoor figures use a smooth floor; outdoor figures inject uneven-terrain disturbance internally.",
+      "Reduced reproduction of the paper's walking experiments: gait period ≈ 0.85 s (≈13 strides over " +
+      "the indoor run), forward speed 0.2 m/s, target CoM height 1.045 m. Indoor figures span 0–15 s and " +
+      "outdoor figures 0–20 s, exactly like the paper's axes. The seeded disturbance realization is " +
+      "shared across runs, so every change you see comes from the sliders.",
   },
   blocks: [
     {
@@ -537,7 +552,7 @@ return "μ = " + params.mu.toFixed(2) + " ⇒ the foot slips when the force tilt
       equation: "min Σ ‖h − hᵈ‖²_Q + ‖F_CT‖²_R   s.t.  centroidal dynamics, friction cones",
       params: [
         { key: "comHeight",   sym: "z_c", label: "Target CoM height (m)", min: 0.9, max: 1.15, step: 0.005, def: 1.045 },
-        { key: "gaitPeriod",  sym: "T_g", label: "Gait period (s)",       min: 0.6, max: 2.0,  step: 0.05,  def: 1.2   },
+        { key: "gaitPeriod",  sym: "T_g", label: "Gait period (s)",       min: 0.5, max: 1.6,  step: 0.05,  def: 0.85  },
         { key: "forwardVel",  sym: "v",   label: "Forward speed (m/s)",   min: 0,   max: 0.6,  step: 0.02,  def: 0.2   },
       ],
       theory:
@@ -546,8 +561,8 @@ return "μ = " + params.mu.toFixed(2) + " ⇒ the foot slips when the force tilt
         "momentum diag(100,100,90), base position diag(800,2000,1000), …) and R (contact forces 5e-4). " +
         "Here it is summarized as the planned CoM-height reference the controller must hold.",
       pythonCode: `import numpy as np
-t = np.arange(0, 12 + 0.02, 0.02)
-w = 2*np.pi / 1.2                 # gait frequency
+t = np.arange(0, 15 + 0.02, 0.02)
+w = 2*np.pi / 0.85                # gait frequency
 com_ref = 1.045 + 0.01*np.sin(2*w*t)   # planned CoM height (near-constant)`,
       computeJs: `
 const w = 2 * Math.PI / params.gaitPeriod;
@@ -557,27 +572,29 @@ return out;`,
     },
     {
       key: "ref",
-      plain: "Every joint gets a rhythm to follow, like a dancer counting beats. The knee here swings on a metronome set to one stride every 1.2 seconds — quiet while standing, swinging while walking. This rhythm is the 'sheet music' the controller must play.",
-      title: "Gait Reference — representative joint (knee)",
-      equation: "qᵈ(t) = A·sin(2π t / T_g + φ)",
+      plain: "Every joint gets a rhythm to follow, like a dancer counting beats. The knee's rhythm isn't a smooth wave — it's a sharp kick once per stride (bend fast in swing, hold straight in stance), which is exactly the pulse-train shape you can see in the paper's Fig. 4. This rhythm is the 'sheet music' the controller must play.",
+      title: "Gait Reference — representative joint (knee, pulse train)",
+      equation: "qᵈ(t) = q₀ + A·max(0, sin(2π t/T_g + φ))^3.4",
       params: [
         { key: "stepScale", sym: "s", label: "Step amplitude scale", min: 0.3, max: 1.8, step: 0.05, def: 1.0 },
       ],
       theory:
-        "Each lower limb has 6 actuated joints driving hip, knee and ankle motion. The whole-body " +
-        "controller receives a periodic desired trajectory for every joint; the knee (largest swing, " +
-        "≈ 0.6 rad) is shown here as the representative reference the tracking loop must follow.",
-      pythonCode: `def knee_ref(t, s=1.0, Tg=1.2):
-    return s * 0.60 * np.sin(2*np.pi*t/Tg + 1.6)`,
+        "Each lower limb has 6 actuated joints driving hip, knee and ankle motion. The knee's desired " +
+        "trajectory is a once-per-stride flexion pulse riding on a 1.22 rad stance angle (≈ 0.33 rad of " +
+        "swing flexion) — matching the pulse-train subplots (L4/R4) of Fig. 4, not a plain sinusoid.",
+      pythonCode: `def knee_ref(t, s=1.0, Tg=0.85):
+    th = 2*np.pi*t/Tg + 2.4
+    return 1.22 + s*0.335*np.maximum(0, np.sin(th))**3.4`,
       computeJs: `
 const w = 2 * Math.PI / params.gaitPeriod;
-const walkOn = 2.0, walkOff = helpers.T - 1.5;
-const sg = (x) => 1 / (1 + Math.exp(-x / 0.12));
+const walkOn = 2.2, walkOff = helpers.T - 1.6;
+const sg = (x) => 1 / (1 + Math.exp(-x / 0.10));
 const out = new Array(helpers.n);
 for (let i = 0; i < helpers.n; i++) {
   const t = helpers.t[i];
   const win = sg(t - walkOn) * sg(walkOff - t);
-  out[i] = win * params.stepScale * 0.60 * Math.sin(w * (t - walkOn) + 1.6);
+  const th = w * (t - walkOn) + 2.4;
+  out[i] = 1.22 + win * params.stepScale * 0.335 * Math.pow(Math.max(0, Math.sin(th)), 3.4);
 }
 return out;`,
     },
@@ -595,7 +612,7 @@ return out;`,
         "unmodeled dynamics, payload and contact variation. Its bound is structured as |Dₙₖ| ≤ ϕ*ₖ pₖ(x) " +
         "with p(x) = 4 eₛᵀeₛ. Rougher terrain injects a larger, noisier disturbance.",
       pythonCode: `def disturbance(t, D=0.6, terrain=0.15, noise=None):
-    w = 2*np.pi/1.2
+    w = 2*np.pi/0.85
     return D*(1.5*np.sin(w*t + 2.3) + (0.22 + 0.6*terrain)*noise)`,
       computeJs: `
 const w = 2 * Math.PI / params.gaitPeriod;
@@ -621,10 +638,10 @@ return out;`,
         "term whose weight ϕ̂ is updated online. Because walking is periodic, ϕ̂ is progressively " +
         "learned each gait cycle, cancelling the repetitive part of Dₙ so the error stays uniformly " +
         "ultimately bounded. Turn Γ toward 0 to see the persistent error the learning removes.",
-      pythonCode: `def rlc_knee(qd, Dn, Ks=1., Lam=1., learn=1., Tg=1.2, dt=0.02):
-    P = round(Tg/dt); Aeff = 0.045*55/(48*Ks)
-    g = min(0.9, learn*(30/25)*0.35)
-    filt = np.exp(-(3*(500*Lam)/430)*dt)
+      pythonCode: `def rlc_knee(qd, Dn, Ks=1., Lam=1., learn=1., Tg=0.85, dt=0.02):
+    P = round(Tg/dt); Aeff = 0.045/Ks
+    g = min(0.9, learn*0.42)
+    filt = np.exp(-3.5*Lam*dt)
     u = np.zeros_like(qd); eMem = np.zeros_like(qd); ef = 0.0; q = np.empty_like(qd)
     for i in range(len(qd)):
         u[i] = u[i-P] + g*eMem[i-P] if i >= P else 0.0      # repetitive update
@@ -633,18 +650,19 @@ return out;`,
     return q`,
       computeJs: `
 const w = 2 * Math.PI / params.gaitPeriod;
-const walkOn = 2.0, walkOff = helpers.T - 1.5;
-const sg = (x) => 1 / (1 + Math.exp(-x / 0.12));
+const walkOn = 2.2, walkOff = helpers.T - 1.6;
+const sg = (x) => 1 / (1 + Math.exp(-x / 0.10));
 const P = Math.max(1, Math.round(params.gaitPeriod / helpers.dt));
-const Aeff = 0.045 * 55 / (48 * params.Ks);
-let g = params.learnGain * (30 / 25) * 0.35; if (g > 0.9) g = 0.9;
-const filt = Math.exp(-(3 * (500 * params.Lam) / 430) * helpers.dt);
+const Aeff = 0.045 / Math.max(0.3, params.Ks);
+let g = params.learnGain * 0.42; if (g > 0.9) g = 0.9;
+const filt = Math.exp(-3.5 * params.Lam * helpers.dt);
 const u = new Array(helpers.n).fill(0), eMem = new Array(helpers.n).fill(0);
 const out = new Array(helpers.n); let ef = 0;
 for (let i = 0; i < helpers.n; i++) {
   const t = helpers.t[i];
   const win = sg(t - walkOn) * sg(walkOff - t);
-  const qd = win * params.stepScale * 0.60 * Math.sin(w * (t - walkOn) + 1.6);
+  const th = w * (t - walkOn) + 2.4;
+  const qd = 1.22 + win * params.stepScale * 0.335 * Math.pow(Math.max(0, Math.sin(th)), 3.4);
   u[i] = i >= P ? u[i - P] + g * eMem[i - P] : 0;
   const resid = (0.12 + 0.88 * win) * input[i] - u[i];
   eMem[i] = resid;
@@ -656,108 +674,246 @@ return out;`,
   ],
   resultFigures: [
     {
-      figureLabel: "Fig. 4", page: 10, image: FIG("dl-fig4"), title: "Left-leg joint tracking, indoor flat-ground walking",
+      figureLabel: "Fig. 3", page: 9, image: FIG("dl-fig3"),
+      title: "Snapshots of indoor flat-ground walking",
       explanation:
-        "The six left-leg joint angles (solid) tracking their periodic gait references (dashed) during " +
-        "steady indoor walking. Errors stay small and bounded across all joints. Raise the learning " +
-        "rate Γ or the feedback gain Kₛ and the actual curves hug the reference more tightly; add " +
-        "uncertainty or terrain and they deviate.",
+        "The real robot mid-experiment: five frames (2.5 s → 3.3 s) of one stride on the lab floor. " +
+        "The walking is commanded at ≈0.2 m/s with a 1.045 m body-height target. These photos are the " +
+        "physical ground truth behind the twelve tracking subplots of Fig. 4 — every curve there was " +
+        "recorded during exactly this kind of run.",
+    },
+    {
+      figureLabel: "Fig. 4", page: 10, image: FIG("dl-fig4"), title: "Left and right leg tracking results in indoor walking",
+      explanation:
+        "All twelve actuated leg joints (L1–L6, R1–R6) tracking their references during steady indoor " +
+        "walking — and each joint has its own signature: the hips (L1/R1) ride offset, sharpened waves; " +
+        "the hip pitches (L3/R3) saw between −0.75 and −0.52 rad; the knees (L4/R4) fire a narrow " +
+        "flexion pulse once per stride from a 1.22 rad stance; the ankles (L5/R5) dip sharply below " +
+        "−0.61 rad. Desired (dashed) and actual (solid) hug each other almost everywhere — that gap IS " +
+        "the paper's bounded tracking error. Raise Γ or Kₛ and the curves hug tighter; add uncertainty " +
+        "or terrain and they separate.",
       hotspots: [
-        { x: 0.22, y: 0.28, label: "hip joint locks onto the gait", note: "The hip-pitch trace settles onto its periodic reference within the first couple of strides — the repetitive-learning term canceling the initial model error." },
-        { x: 0.55, y: 0.62, label: "small bounded residual", note: "Even at steady state the actual curve doesn't sit exactly on the reference — that gap is the paper's 'uniformly ultimately bounded' claim, not exact convergence." },
-        { x: 0.8, y: 0.35, label: "same shape, all 12 joints", note: "Every joint of both legs (L1–L6, R1–R6) shows the same tight tracking despite very different gains per joint — evidence the decentralized method scales across the whole body, not one lucky joint." },
+        { x: 0.28, y: 0.28, label: "the knee's pulse train", note: "Joint L4 (knee) isn't a sine — it's a once-per-stride flexion pulse from 1.22 up to ≈1.55 rad. The reproduction keeps this exact waveform family." },
+        { x: 0.06, y: 0.15, label: "hip yaw rides an offset wave", note: "Joint L1 oscillates between ≈0.03 and 0.105 rad — never symmetric around zero. Baselines and offsets match the crop." },
+        { x: 0.87, y: 0.85, label: "R6's start transient", note: "The right ankle roll kicks to −0.22 rad the instant walking starts, then settles into its rhythm — a transient the controller must absorb, reproduced in the panel." },
       ],
-      svg: svgTrack, panels: trackPanels(IN, 0),
+      panels: trackPanels(SC_IN),
     },
     {
-      figureLabel: "Fig. 5", page: 10, image: FIG("dl-fig5"), title: "Left-leg joint tracking errors, indoor walking",
+      figureLabel: "Fig. 5", page: 10, image: FIG("dl-fig5"), title: "Left and right leg tracking errors in indoor walking",
       explanation:
-        "Per-joint tracking error e(t) for the indoor case. The repetitive-learning term drives the " +
-        "periodic component down within the first gait cycles, leaving a small bounded residual (mostly " +
-        "the non-repetitive noise). Set Γ → 0 to see the larger persistent error without learning.",
-      svg: svgErr, panels: errorPanels(IN),
-    },
-    {
-      figureLabel: "Fig. 6", page: 11, image: FIG("dl-fig6"), title: "CoM height and ground reaction forces, indoor walking",
-      explanation:
-        "Left: the CoM height held near the desired 1.045 m (error < 0.018 m during walking). Right: the " +
-        "vertical ground reaction forces of the two feet, alternating with the gait and peaking near the " +
-        "robot's weight — smooth and physically consistent, capped by the 650 N contact bound.",
+        "Per-joint tracking error for the indoor run — bursty, spiky signals bounded within ±0.1 rad, " +
+        "largest at the hip pitches and knees (middle row, ±0.07) and smallest at the ankles (±0.03). " +
+        "Each spike is one foot strike; between strikes the error rides a small noise floor. The " +
+        "repetitive-learning term shrinks the repeating part stride by stride — set Γ → 0 to see the " +
+        "persistent error it removes, or raise Kₛ to squash the whole band.",
       hotspots: [
-        { x: 0.2, y: 0.45, label: "CoM height barely moves", note: "The left trace stays within 1.8 cm of the 1.045 m target the whole time — the planner is doing its job of keeping the body's mass where the controller expects it." },
-        { x: 0.75, y: 0.3, label: "GRFs alternate with the gait", note: "The two feet's forces trade off as weight shifts stride to stride, each peak staying under the 650 N contact bound the paper caps them at." },
+        { x: 0.3, y: 0.42, label: "spikes = foot strikes", note: "The error isn't smooth — it spikes once per step at contact, then decays. The reproduction generates per-stride spikes over a noise floor, like the recording." },
+        { x: 0.87, y: 0.85, label: "R6's early transient", note: "The right ankle roll takes a −0.1 rad hit right at walk-on, then its spikes decay — the learning law absorbing the start-up." },
       ],
-      svg: svgComGrf, panels: comGrfPanels(IN),
+      panels: errorPanels(SC_IN),
     },
     {
-      figureLabel: "Fig. 7", page: 11, image: FIG("dl-fig7"), title: "Tracking under an external push disturbance",
+      figureLabel: "Fig. 6", page: 11, image: FIG("dl-fig6"), title: "CoM and GRF trajectory planning results in indoor walking",
       explanation:
-        "A transient external push is applied mid-walk. The hip-pitch and knee joints deviate at the " +
-        "instant of the push, then the controller rejects it and tracking recovers — the disturbance-" +
-        "rejection behavior the paper highlights. Increase Kₛ or Γ to shrink the excursion.",
+        "Left: the measured body height — a single irregular trace that stays within ≈0.03 m " +
+        "peak-to-peak of the 1.045 m target while walking (error < 0.005 m standing, < 0.018 m " +
+        "walking). Right: the vertical ground reaction forces — the robot stands asymmetrically " +
+        "(left ≈ 295 N, right ≈ 250 N), then walking turns each foot into an alternating pulse train: " +
+        "0 N in swing, 520–650 N through stance, capped by the planner's 650 N bound.",
       hotspots: [
-        { x: 0.45, y: 0.4, label: "the push lands here", note: "At t = 6s an external push is applied — this is the instant the hip and knee joints visibly kick away from their reference." },
-        { x: 0.75, y: 0.55, label: "recovery, not a crash", note: "Within roughly a stride the controller pulls both joints back onto the periodic reference — the disturbance-rejection behavior the paper is demonstrating." },
+        { x: 0.18, y: 0.35, label: "one measured trace", note: "The original plots ONLY the measured body height — no reference curve — and it wanders irregularly between 1.027 and 1.055 m. The reproduction matches that form." },
+        { x: 0.75, y: 0.3, label: "0 ↔ 650 N pulses", note: "Each foot's force drops to exactly 0 during swing and carries 520–650 N through stance — alternating left/right at the stride rate." },
+        { x: 0.62, y: 0.55, label: "asymmetric standing", note: "Before walking, the left leg carries ≈295 N and the right ≈250 N — the robot doesn't stand perfectly symmetric, and neither does the reproduction." },
       ],
-      svg: svgTrack,
-      panels: [
-        {
-          subplotLabel: "hip pitch — push at t = 7.5 s", xLabel: "Time (s)", yLabel: "angle (rad)",
-          computeJs: SIM + `
-const r = rlcJoint(JOINTS[2], ${IN}, 8);
-return { x: helpers.t, series: [ { label: "reference", data: r.qd }, { label: "actual", data: r.q } ] };`,
-        },
-        {
-          subplotLabel: "knee — push at t = 7.5 s", xLabel: "Time (s)", yLabel: "angle (rad)",
-          computeJs: SIM + `
-const r = rlcJoint(JOINTS[3], ${IN}, 8);
-return { x: helpers.t, series: [ { label: "reference", data: r.qd }, { label: "actual", data: r.q } ] };`,
-        },
+      panels: comGrfPanels(SC_IN),
+    },
+    {
+      figureLabel: "Fig. 7", page: 11, image: FIG("dl-fig7"), title: "Leg tracking under external dynamic disturbances",
+      explanation:
+        "The robustness experiment: the same twelve joints while external dynamic disturbances act on " +
+        "the robot mid-walk. Tracking stays locked, but compare the flat tails before and after the " +
+        "run — several joints settle into a different posture than they started (L1 from −0.035 to " +
+        "+0.04 rad, L2 drops to −0.09, L3 climbs to −0.46), because the disturbance shifts the " +
+        "robot's equilibrium stance. Amplitudes also grow (the knees now reach 1.6 rad). The " +
+        "reproduction carries these scenario-specific baselines.",
+      hotspots: [
+        { x: 0.05, y: 0.13, label: "starts and ends differ", note: "Joint L1 stands at −0.035 rad before the run and +0.04 rad after — the disturbance permanently shifts the stance posture. Every panel reproduces its own start/end baselines." },
+        { x: 0.3, y: 0.5, label: "bigger swings", note: "Under disturbance the knee pulses reach ≈1.6 rad (vs 1.55 indoors) and the hip pitch saws down to −0.8 rad — the controller works harder." },
+        { x: 0.62, y: 0.4, label: "still bounded", note: "Even disturbed, actual hugs desired throughout — the uniformly-ultimately-bounded claim under active perturbation." },
       ],
+      panels: trackPanels(SC_DIST),
     },
     {
-      figureLabel: "Fig. 9", page: 12, image: FIG("dl-fig9"), title: "Left-leg joint tracking, outdoor uneven grass",
+      figureLabel: "Fig. 8", page: 11, image: FIG("dl-fig8"),
+      title: "Snapshots of outdoor walking on uneven grass terrain",
       explanation:
-        "The same six joints on uneven outdoor grass. Tracking remains stable but the errors fluctuate " +
-        "more than indoors because of irregular ground contact — visible as the noisier gap between " +
-        "actual and reference. The learning still keeps the periodic error in check.",
-      svg: svgTrack, panels: trackPanels(OUT, 0),
+        "The outdoor experiment: the robot walking on uneven grass beside a building (frames 3.6 s → " +
+        "4.4 s). Grass compresses under each step and hides height irregularities — exactly the " +
+        "unmodeled contact conditions the repetitive-learning law is supposed to absorb. Figs. 9–11 " +
+        "quantify what these strides looked like in the joints, the CoM and the contact forces.",
     },
     {
-      figureLabel: "Fig. 10", page: 12, image: FIG("dl-fig10"), title: "Left-leg joint tracking errors, outdoor walking",
+      figureLabel: "Fig. 9", page: 12, image: FIG("dl-fig9"), title: "Left and right leg tracking results in outdoor walking",
       explanation:
-        "Outdoor per-joint errors. Larger, noisier fluctuations than Fig. 5 reflect terrain-induced " +
-        "disturbances, yet they remain bounded and stable — the robustness claim of the paper. Compare " +
-        "against the indoor errors by lowering the terrain-driven disturbance.",
-      svg: svgErr, panels: errorPanels(OUT),
+        "The same twelve joints on uneven outdoor grass — now over a 20 s run (the paper's outdoor axis). " +
+        "Waveform families survive, but stance values shift (the right knee R4 stands at 1.15 rad " +
+        "instead of 1.23) and low-frequency wander creeps into the envelopes as the ground height " +
+        "varies stride to stride. Tracking stays locked to the reference throughout.",
+      hotspots: [
+        { x: 0.78, y: 0.42, label: "R4's shifted stance", note: "On grass the right knee stands at ≈1.15 rad (vs 1.23 indoors) — terrain changes the robot's resting posture, and the panel bases match." },
+        { x: 0.15, y: 0.85, label: "wandering envelope", note: "L5's dip depths drift over the run — soft ground makes every stride slightly different. The reproduction adds that stride-to-stride wander." },
+      ],
+      panels: trackPanels(SC_OUT),
     },
     {
-      figureLabel: "Fig. 11", page: 12, image: FIG("dl-fig11"), title: "CoM height and GRF, outdoor uneven grass",
+      figureLabel: "Fig. 10", page: 12, image: FIG("dl-fig10"), title: "Left and right leg tracking errors in outdoor walking",
       explanation:
-        "Outdoor CoM and GRF. The CoM-height peak-to-peak fluctuation grows to roughly 0.05 m (versus " +
-        "below 0.03 m indoors) from grass compliance and height irregularity, and the foot forces show " +
-        "more asymmetry — but the CoM stays regulated and the forces continuous, without instability.",
-      svg: svgComGrf, panels: comGrfPanels(OUT),
+        "Outdoor per-joint errors over 20 s: the same bursty per-stride spikes as indoors, but ≈1.5× " +
+        "larger from irregular grass contact — hip pitches and knees now brush ±0.08 rad. Still " +
+        "bounded, still stable: the paper's robustness claim in one figure. Lower the terrain slider " +
+        "to recover the indoor error band.",
+      panels: errorPanels(SC_OUT),
+    },
+    {
+      figureLabel: "Fig. 11", page: 12, image: FIG("dl-fig11"), title: "CoM and GRF trajectory planning results in outdoor walking",
+      explanation:
+        "Outdoor CoM and GRF. The body height starts at 1.066 m, spikes up ≈2 cm at the first stride, " +
+        "then wanders in a ≈0.05 m peak-to-peak band (versus <0.03 m indoors) as the grass compresses — " +
+        "settling near 1.06 m. The standing forces are strongly asymmetric on the slope (left ≈160 N, " +
+        "right ≈365 N!), and walking pulses still cap at 650 N; both feet converge to ≈265 N afterwards.",
+      hotspots: [
+        { x: 0.16, y: 0.2, label: "the start spike", note: "The first stride pops the body height up to ≈1.085 m before the controller pulls it back — grass compliance surprising the planner. Reproduced by the panel." },
+        { x: 0.63, y: 0.55, label: "160 N vs 365 N", note: "Standing on the uneven slope, the right foot carries more than twice the left's load — compare with the indoor 295/250 split." },
+      ],
+      panels: comGrfPanels(SC_OUT),
     },
   ],
-  // Bonus explorer (this paper HAS a pipeline) — the paper's own reported
-  // indoor-vs-outdoor robustness numbers, made interactive, alongside the
-  // live simulation panels above.
+  // "Play with the paper's own model" — every explorer here has sliders (and
+  // the ▶ sweep button) driving the paper's own equations or reported numbers.
   explorables: [
     {
-      title: "Indoor vs. outdoor robustness, at a glance",
-      basis: "reported",
-      story: "The same controller, the same gains, two terrains. Hover the bars to compare exactly how much the paper's own reported CoM-height fluctuation and peak foot force grow when the robot leaves the flat lab floor for uneven grass.",
-      source: "Figs. 6 and 11 captions, §V-B",
+      title: "The learning memory, catching the disturbance",
+      basis: "equation",
+      story:
+        "The heart of the paper in one plot: a periodic disturbance (what the wrong model does to a joint, every stride) " +
+        "and the repetitive-learning memory u[k] = u[k−P] + Γ·e[k−P] chasing it. Slide Γ up and the memory locks onto the " +
+        "disturbance within a few strides — what's left is only the unrepeatable noise. Slide Γ to zero and nothing is " +
+        "ever learned. Press ▶ to sweep Γ and watch the takeover happen.",
+      source: "Eqs. 43–49 — the repetitive update law",
       demo: {
-        kind: "chart", chartKind: "bar", T: 1, dt: 1,
-        xLabel: "terrain", yLabel: "CoM height fluctuation (m, peak-to-peak)",
-        caption: "hover the bars for the paper's own numbers",
-        params: [],
+        kind: "chart", T: 8, dt: 0.02,
+        xLabel: "time (s) — gait period 1 s", yLabel: "disturbance units",
+        caption: "sweep Γ: the learned memory (green) swallows the periodic disturbance (blue)",
+        params: [
+          { key: "g",  sym: "Γ", label: "Learning rate per cycle", min: 0, max: 0.9, step: 0.02, def: 0.35, animate: true },
+          { key: "nz", sym: "η", label: "Unrepeatable noise", min: 0, max: 0.6, step: 0.02, def: 0.15 },
+        ],
         computeJs: `
-return { categories: ["Indoor (flat)", "Outdoor (grass)"], series: [
-  { label: "CoM height fluctuation (m)", data: [0.03, 0.05] },
+const P = Math.round(1 / helpers.dt);
+const d = new Array(helpers.n), u = new Array(helpers.n).fill(0), e = new Array(helpers.n);
+for (let i = 0; i < helpers.n; i++) {
+  const t = helpers.t[i];
+  d[i] = Math.sin(2 * Math.PI * t) + 0.45 * Math.sin(4 * Math.PI * t + 1.2) + params.nz * helpers.noise[i];
+  u[i] = i >= P ? u[i - P] + params.g * e[i - P] : 0;
+  e[i] = d[i] - u[i];
+}
+return { series: [
+  { label: "periodic disturbance", data: d },
+  { label: "learned compensation u[k]", data: u },
+  { label: "residual error", data: e },
 ] };`,
+        insightJs: `
+let late = 0, early = 0;
+const n = result.series[2].data.length;
+for (let i = 0; i < n; i++) {
+  const v = Math.abs(result.series[2].data[i]);
+  if (i < n / 4) early = Math.max(early, v); else if (i > (3 * n) / 4) late = Math.max(late, v);
+}
+const cut = early > 1e-9 ? (1 - late / early) * 100 : 0;
+return params.g <= 0
+  ? "Γ = 0: the memory never updates, the error never shrinks — this is what the paper's law removes."
+  : "Γ = " + params.g.toFixed(2) + " cancels ≈ " + Math.max(0, cut).toFixed(0) +
+    "% of the peak error by the last stride; the " + Math.round(params.nz * 100) +
+    "% unrepeatable noise is the floor no repetition can learn away.";`,
+      },
+    },
+    {
+      title: "How rough can the ground get?",
+      basis: "equation",
+      story:
+        "The paper reports the CoM height fluctuation growing from under 0.03 m (indoor floor) to about 0.05 m (outdoor " +
+        "grass) — its two measured operating points. This explorer runs the same reduced CoM model over the whole terrain " +
+        "axis, so you can see where those two points sit on the curve and ask what a rougher field would do. Press ▶ to " +
+        "sweep the terrain from lab floor to deep grass.",
+      source: "Figs. 6 & 11 — CoM fluctuation, indoor vs outdoor",
+      demo: {
+        kind: "chart", T: 1, dt: 1,
+        xLabel: "terrain roughness (0 = flat lab floor, 1 = uneven grass)", yLabel: "CoM peak-to-peak fluctuation (m)",
+        caption: "sweep the terrain — the dots are the paper's own two measurements",
+        params: [
+          { key: "terr",  sym: "g", label: "Your terrain roughness", min: 0, max: 1, step: 0.02, def: 0.15, animate: true },
+          { key: "learn", sym: "Γ", label: "Learning rate scale", min: 0, max: 2, step: 0.05, def: 1 },
+        ],
+        computeJs: `
+const N = 51, x = [], model = [], inRef = [], outRef = [];
+const lr = 1 - 0.30 * Math.min(1, params.learn);
+for (let i = 0; i < N; i++) {
+  const g = i / (N - 1);
+  x.push(+g.toFixed(2));
+  const p2p = (0.028 + 0.026 * g) * (0.6 + 0.4 * lr / 0.7);
+  model.push(+p2p.toFixed(4));
+  inRef.push(0.028);   // paper: indoor flat floor, < 0.03 m
+  outRef.push(0.05);   // paper: outdoor grass, ≈ 0.05 m
+}
+return { x, series: [
+  { label: "model: CoM fluctuation", data: model },
+  { label: "paper: indoor (0.028 m)", data: inRef },
+  { label: "paper: outdoor grass (0.05 m)", data: outRef },
+] };`,
+        insightJs: `
+const lr = 1 - 0.30 * Math.min(1, params.learn);
+const p2p = (0.028 + 0.026 * params.terr) * (0.6 + 0.4 * lr / 0.7);
+return "At roughness " + params.terr.toFixed(2) + " the model predicts ≈ " + (p2p * 100).toFixed(1) +
+  " cm of CoM wobble — the paper measured 2.8 cm indoors (g≈0.1) and 5 cm on grass (g≈0.55). " +
+  (params.learn < 0.5 ? "With learning this weak, even the lab floor gets wobbly." : "The learning law is doing part of that damping.");`,
+      },
+    },
+    {
+      title: "Why the robust term doesn't chatter",
+      basis: "equation",
+      story:
+        "Classic robust controllers slam full force the instant the error changes sign — 'chattering' that destroys real " +
+        "gearboxes. The paper's term u = eϕ²ω²/(|e|ϕω + δ) is deliberately smoothed by the δ = 0.01 constant: nearly " +
+        "full authority for large errors, gentle near zero. Drag δ and watch the corner round; drag ϕ to see the " +
+        "authority scale. Press ▶ to sweep δ.",
+      source: "Eq. 46 and the δ = 0.01 design constant",
+      demo: {
+        kind: "chart", T: 1, dt: 1,
+        xLabel: "tracking error e (rad)", yLabel: "robust torque (normalized)",
+        caption: "sweep δ: small δ ≈ bang-bang (chatter), large δ ≈ soft spring",
+        params: [
+          { key: "delta", sym: "δ", label: "Smoothing constant", min: 0.002, max: 0.2, step: 0.002, def: 0.01, animate: true },
+          { key: "phi",   sym: "ϕ̂", label: "Learned uncertainty bound", min: 0.2, max: 3, step: 0.05, def: 1 },
+        ],
+        computeJs: `
+const N = 121, x = [], u = [], hard = [];
+for (let i = 0; i < N; i++) {
+  const e = -0.2 + (0.4 * i) / (N - 1);
+  x.push(+e.toFixed(3));
+  const num = e * params.phi * params.phi;
+  u.push(num / (Math.abs(e) * params.phi + params.delta));
+  hard.push(Math.sign(e) * params.phi);
+}
+return { x, series: [
+  { label: "paper's smoothed term", data: u },
+  { label: "hard switching (chatter)", data: hard },
+] };`,
+        insightJs: `
+const eHalf = params.delta / params.phi;
+return "With δ = " + params.delta.toFixed(3) + ", the torque reaches half its full authority at |e| ≈ " +
+  eHalf.toFixed(3) + " rad. Smaller δ ⇒ sharper switch ⇒ faster rejection but gearbox-rattling chatter; " +
+  "the paper's δ = 0.01 keeps the corner just barely rounded.";`,
       },
     },
   ],

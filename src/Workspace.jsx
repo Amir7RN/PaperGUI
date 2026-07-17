@@ -1106,8 +1106,10 @@ function PanelChart({ panel, baseRun, actRun, height = 170, onHover, activeSuffi
   // just the solid series.
   const legend = [];
   for (let k = 0; k < nSeries; k++) {
-    const name = (actRun?.series || baseRun?.series)[k]?.label || `series ${k + 1}`;
-    const color = SERIES_HUES[k % SERIES_HUES.length];
+    const s = (actRun?.series || baseRun?.series)[k];
+    const name = s?.label || `series ${k + 1}`;
+    // digitized series may carry the ORIGINAL figure's color — keep it
+    const color = s?.color || SERIES_HUES[k % SERIES_HUES.length];
     legend.push({ key: `a${k}`, pairKey: `s${k}`, label: activeSuffix ? `${name} · ${activeSuffix}` : name, color });
     if (hasBase) legend.push({ key: `b${k}`, pairKey: `s${k}`, label: `${name} · ${baselineSuffix}`, color, dash: "5 4" });
   }
@@ -1542,6 +1544,26 @@ function DemoChart({ demo }) {
   const [hidden, setHidden] = useState(() => new Set());
   const kind = demo.chartKind || "line";
 
+  // ▶ sweep: animates one slider (the param flagged `animate`, else the first)
+  // from min to max so the demo plays itself like a tiny movie.
+  const sweepParam = demo.params?.find((p) => p.animate) || demo.params?.[0] || null;
+  const [sweeping, setSweeping] = useState(false);
+  useEffect(() => { setSweeping(false); }, [demo]);
+  useEffect(() => {
+    if (!sweeping || !sweepParam) return;
+    const p = sweepParam;
+    const steps = 80;
+    let i = 0;
+    setParam(p.key, p.min);
+    const id = setInterval(() => {
+      i += 1;
+      const v = Math.min(p.max, p.min + (p.max - p.min) * (i / steps));
+      setParam(p.key, +v.toFixed(6));
+      if (i >= steps) { clearInterval(id); setSweeping(false); }
+    }, 70);
+    return () => clearInterval(id);
+  }, [sweeping]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // reset the click-to-pin / hide-series state whenever a different demo
   // is loaded (e.g. switching pages in Foundations/Explorables Lab)
   useEffect(() => { setPinned(null); setHidden(new Set()); }, [demo]);
@@ -1591,9 +1613,24 @@ function DemoChart({ demo }) {
         <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[11px] text-red-700">{err}</div>
       ) : (
         <div className="rounded-lg border border-slate-100 bg-white p-2">
-          <div className="mb-1 flex items-baseline justify-between px-1">
-            <span className="text-[10px] font-medium text-slate-400">
-              {noSliders ? "click a point to lock in its exact value" : "drag the dials below, or click the plot to lock a reading"}
+          <div className="mb-1 flex items-center justify-between gap-2 px-1">
+            <span className="flex items-center gap-2">
+              {sweepParam && (
+                <button
+                  type="button"
+                  onClick={() => setSweeping(!sweeping)}
+                  className={`flex shrink-0 items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-semibold transition ${
+                    sweeping ? "bg-rose-600 text-white hover:bg-rose-500" : "bg-slate-800 text-white hover:bg-slate-700"
+                  }`}
+                  title={sweeping ? "Stop the sweep" : `Animate ${sweepParam.label} from ${sweepParam.min} to ${sweepParam.max}`}
+                >
+                  {sweeping ? "◼ stop" : "▶ play"}
+                  <span className="font-normal opacity-80" style={{ fontFamily: "Georgia, serif", fontStyle: "italic" }}>{sweepParam.sym}</span>
+                </button>
+              )}
+              <span className="text-[10px] font-medium text-slate-400">
+                {noSliders ? "click a point to lock in its exact value" : "drag the dials below, or click the plot to lock a reading"}
+              </span>
             </span>
             <span className="text-[10px] text-slate-400">{demo.xLabel} → {demo.yLabel}</span>
           </div>

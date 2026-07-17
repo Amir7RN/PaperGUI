@@ -1,0 +1,37 @@
+{
+  "permissions": {
+    "allow": [
+      "Skill(dataviz)",
+      "Bash(node *)",
+      "PowerShell(npm *)",
+      "PowerShell(Move-Item *)",
+      "PowerShell(try { $r = Invoke-WebRequest -UseBasicParsing \"http://localhost:5174/src/PaperPlayground.jsx\"; \"STATUS: $\\($r.StatusCode\\)  LEN: $\\($r.Content.Length\\)\" } catch { \"FAIL: $\\($_.Exception.Message\\)\" })",
+      "Skill(claude-api)",
+      "PowerShell(Remove-Item *)",
+      "PowerShell(node \"C:\\\\Users\\\\amir7\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-amir7-OneDrive-Desktop-PaperAnalysis\\\\db16334a-c00c-4a24-b413-677a1c4f95e3\\\\scratchpad\\\\engine-test.mjs\")",
+      "PowerShell(git config *)",
+      "PowerShell(git *)",
+      "PowerShell(Start-Process -NoNewWindow npm -ArgumentList \"run\",\"dev\",\"--\",\"--port\",\"5199\"; Start-Sleep -Seconds 4)",
+      "Bash(npm run *)",
+      "Read(//tmp/**)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:5199/)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:5173/)",
+      "Bash(taskkill //F //IM node.exe //FI \"WINDOWTITLE eq *vite*\")",
+      "Bash(pkill -f \"vite --port 5199\")",
+      "Bash(ls -la Background.png)",
+      "Bash(mkdir -p public)",
+      "Bash(cp Background.png public/Background.png)",
+      "Bash(npm install *)",
+      "Bash(python -c \"import sys\")",
+      "Bash(command -v pdfinfo)",
+      "Bash(pdfinfo \"Decentralized_Repetitive_Learning_for_Whole-Body_Planning_and_Control_of_Humanoid_Robots_With_Centroidal_Momentum_Dynamic.pdf\")",
+      "Bash(awk '{print $9, $5}')",
+      "PowerShell(& \"C:\\\\Program Files\\\\Git\\\\bin\\\\git.exe\" --version; & \"C:\\\\Program Files\\\\Git\\\\bin\\\\git.exe\" status)",
+      "PowerShell(& \"C:\\\\Program Files\\\\Git\\\\bin\\\\git.exe\" remote -v; & \"C:\\\\Program Files\\\\Git\\\\bin\\\\git.exe\" log --oneline -5)",
+      "PowerShell(& \"C:\\\\Program Files\\\\Git\\\\bin\\\\git.exe\" add -A; & \"C:\\\\Program Files\\\\Git\\\\bin\\\\git.exe\" status --short)",
+      "PowerShell(& \"C:\\\\Program Files\\\\Git\\\\bin\\\\git.exe\" diff --cached --stat; Select-String -Path \".gitignore\" -Pattern \"env\")",
+      "PowerShell(& \"C:\\\\Program Files\\\\Git\\\\bin\\\\git.exe\" push origin main)",
+      "PowerShell(& \"C:\\\\Program Files\\\\Git\\\\bin\\\\git.exe\" status)"
+    ]
+  }
+}

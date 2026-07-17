@@ -22,6 +22,8 @@ import { SAMPLE_SPEC } from "./samplePaper.js";
 import { SAMPLE_SPEC_2 } from "./samplePaper2.js";
 import { SAMPLE_SPEC_3 } from "./samplePaper3.js";
 import { SAMPLE_SPEC_4 } from "./samplePaper4.js";
+import { SAMPLE_SPEC_5 } from "./samplePaper5.js";
+import { SAMPLE_SPEC_6 } from "./samplePaper6.js";
 import { analyzePaper, MODEL_TIERS, getModelTier, setModelTier } from "./api.js";
 import { fileToBase64, renderPdfRegions } from "./pdf.js";
 import {
@@ -527,8 +529,8 @@ function Landing({
             >
               <span className="text-sm font-semibold text-slate-800">Humanoid repetitive-learning control</span>
               <span className="text-xs leading-relaxed text-slate-500">
-                Full four-chapter walkthrough with the paper's figures 4–11 (joint tracking, errors,
-                CoM &amp; ground forces, indoor &amp; outdoor) recreated as interactive plots.
+                All of Figs 3–11 recreated: 12-joint tracking with each joint's own waveform,
+                spiky error traces, CoM &amp; ground forces, indoor / disturbance / outdoor scenarios.
               </span>
             </button>
             <button
@@ -560,9 +562,33 @@ function Landing({
             >
               <span className="text-sm font-semibold text-slate-800">Quadruped robots in the wild (Science Robotics)</span>
               <span className="text-xs leading-relaxed text-slate-500">
-                APT-RL multiskill locomotion — every panel plots the authors' own published source
-                data: latent-space point clouds, torque decompositions, learning curves, radial
-                gait charts, and the 6 m/s stair-jump trace.
+                APT-RL multiskill locomotion — 33 panels of the authors' own source data: the
+                tri-sector gait wheel, urban/forest/indoor runs, torque decompositions, learning
+                curves and the 6 m/s stair-jump trace.
+              </span>
+            </button>
+            <button
+              onClick={() => onSample(SAMPLE_SPEC_5)}
+              disabled={busy}
+              className="group flex flex-col items-start gap-1 rounded-2xl border border-slate-200/80 bg-white/90 p-4 text-left shadow-sm backdrop-blur transition hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-xl disabled:opacity-50"
+            >
+              <span className="text-sm font-semibold text-slate-800">Phonon interference in single molecules (Nature Materials)</span>
+              <span className="text-xs leading-relaxed text-slate-500">
+                Picowatt heat flow through ONE molecule — every trace, histogram and phonon
+                spectrum replotted from the authors' own Source Data, with interference
+                physics you can play with.
+              </span>
+            </button>
+            <button
+              onClick={() => onSample(SAMPLE_SPEC_6)}
+              disabled={busy}
+              className="group flex flex-col items-start gap-1 rounded-2xl border border-slate-200/80 bg-white/90 p-4 text-left shadow-sm backdrop-blur transition hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-xl disabled:opacity-50"
+            >
+              <span className="text-sm font-semibold text-slate-800">Zero-vacuum-gap thermophotonics (PRX Energy)</span>
+              <span className="text-xs leading-relaxed text-slate-500">
+                A device-physics theory paper with a LIVE reduced model: LED voltage, spacer
+                index, EQE and spacer length on sliders, chasing the paper's digitized
+                power &amp; efficiency curves.
               </span>
             </button>
           </div>

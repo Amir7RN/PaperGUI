@@ -513,10 +513,127 @@ function ScatterPanel({ panel, height = 240 }) {
  * group are its members. `hatch` renders the low-speed variant like the
  * original's hatched bars. */
 
+/* Multi-sector wheel (e.g. Science Robotics Fig 4: one circle, three metric
+ * sectors, gaits as groups inside each sector, per-sector normalization).
+ * digitized: { kind: "radialBar", sectors: [{ name, max, unit?, groups }], colors? } */
+function SectoredRadialPanel({ panel, height = 340 }) {
+  const d = panel.digitized || {};
+  const sectors = d.sectors || [];
+  const [hover, setHover] = useState(null);
+  if (!sectors.length) return null;
+
+  const W = 420, H = Math.max(height, 360);
+  const cx = W / 2, cy = H / 2 + 2;
+  const r0 = 42, r1 = Math.min(W, H) / 2 - 34;
+  const sectorGap = 0.16, groupGap = 0.045;
+  const secA = (2 * Math.PI - sectorGap * sectors.length) / sectors.length;
+
+  const groupHue = (name, gi) => d.colors?.[name] || HUES[gi % HUES.length];
+  const arcPath = (aa0, aa1, rr0, rr1) => {
+    const large = aa1 - aa0 > Math.PI ? 1 : 0;
+    const p = (ang, r) => `${(cx + r * Math.cos(ang)).toFixed(1)} ${(cy + r * Math.sin(ang)).toFixed(1)}`;
+    return `M ${p(aa0, rr0)} L ${p(aa0, rr1)} A ${rr1} ${rr1} 0 ${large} 1 ${p(aa1, rr1)} L ${p(aa1, rr0)} A ${rr0} ${rr0} 0 ${large} 0 ${p(aa0, rr0)} Z`;
+  };
+  const arcOnly = (aa0, aa1, r) => {
+    const large = aa1 - aa0 > Math.PI ? 1 : 0;
+    const p = (ang, rr) => `${(cx + rr * Math.cos(ang)).toFixed(1)} ${(cy + rr * Math.sin(ang)).toFixed(1)}`;
+    return `M ${p(aa0, r)} A ${r} ${r} 0 ${large} 1 ${p(aa1, r)}`;
+  };
+
+  const wedges = [], groupArcs = [], sectorMeta = [];
+  let a = -Math.PI / 2;
+  for (const sec of sectors) {
+    const a0 = a;
+    const nBars = sec.groups.reduce((acc, g) => acc + g.bars.length, 0);
+    const usable = secA - groupGap * (sec.groups.length - 1);
+    const barA = usable / nBars;
+    let ag = a0;
+    sec.groups.forEach((g, gi) => {
+      const col = groupHue(g.name, gi);
+      const gStart = ag;
+      let sum = 0;
+      for (const b of g.bars) {
+        const frac = Math.max(0, Math.min(1, b.value / sec.max));
+        wedges.push({ sec: sec.name, unit: sec.unit || "", g: g.name, b, col,
+          hatch: !!b.hatch, a0: ag + barA * 0.14, a1: ag + barA * 0.86, r: r0 + (r1 - r0) * frac });
+        sum += b.value;
+        ag += barA;
+      }
+      // the original's per-gait "average line" arc
+      const avg = sum / g.bars.length;
+      const rAvg = r0 + (r1 - r0) * Math.max(0, Math.min(1, avg / sec.max));
+      groupArcs.push({ path: arcOnly(gStart + 0.01, ag - 0.01, rAvg), col,
+        labA: (gStart + ag) / 2, name: g.name });
+      ag += groupGap;
+    });
+    sectorMeta.push({ name: sec.name, a0, a1: a0 + secA, max: sec.max, unit: sec.unit || "" });
+    a = a0 + secA + sectorGap;
+  }
+
+  return (
+    <PanelShell panel={panel} footer={
+      <>
+        <Readout idle="hover a bar — hatched = low speed, solid = high speed; the thin arc is each gait's average" hover={hover &&
+          <><strong>{hover.sec} · {hover.g} · {hover.b.label}</strong> = {fmt(hover.b.value, 2)}{hover.unit}{Number.isFinite(hover.b.err) ? <> ± {fmt(hover.b.err, 2)}</> : null}</>} />
+        <ChipLegend items={(sectors[0]?.groups || []).map((g, gi) => ({ label: g.name, color: groupHue(g.name, gi) }))} />
+      </>}>
+      <div className="overflow-x-auto">
+        <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ minWidth: 320 }}>
+          <defs>
+            {(sectors[0]?.groups || []).map((g, gi) => {
+              const col = groupHue(g.name, gi);
+              return (
+                <pattern key={gi} id={`srh${gi}`} width="4" height="4" patternTransform="rotate(45)" patternUnits="userSpaceOnUse">
+                  <rect width="4" height="4" fill="white" />
+                  <rect width="2.2" height="4" fill={col} />
+                </pattern>
+              );
+            })}
+          </defs>
+          {[0.25, 0.5, 0.75, 1].map((t, i) => (
+            <circle key={i} cx={cx} cy={cy} r={r0 + (r1 - r0) * t} fill="none" stroke="#eceae4" strokeWidth="1" />
+          ))}
+          <circle cx={cx} cy={cy} r={r0} fill="none" stroke="#d5d3cb" strokeWidth="1" />
+          {sectorMeta.map((s, i) => {
+            const mid = (s.a0 + s.a1) / 2;
+            const lx = cx + (r1 + 22) * Math.cos(mid), ly = cy + (r1 + 22) * Math.sin(mid);
+            return (
+              <g key={i}>
+                <path d={arcOnly(s.a0, s.a1, r1 + 10)} fill="none" stroke="#94a3b8" strokeWidth="2.5" strokeLinecap="round" />
+                <text x={lx} y={ly + 3} textAnchor="middle" fontSize="9.5" fontWeight="700" fill="#334155">{s.name}</text>
+                <text x={lx} y={ly + 13} textAnchor="middle" fontSize="7.5" fill="#94a3b8">0 – {fmt(s.max, s.max >= 10 ? 0 : 2)}{s.unit}</text>
+              </g>
+            );
+          })}
+          {wedges.map((wd, i) => {
+            const gi = (sectors[0]?.groups || []).findIndex((g) => g.name === wd.g);
+            const hovered = hover && hover.b === wd.b && hover.sec === wd.sec;
+            return (
+              <path key={i} d={arcPath(wd.a0, wd.a1, r0, wd.r)}
+                fill={wd.hatch ? `url(#srh${gi})` : wd.col}
+                stroke={wd.col} strokeWidth="0.7" opacity={hovered ? 1 : 0.9}
+                onMouseEnter={() => setHover(wd)} onMouseLeave={() => setHover(null)}
+                style={{ cursor: "pointer" }} />
+            );
+          })}
+          {groupArcs.map((ga, i) => (
+            <g key={i}>
+              <path d={ga.path} fill="none" stroke={ga.col} strokeWidth="1.8" opacity="0.85" />
+              <text x={cx + (r0 - 9) * Math.cos(ga.labA)} y={cy + (r0 - 9) * Math.sin(ga.labA) + 2.5}
+                textAnchor="middle" fontSize="6.5" fontWeight="600" fill={ga.col}>{ga.name.slice(0, 2)}</text>
+            </g>
+          ))}
+        </svg>
+      </div>
+    </PanelShell>
+  );
+}
+
 function RadialBarPanel({ panel, height = 260 }) {
   const d = panel.digitized || {};
   const groups = d.groups || [];
   const [hover, setHover] = useState(null);
+  if (d.sectors?.length) return <SectoredRadialPanel panel={panel} height={height} />;
   if (!groups.length) return <PanelShell panel={panel}><div className="p-4 text-[11px] text-slate-400">No radial data.</div></PanelShell>;
 
   const W = 320, H = height;

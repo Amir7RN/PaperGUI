@@ -16,8 +16,11 @@
  */
 
 import {
-  FIG3C, FIG3A_SPEED, FIG4, FIG5A, FIG5B, FIG5C, FIG6B, FIG6C, FIG7C, FIG7E, FIG8,
+  FIG3C, FIG3A_SPEED, FIG4, FIG5A, FIG5B, FIG5C, FIG6B, FIG7C, FIG7E, FIG8,
 } from "./samplePaper4Data.js";
+import {
+  FIG3A_TRACE, FIG3B_TRACE, FIG5D, FIG5E, FIG6B_LVL, FIG6CI, FIG7B, FIG7D, FIG7E_PITCH,
+} from "./samplePaper4DataExtra.js";
 
 const BASE = (typeof import.meta !== "undefined" && import.meta.env) ? import.meta.env.BASE_URL : "/";
 const FIG = (name) => `${BASE}figs/${name}.jpg`;
@@ -123,21 +126,69 @@ const GAIT_COLORS = { Trot: "#2a78d6", Bound: "#e34948", Pace: "#1baf7a", Gallop
 const SENSOR_COLORS = { "Depth+LiDAR": "#4fa3a5", "LiDAR-only": "#ddc76a", "Depth-only": "#e0995e" };
 const CTRL_COLORS = { "Trot only": "#2a78d6", "Bound only": "#e8703d", "Auto (ours)": "#2bb5a0" };
 
-/* Fig 4 radial panels: groups = gaits, bars = terrain × speed (hatch = low). */
+/* Fig 4: ONE tri-sector wheel exactly like the original — sectors = the three
+ * metrics, groups = the five gaits, bars = terrain (A–D) × speed (hatch=low). */
 const TERRAIN_SHORT = { "Rough+Discrete": "A", "Stair": "B", "High Step": "C", "Stepping Stone": "D" };
-const fig4Radial = (metric, errKey) => ({
-  kind: "radialBar",
-  badge: "paper's data",
-  source: "the paper's published source-data file (data S1, 'Figure 4' sheet) — 9 trials × 300 agents per bar",
-  unit: "",
-  colors: GAIT_COLORS,
-  groups: ["Bound", "Trot", "Pace", "Gallop", "Pronk"].map((gait) => ({
+const TERRAIN_ORDER = ["Rough+Discrete", "Stair", "High Step", "Stepping Stone"];
+const fig4Groups = (metric, errKey) =>
+  ["Bound", "Trot", "Pace", "Gallop", "Pronk"].map((gait) => ({
     name: gait,
-    bars: FIG4.filter((r) => r.gait === gait).map((r) => ({
-      label: `${TERRAIN_SHORT[r.terrain] || r.terrain} · ${r.speed.toLowerCase()} speed (${r.terrain})`,
-      value: r[metric], err: r[errKey], hatch: r.speed === "Low",
+    bars: TERRAIN_ORDER.flatMap((terrain) =>
+      ["Low", "High"].map((speed) => {
+        const r = FIG4.find((row) => row.gait === gait && row.terrain === terrain && row.speed === speed);
+        return r && {
+          label: `${TERRAIN_SHORT[terrain]} · ${speed.toLowerCase()} speed (${terrain})`,
+          value: r[metric], err: r[errKey], hatch: speed === "Low",
+        };
+      }).filter(Boolean)),
+  }));
+
+/* traces: original figure colors */
+const TRACE_COLORS = { cmd: "#e8590c", sel: "#52514e", total: "#6b7280", latent: "#f59e0b", aux: "#3b82f6", ours: "#14b8a6", hrl: "#f59e0b" };
+const LVL_COLORS = ["#fb923c", "#dc2626", "#7f1d1d"]; // difficulty 4 / 6 / 8, like the original's oranges
+
+/* Fig 3: command-velocity + gait-selection trace panel from a recorded window */
+const gaitTracePanel = (label, seg, source) => ({
+  subplotLabel: label,
+  xLabel: "time (s)", yLabel: "m/s · gait (≥0.5 = bound)",
+  chartKind: "line",
+  digitized: {
+    badge: "paper's data", source,
+    series: [
+      { label: "command vx (m/s)", color: TRACE_COLORS.cmd, points: seg.cmd },
+      { label: "gait selection", color: TRACE_COLORS.sel, points: seg.sel },
+    ],
+  },
+});
+
+/* Fig 5: torque-decomposition panel (total / from latent / from auxiliary) */
+const torquePanel = (label, joint, source) => ({
+  subplotLabel: label,
+  xLabel: "time (s)", yLabel: "torque command (N·m)",
+  chartKind: "line",
+  digitized: {
+    badge: "paper's data", source,
+    series: [
+      { label: "total torque", color: TRACE_COLORS.total, points: joint.total },
+      { label: "from latent action (decoder)", color: TRACE_COLORS.latent, points: joint.latent },
+      { label: "from auxiliary action", color: TRACE_COLORS.aux, points: joint.aux },
+    ],
+  },
+});
+
+/* Fig 6B: one terrain's trot-fraction curves at difficulty 4/6/8 */
+const trotFractionPanel = (terrain) => ({
+  subplotLabel: `${terrain} — trot fraction vs command velocity`,
+  xLabel: "velocity (m/s)", yLabel: "trot gait fraction",
+  chartKind: "line",
+  digitized: {
+    badge: "paper's data",
+    source: "data S1, 'Figure 6B' sheet — fraction of time trotting per commanded velocity, difficulty levels 4/6/8",
+    series: [4, 6, 8].map((lvl, i) => ({
+      label: `difficulty level ${lvl}`, color: LVL_COLORS[i],
+      points: FIG6B_LVL[`${terrain} · L${lvl}`] || [],
     })),
-  })),
+  },
 });
 
 export const SAMPLE_SPEC_4 = {
@@ -494,20 +545,43 @@ return over > 25 ? "Overshoot ≈ " + over.toFixed(0) + "% — stiff and springy
 
   explorables: [
     {
-      title: "The record maneuvers, in Froude terms",
-      basis: "reported",
+      title: "Chase the record — your speed, in Froude terms",
+      basis: "equation",
       story:
-        "The paper's two headline maneuvers: 4.25 m/s clearing a 60-cm step and an instantaneous 6 m/s during a " +
-        "three-step-staircase drop-down. In size-free Froude terms those are 3.85 and 7.69 — the second being a regime " +
-        "no perceptive quadruped had documented before. For scale: animals typically gallop around Fr 2–3.",
-      source: "§Results — peak speeds and Froude numbers",
+        "The paper's two records: 4.25 m/s clearing a 60-cm step (Fr 3.85) and an instantaneous 6 m/s during the " +
+        "staircase drop-down (Fr 7.69) — a regime no perceptive quadruped had documented. Froude = v²/(g·L) with the " +
+        "HOUND's ≈0.48 m legs. Drag your speed (or press ▶) and watch where you land against animal gaits and the " +
+        "paper's records — feel how quadratically brutal the last 2 m/s are.",
+      source: "§Results — peak speeds and Froude numbers; Fr = v²/(g·L), L ≈ 0.48 m",
       demo: {
-        kind: "chart", chartKind: "bar", T: 1, dt: 1,
-        xLabel: "maneuver", yLabel: "Froude number",
-        caption: "hover for exact values",
-        params: [],
-        computeJs: `return { categories: ["animal gallop (typical)", "60-cm step @ 4.25 m/s", "stair drop-down @ 6 m/s"], series: [
-  { label: "Froude number", data: [2.5, 3.85, 7.69] } ] };`,
+        kind: "chart", chartKind: "line", T: 1, dt: 1,
+        xLabel: "speed (m/s)", yLabel: "Froude number (HOUND legs, L = 0.48 m)",
+        caption: "sweep your speed — the flat lines are animal gaits and the paper's two records",
+        params: [
+          { key: "v", sym: "v", label: "Your speed (m/s)", min: 0.5, max: 7, step: 0.1, def: 3, animate: true },
+        ],
+        computeJs: `
+const L = 0.48, g = 9.81;
+const x = [], fr = [], gallop = [], rec1 = [], rec2 = [], yours = [];
+for (let v = 0.5; v <= 7.001; v += 0.1) {
+  x.push(+v.toFixed(1));
+  fr.push(+(v * v / (g * L)).toFixed(2));
+  gallop.push(2.5); rec1.push(3.85); rec2.push(7.69);
+  yours.push(+(params.v * params.v / (g * L)).toFixed(2));
+}
+return { x, series: [
+  { label: "Froude number", data: fr },
+  { label: "animal gallop (≈2.5)", data: gallop },
+  { label: "60-cm step record (3.85)", data: rec1 },
+  { label: "drop-down record (7.69)", data: rec2 },
+  { label: "your speed", data: yours },
+] };`,
+        insightJs: `
+const fr = params.v * params.v / (9.81 * 0.48);
+const zone = fr < 1 ? "walking regime" : fr < 2.5 ? "trot regime" : fr < 5 ? "gallop / ballistic edge" : "deep ballistic flight";
+return "At " + params.v.toFixed(1) + " m/s the HOUND runs at Fr = " + fr.toFixed(2) + " — " + zone +
+  (fr >= 7.69 ? " — you just matched the paper's record drop-down." :
+   " — the 6 m/s drop-down (Fr 7.69) still needs " + (Math.sqrt(7.69 * 9.81 * 0.48) - params.v).toFixed(1) + " m/s more.");`,
       },
     },
     {
@@ -579,23 +653,39 @@ return "At " + params.v.toFixed(1) + " m/s the policy trots " + Math.round(r * 1
       },
     },
     {
-      title: "Auto gait selection vs. fixed gaits — the scoreboard",
+      title: "Auto vs. fixed gaits — score it your way",
       basis: "reported",
       story:
-        "Across 7 terrains × 3 speed ranges (21 cases), how often was each controller the best, and how far off the " +
-        "best did it sit on average? Auto wins 44.4% of cases with only 4.99% average regret; fixed trot wins 23.8% " +
-        "but averages 24.6% regret. Auto's worst-case normalized score (0.711) also crushes trot's (0.028) and " +
-        "bound's (0.137) — it never falls apart.",
-      source: "Fig. 6C(ii) — aggregate comparison table",
+        "The paper's aggregate scoreboard (Fig. 6C-ii): across 21 terrain × speed cases, Auto wins 44.4% of cases with " +
+        "4.99% average regret and a worst case of 0.711; fixed trot wins 23.8% but collapses somewhere (worst case " +
+        "0.028). How you weigh 'good on average' against 'never falls apart' is a design choice — so weigh it. The " +
+        "slider blends average performance (1 − regret) with worst-case score; press ▶ and watch whether any weighting " +
+        "ever makes a fixed gait win. (Spoiler: no.)",
+      source: "Fig. 6C(ii) — best-performance rate, average regret, worst-case normalized score",
       demo: {
         kind: "chart", chartKind: "bar", T: 1, dt: 1,
-        xLabel: "controller", yLabel: "percent",
-        caption: "hover for exact values; lower regret is better",
-        params: [],
-        computeJs: `return { categories: ["Auto (ours)", "Trot only", "Bound only"], series: [
-  { label: "best-performance rate (%)", data: [44.44, 23.81, 31.75] },
-  { label: "avg relative regret (%)", data: [4.99, 24.63, 13.28] },
+        xLabel: "controller", yLabel: "composite score (higher = better)",
+        caption: "sweep the risk weight from 'care about the average' to 'care about the worst case'",
+        params: [
+          { key: "w", sym: "w", label: "Risk aversion (0 = average, 1 = worst case)", min: 0, max: 1, step: 0.02, def: 0.5, animate: true },
+        ],
+        computeJs: `
+const T = {
+  "Auto (ours)":  { regret: 4.99,  worst: 0.711 },
+  "Trot only":    { regret: 24.63, worst: 0.028 },
+  "Bound only":   { regret: 13.28, worst: 0.137 },
+};
+const cats = Object.keys(T);
+const score = (r) => (1 - params.w) * (1 - r.regret / 100) + params.w * r.worst;
+return { categories: cats, series: [
+  { label: "composite score", data: cats.map((c) => +score(T[c]).toFixed(3)) },
 ] };`,
+        insightJs: `
+const T = { "Auto (ours)": { regret: 4.99, worst: 0.711 }, "Trot only": { regret: 24.63, worst: 0.028 }, "Bound only": { regret: 13.28, worst: 0.137 } };
+const s = Object.entries(T).map(([k, r]) => [k, (1 - params.w) * (1 - r.regret / 100) + params.w * r.worst]).sort((a, b) => b[1] - a[1]);
+return "At risk weight " + params.w.toFixed(2) + ": " + s[0][0] + " scores " + s[0][1].toFixed(3) +
+  " vs " + s[1][0] + "'s " + s[1][1].toFixed(3) +
+  ". Auto leads across the ENTIRE axis — better average AND better worst case, which is rare.";`,
       },
     },
   ],
@@ -622,22 +712,12 @@ return "At " + params.v.toFixed(1) + " m/s the policy trots " + Math.round(r * 1
         { x: 0.75, y: 0.87, label: "The gait trace", note: "Gait Select. < 0.5 means trot, ≥ 0.5 bound. Watch it jump exactly when command velocity rises past ≈2 m/s." },
       ],
       panels: [
+        gaitTracePanel("A · Urban course — window 1 (0–400 s)", FIG3A_TRACE.interval_1,
+          "data S1, 'Figure 3A top' sheet — command velocity and gait-selection output on the 1.1-km urban course"),
+        gaitTracePanel("A · Urban course — window 2 (795–1095 s)", FIG3A_TRACE.interval_2,
+          "data S1, 'Figure 3A top' sheet — the urban run's second recorded window"),
         {
-          subplotLabel: "Indoor run — command vs estimated speed & gait choice",
-          xLabel: "time (s)", yLabel: "m/s · gait (0=trot, 1=bound)",
-          chartKind: "line",
-          digitized: {
-            badge: "paper's data",
-            source: "data S1, 'Figure 3C' sheet — the indoor scenario's command velocity, estimated velocity and gait-selection output",
-            series: [
-              { label: "command vx (m/s)", points: FIG3C.t.map((t, i) => [t, FIG3C.cmd[i]]) },
-              { label: "estimated vx (m/s)", points: FIG3C.t.map((t, i) => [t, FIG3C.est[i]]) },
-              { label: "gait selection (≥0.5 = bound)", points: FIG3C.t.map((t, i) => [t, FIG3C.sel[i]]) },
-            ],
-          },
-        },
-        {
-          subplotLabel: "Stair-jump speed — the 6 m/s moment",
+          subplotLabel: "A · Stair-jump speed — the 6 m/s moment",
           xLabel: "time (s)", yLabel: "speed (m/s)",
           chartKind: "line",
           digitized: {
@@ -645,7 +725,25 @@ return "At " + params.v.toFixed(1) + " m/s the policy trots " + Math.round(r * 1
             source: "data S1, 'Figure 3A down' sheet — body-center speed around the stair-jump touchdowns (two recorded windows)",
             series: [
               { label: "first window", points: FIG3A_SPEED.interval_1 || [] },
-              { label: "drop-down window (peaks 6 m/s)", points: FIG3A_SPEED.interval_2 || [] },
+              { label: "drop-down window (peaks 6 m/s)", color: "#e8590c", points: FIG3A_SPEED.interval_2 || [] },
+            ],
+          },
+        },
+        gaitTracePanel("B · Forest trail — window 1 (0–100 s)", FIG3B_TRACE.interval_1,
+          "data S1, 'Figure 3B' sheet — command velocity and gait selection on the 0.34-km forest trail"),
+        gaitTracePanel("B · Forest trail — window 2 (220–340 s)", FIG3B_TRACE.interval_2,
+          "data S1, 'Figure 3B' sheet — the forest run's second recorded window"),
+        {
+          subplotLabel: "C · Indoor run — command vs estimated speed & gait choice",
+          xLabel: "time (s)", yLabel: "m/s · gait (0=trot, 1=bound)",
+          chartKind: "line",
+          digitized: {
+            badge: "paper's data",
+            source: "data S1, 'Figure 3C' sheet — the indoor scenario's command velocity, estimated velocity and gait-selection output",
+            series: [
+              { label: "command vx (m/s)", color: TRACE_COLORS.cmd, points: FIG3C.t.map((t, i) => [t, FIG3C.cmd[i]]) },
+              { label: "estimated vx (m/s)", color: "#2a78d6", points: FIG3C.t.map((t, i) => [t, FIG3C.est[i]]) },
+              { label: "gait selection (≥0.5 = bound)", color: TRACE_COLORS.sel, points: FIG3C.t.map((t, i) => [t, FIG3C.sel[i]]) },
             ],
           },
         },
@@ -657,12 +755,14 @@ return "At " + params.v.toFixed(1) + " m/s the policy trots " + Math.round(r * 1
       image: FIG("sr-fig4"),
       title: "Which gait works where — five gaits × four terrains",
       explanation:
-        "The paper's circular 'gait effectiveness' chart, reproduced as three radial panels — one per metric, exactly " +
-        "like the original's three sectors. Bars radiate per gait; within each gait the four terrains (A = rough & " +
-        "discrete, B = stair up, C = high step, D = stepping stones) appear at low speed (hatched) and high speed " +
-        "(solid). The takeaways the paper draws: trot is stable and efficient at low speed, bound wins the high-speed " +
-        "and big-obstacle cases, and pace/gallop/pronk are only situationally competitive — which is why the final " +
-        "policy uses trot + bound as its two torque-level gait primitives.",
+        "The paper's circular 'gait effectiveness' chart, reproduced as ONE wheel with the same three sectors — " +
+        "success rate, velocity-tracking reward, and 1/COT — each normalized to the original's own axis (100% / 1.51 " +
+        "/ 3.56). Bars radiate per gait; within each gait the four terrains (A = rough & discrete, B = stair up, " +
+        "C = high step, D = stepping stones) appear at low speed (hatched) and high speed (solid), and the thin arc " +
+        "over each gait is its average — all exactly like the original. The takeaways the paper draws: trot is stable " +
+        "and efficient at low speed, bound wins the high-speed and big-obstacle cases, and pace/gallop/pronk are only " +
+        "situationally competitive — which is why the final policy uses trot + bound as its two torque-level gait " +
+        "primitives.",
       hotspots: [
         { x: 0.72, y: 0.13, label: "Success rate sector", note: "Bound (bold label in the original) has the highest average success; trot is second. Each bar = 9 trials × 300 agents." },
         { x: 0.20, y: 0.30, label: "1/COT sector", note: "Cost of transport inverted — higher is more efficient. Trot leads on efficiency; pace is competitive but fails more often." },
@@ -670,22 +770,19 @@ return "At " + params.v.toFixed(1) + " m/s the policy trots " + Math.round(r * 1
       ],
       panels: [
         {
-          subplotLabel: "Success rate (%) — hatched = low speed",
-          xLabel: "gait · terrain", yLabel: "success rate (%)",
+          subplotLabel: "Gait-effectiveness wheel — three sectors, five gaits, A–D terrains",
+          xLabel: "sector · gait · terrain", yLabel: "per-sector scale",
           chartKind: "radar",
-          digitized: { ...fig4Radial("success", "successStd"), max: 100, unit: "%" },
-        },
-        {
-          subplotLabel: "Velocity-tracking reward",
-          xLabel: "gait · terrain", yLabel: "tracking reward",
-          chartKind: "radar",
-          digitized: { ...fig4Radial("tracking", "trackingStd"), max: 1.6 },
-        },
-        {
-          subplotLabel: "1 / cost of transport (higher = more efficient)",
-          xLabel: "gait · terrain", yLabel: "1/COT",
-          chartKind: "radar",
-          digitized: { ...fig4Radial("invCot", "invCotStd"), max: 3.6 },
+          digitized: {
+            kind: "radialBar", badge: "paper's data",
+            source: "the paper's published source-data file (data S1, 'Figure 4' sheet) — 9 trials × 300 agents per bar; sector scales match the original's tick labels",
+            colors: GAIT_COLORS,
+            sectors: [
+              { name: "Success Rate (%)", max: 100, unit: "%", groups: fig4Groups("success", "successStd") },
+              { name: "Velocity-Tracking Reward", max: 1.51, groups: fig4Groups("tracking", "trackingStd") },
+              { name: "1 / COT", max: 3.56, groups: fig4Groups("invCot", "invCotStd") },
+            ],
+          },
         },
       ],
     },
@@ -709,23 +806,39 @@ return "At " + params.v.toFixed(1) + " m/s the policy trots " + Math.round(r * 1
       ],
       panels: [
         {
-          subplotLabel: "PCA of latent actions — pretrained vs real world",
+          subplotLabel: "A · PCA — Trotting (pretraining → RL → real world)",
           xLabel: "PC 1", yLabel: "PC 2",
           chartKind: "scatter",
           digitized: {
             kind: "scatter", badge: "paper's data",
-            source: "data S1, 'Figure 5A' sheet — PCA coordinates of latent actions (downsampled clouds)",
+            source: "data S1, 'Figure 5A' sheet — PCA coordinates of trot latent actions across all four training stages",
             xLabel: "PC 1",
             series: [
-              { label: "Trot · 2D pretrained", color: "#9ec9f0", points: FIG5A.clouds.T0 || [] },
-              { label: "Bound · 2D pretrained", color: "#f2b0af", points: FIG5A.clouds.B1 || [] },
-              { label: "Trot · 3D real world (stair)", color: "#1d4ed8", marker: "diamond", points: FIG5A.clouds.T6 || [] },
-              { label: "Bound · 3D real world (high step)", color: "#b91c1c", marker: "diamond", points: FIG5A.clouds.B7 || [] },
+              { label: "2D, pretrained", color: "#9ec9f0", points: FIG5A.clouds.T0 || [] },
+              { label: "3D, 40,000 epoch", color: "#4d94db", points: FIG5A.clouds.T2 || [] },
+              { label: "3D, 2,000 epoch", color: "#7db9e8", marker: "x", points: FIG5A.clouds.T4 || [] },
+              { label: "3D, real world (stair)", color: "#1d4ed8", marker: "diamond", points: FIG5A.clouds.T6 || [] },
             ],
           },
         },
         {
-          subplotLabel: "t-SNE of real-world latent actions, by skill",
+          subplotLabel: "A · PCA — Bounding (same PCA space)",
+          xLabel: "PC 1", yLabel: "PC 2",
+          chartKind: "scatter",
+          digitized: {
+            kind: "scatter", badge: "paper's data",
+            source: "data S1, 'Figure 5A' sheet — PCA coordinates of bound latent actions across all four training stages",
+            xLabel: "PC 1",
+            series: [
+              { label: "2D, pretrained", color: "#f2b0af", points: FIG5A.clouds.B1 || [] },
+              { label: "3D, 40,000 epoch", color: "#e06666", points: FIG5A.clouds.B3 || [] },
+              { label: "3D, 2,000 epoch", color: "#f08080", marker: "x", points: FIG5A.clouds.B5 || [] },
+              { label: "3D, real world (high step)", color: "#b91c1c", marker: "diamond", points: FIG5A.clouds.B7 || [] },
+            ],
+          },
+        },
+        {
+          subplotLabel: "B · t-SNE of real-world latent actions, by skill",
           xLabel: "t-SNE 1", yLabel: "t-SNE 2",
           chartKind: "scatter",
           digitized: {
@@ -737,20 +850,17 @@ return "At " + params.v.toFixed(1) + " m/s the policy trots " + Math.round(r * 1
             })),
           },
         },
-        {
-          subplotLabel: "Log jump — knee torque decomposition",
-          xLabel: "time (s)", yLabel: "torque (N·m)",
-          chartKind: "line",
-          digitized: {
-            badge: "paper's data",
-            source: "data S1, 'Figure 5C' sheet — KFE motor: total torque = frozen-decoder torque + auxiliary torque",
-            series: [
-              { label: "total torque", points: FIG5C.kfe.map((r) => [r[0], r[1]]) },
-              { label: "from latent action (decoder)", points: FIG5C.kfe.map((r) => [r[0], r[2]]) },
-              { label: "from auxiliary action", points: FIG5C.kfe.map((r) => [r[0], r[3]]) },
-            ],
-          },
-        },
+        torquePanel("C · Log jump — knee (KFE) torque decomposition",
+          { total: FIG5C.kfe.map((r) => [r[0], r[1]]), latent: FIG5C.kfe.map((r) => [r[0], r[2]]), aux: FIG5C.kfe.map((r) => [r[0], r[3]]) },
+          "data S1, 'Figure 5C' sheet — KFE motor during the log jump: total = frozen-decoder + auxiliary"),
+        torquePanel("D · Leg fracture — hip (HFE) torque decomposition", FIG5D.hfe,
+          "data S1, 'Figure 5D' sheet — HFE motor while walking with a fractured leg"),
+        torquePanel("D · Leg fracture — knee (KFE) torque decomposition", FIG5D.kfe,
+          "data S1, 'Figure 5D' sheet — KFE motor while walking with a fractured leg"),
+        torquePanel("E · In-place rotation — hip torque decomposition", FIG5E.hfe,
+          "data S1, 'Figure 5E' sheet — hip motor during in-place rotation (the auxiliary action supplies nearly all of it)"),
+        torquePanel("E · In-place rotation — knee (KFE) torque decomposition", FIG5E.kfe,
+          "data S1, 'Figure 5E' sheet — KFE motor during in-place rotation"),
       ],
     },
     {
@@ -771,54 +881,29 @@ return "At " + params.v.toFixed(1) + " m/s the policy trots " + Math.round(r * 1
         { x: 0.5, y: 0.90, label: "The scoreboard", note: "Auto: 44.4% best-performance rate, 4.99% average regret, 0.711 worst-case score — the fixed gaits collapse somewhere; auto doesn't." },
       ],
       panels: [
-        {
-          subplotLabel: "Trot fraction vs command velocity (difficulty 6)",
-          xLabel: "command velocity (m/s)", yLabel: "trot fraction",
-          chartKind: "line",
-          digitized: {
-            badge: "paper's data",
-            source: "data S1, 'Figure 6B' sheet — fraction of time trotting, difficulty level 6",
-            series: ["Rough", "Low stair", "Discrete", "Hurdle", "High step", "Gap"].map((t) => ({
-              label: t, points: (FIG6B[`${t} · L6`] || []),
-            })),
-          },
-        },
-        {
-          subplotLabel: "Success rate by terrain — auto vs fixed gaits (all speeds)",
-          xLabel: "terrain", yLabel: "success rate (%)",
+        ...["Discrete", "Gap", "High step", "Hurdle", "Low stair", "Rough", "Stepping stones"].map(trotFractionPanel),
+        ...[
+          ["success", "Success rate (%) — auto vs fixed gaits", "success rate (%)", "%"],
+          ["tracking", "Velocity tracking — auto vs fixed gaits", "tracking reward", ""],
+          ["invCot", "1 / COT (efficiency) — auto vs fixed gaits", "1 / COT", ""],
+        ].map(([metric, label, yLabel, unit]) => ({
+          subplotLabel: `C(i) · ${label}`,
+          xLabel: "terrain", yLabel,
           chartKind: "bar",
           digitized: {
             kind: "groupedBar", badge: "paper's data",
-            source: "data S1, 'Figure 6Ci' sheet — success rate across 0–6 m/s commands",
-            colors: CTRL_COLORS, unit: "%",
-            groups: FIG6C.map((r) => ({
+            source: "data S1, 'Figure 6Ci' sheet — mixed 0–6 m/s commands ('All' speed range; the original also splits low/high)",
+            colors: CTRL_COLORS, unit,
+            groups: FIG6CI.filter((r) => r.range === "All").map((r) => ({
               name: r.terrain.replace("Stepping stones", "Step. stones"),
               bars: [
-                { label: "Trot only", value: r.success.trot },
-                { label: "Auto (ours)", value: r.success.ours },
-                { label: "Bound only", value: r.success.bound },
+                { label: "Trot only", value: r[metric].trot },
+                { label: "Auto (ours)", value: r[metric].ours },
+                { label: "Bound only", value: r[metric].bound },
               ],
             })),
           },
-        },
-        {
-          subplotLabel: "Velocity tracking by terrain (all speeds)",
-          xLabel: "terrain", yLabel: "tracking reward",
-          chartKind: "bar",
-          digitized: {
-            kind: "groupedBar", badge: "paper's data",
-            source: "data S1, 'Figure 6Ci' sheet — velocity-tracking reward across 0–6 m/s commands",
-            colors: CTRL_COLORS,
-            groups: FIG6C.map((r) => ({
-              name: r.terrain.replace("Stepping stones", "Step. stones"),
-              bars: [
-                { label: "Trot only", value: r.tracking.trot },
-                { label: "Auto (ours)", value: r.tracking.ours },
-                { label: "Bound only", value: r.tracking.bound },
-              ],
-            })),
-          },
-        },
+        })),
       ],
     },
     {
@@ -841,39 +926,106 @@ return "At " + params.v.toFixed(1) + " m/s the policy trots " + Math.round(r * 1
       ],
       panels: [
         {
-          subplotLabel: "Velocity-tracking reward vs training samples",
+          subplotLabel: "B · Mean success rate — proposed vs AMP vs vanilla RL",
+          xLabel: "terrain", yLabel: "success rate (%)",
+          chartKind: "bar",
+          digitized: {
+            kind: "groupedBar", badge: "paper's data",
+            source: "data S1, 'Figure7 B' sheet — success rate per training strategy (trot / bound datasets; vanilla has no motion prior)",
+            colors: { "Proposed · trot": "#2a78d6", "Proposed · bound": "#e8590c", "AMP · trot": "#7db9e8", "AMP · bound": "#f2b0af", "Vanilla RL": "#6b7280" },
+            unit: "%",
+            groups: ["flat", "hurdle", "stepping"].map((terrain) => ({
+              name: terrain === "stepping" ? "stepping stones" : terrain,
+              bars: FIG7B.filter((r) => r.terrain === terrain).map((r) => ({
+                label: r.gait === "vanilla" ? "Vanilla RL" : `${r.method} · ${r.gait}`,
+                value: r.success, err: r.successStd,
+              })),
+            })),
+          },
+        },
+        {
+          subplotLabel: "B · 1 / COT (efficiency) — proposed vs AMP vs vanilla RL",
+          xLabel: "terrain", yLabel: "1 / COT",
+          chartKind: "bar",
+          digitized: {
+            kind: "groupedBar", badge: "paper's data",
+            source: "data S1, 'Figure7 B' sheet — energy efficiency per training strategy; the proposed method's torque priors cut energy use",
+            colors: { "Proposed · trot": "#2a78d6", "Proposed · bound": "#e8590c", "AMP · trot": "#7db9e8", "AMP · bound": "#f2b0af", "Vanilla RL": "#6b7280" },
+            groups: ["flat", "hurdle", "stepping"].map((terrain) => ({
+              name: terrain === "stepping" ? "stepping stones" : terrain,
+              bars: FIG7B.filter((r) => r.terrain === terrain).map((r) => ({
+                label: r.gait === "vanilla" ? "Vanilla RL" : `${r.method} · ${r.gait}`,
+                value: r.invCot,
+              })),
+            })),
+          },
+        },
+        {
+          subplotLabel: "C · Velocity-tracking reward vs training samples",
           xLabel: "training samples (×10⁹, approx.)", yLabel: "velocity-tracking reward",
           chartKind: "line",
           digitized: {
             badge: "paper's data",
             source: "data S1, 'Figure7 C' sheet — velocity-tracking reward, ours vs HRL with residual (steps mapped to the paper's ≈19.7×10⁹-sample budget)",
             series: [
-              { label: "Ours", points: FIG7C.reward.map((r) => [+(r[0] / 96149 * 19.7).toFixed(2), r[2]]) },
-              { label: "HRL with residual", points: FIG7C.reward.map((r) => [+(r[0] / 96149 * 19.7).toFixed(2), r[1]]) },
+              { label: "Ours", color: TRACE_COLORS.ours, points: FIG7C.reward.map((r) => [+(r[0] / 96149 * 19.7).toFixed(2), r[2]]) },
+              { label: "HRL with residual", color: TRACE_COLORS.hrl, points: FIG7C.reward.map((r) => [+(r[0] / 96149 * 19.7).toFixed(2), r[1]]) },
             ],
           },
         },
         {
-          subplotLabel: "Terrain difficulty reached vs training samples",
+          subplotLabel: "C · Terrain difficulty reached vs training samples",
           xLabel: "training samples (×10⁹, approx.)", yLabel: "terrain difficulty level",
           chartKind: "line",
           digitized: {
             badge: "paper's data",
             source: "data S1, 'Figure7 C' sheet — curriculum terrain level, ours vs HRL with residual",
             series: [
-              { label: "Ours", points: FIG7C.level.map((r) => [+(r[0] / 96149 * 19.7).toFixed(2), r[2]]) },
-              { label: "HRL with residual", points: FIG7C.level.map((r) => [+(r[0] / 96149 * 19.7).toFixed(2), r[1]]) },
+              { label: "Ours", color: TRACE_COLORS.ours, points: FIG7C.level.map((r) => [+(r[0] / 96149 * 19.7).toFixed(2), r[2]]) },
+              { label: "HRL with residual", color: TRACE_COLORS.hrl, points: FIG7C.level.map((r) => [+(r[0] / 96149 * 19.7).toFixed(2), r[1]]) },
             ],
           },
         },
         {
-          subplotLabel: "Transition success vs terrain difficulty (2 Hz random switching)",
+          subplotLabel: "D · Sample consumption (×10⁹) — HRL also pays to pretrain each expert",
+          xLabel: "training samples (×10⁹)", yLabel: "policy",
+          chartKind: "bar",
+          digitized: {
+            kind: "stackedBarH", badge: "paper's data",
+            source: "data S1, 'Figure7 D' sheet — total environment samples consumed",
+            colors: { "full obstacle terrain": "#14b8a6", "high-level (obstacle terrain)": "#f59e0b", "low-level trot expert": "#2a78d6", "low-level bound expert": "#e8590c" },
+            rows: [
+              { name: "Ours", segments: [ { label: "full obstacle terrain", value: FIG7D[0].samples } ] },
+              { name: "HRL + Res", segments: [
+                { label: "high-level (obstacle terrain)", value: FIG7D[1].samples },
+                { label: "low-level trot expert", value: FIG7D[2].samples },
+                { label: "low-level bound expert", value: FIG7D[3].samples },
+              ] },
+            ],
+          },
+        },
+        {
+          subplotLabel: "E(ii) · Transition success vs terrain difficulty (2 Hz random switching)",
           xLabel: "terrain difficulty level", yLabel: "transition success rate (%)",
           chartKind: "line",
           digitized: {
             badge: "paper's data",
             source: "data S1, 'Figure7 Eii' sheet — success of randomly-triggered gait transitions, averaged over command velocities",
-            series: Object.entries(FIG7E).map(([pol, pts]) => ({ label: pol, points: pts })),
+            series: Object.entries(FIG7E).map(([pol, pts]) => ({
+              label: pol, color: /ours/i.test(pol) ? TRACE_COLORS.ours : TRACE_COLORS.hrl, points: pts,
+            })),
+          },
+        },
+        {
+          subplotLabel: "E(iii) · Pitch angle through forced gait transitions — the baseline falls",
+          xLabel: "time (s)", yLabel: "pitch angle (deg)",
+          chartKind: "line",
+          digitized: {
+            badge: "paper's data",
+            source: "data S1, 'Figure7 Eiii' sheet — body pitch on rough terrain with transitions at 1.5 s and 2.0 s; the HRL baseline pitches past −45° (falls) after bound→trot",
+            series: Object.entries(FIG7E_PITCH).map(([pol, pts]) => ({
+              label: pol, color: /ours/i.test(pol) ? TRACE_COLORS.ours : TRACE_COLORS.hrl, points: pts,
+            })),
           },
         },
       ],

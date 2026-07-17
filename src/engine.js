@@ -223,7 +223,9 @@ export function digitizedRealRun(digitized, grid = null) {
   }
   return {
     x: g,
-    series: series.map((s) => ({ label: s.label, data: resamplePoints(s.points, g) })),
+    // `color` (optional, the ORIGINAL figure's per-series color) rides along so
+    // the reproduction can keep the paper's own color coding
+    series: series.map((s) => ({ label: s.label, color: s.color, data: resamplePoints(s.points, g) })),
     error: null,
   };
 }
@@ -236,7 +238,7 @@ export function resampleRunToGrid(run, grid) {
     x: grid,
     series: run.series.map((s) => {
       const pts = run.x.map((x, i) => [x, s.data[i]]).sort((a, b) => a[0] - b[0]);
-      return { label: s.label, data: resamplePoints(pts, grid) };
+      return { label: s.label, color: s.color, data: resamplePoints(pts, grid) };
     }),
     error: null,
   };
@@ -290,7 +292,9 @@ export function specialDigitizedValid(d) {
     case "groupedBar": return d.groups?.length >= 1 && d.groups.every((g) => g.bars?.length >= 1);
     case "stackedBarH": return d.rows?.length >= 1 && d.rows.every((r) => r.segments?.length >= 1);
     case "scatter": return d.series?.length >= 1 && d.series.some((s) => s.points?.length >= 3);
-    case "radialBar": return d.groups?.length >= 1 && d.groups.every((g) => g.bars?.length >= 1);
+    case "radialBar":
+      if (d.sectors?.length >= 1) return d.sectors.every((s) => s.max > 0 && s.groups?.length >= 1 && s.groups.every((g) => g.bars?.length >= 1));
+      return d.groups?.length >= 1 && d.groups.every((g) => g.bars?.length >= 1);
     default: return false;
   }
 }

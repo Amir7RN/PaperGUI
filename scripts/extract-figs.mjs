@@ -29,10 +29,12 @@ const OUT_DIR = path.join(root, "public", "figs");
 const TARGETS = [
   { out: "dl-fig1",  fig: 1 },
   { out: "dl-fig2",  fig: 2 },
+  { out: "dl-fig3",  fig: 3, col: "left" },
   { out: "dl-fig4",  fig: 4 },
   { out: "dl-fig5",  fig: 5 },
   { out: "dl-fig6",  fig: 6 },
   { out: "dl-fig7",  fig: 7 },
+  { out: "dl-fig8",  fig: 8, col: "left" },
   { out: "dl-fig9",  fig: 9 },
   { out: "dl-fig10", fig: 10 },
   { out: "dl-fig11", fig: 11 },
@@ -105,7 +107,8 @@ for (const t of TARGETS) {
     if (!it.str.trim()) continue;
     if (capStartsRight ? it.transform[4] < midX * 0.9 : it.transform[4] > midX * 1.02) oppositeText++;
   }
-  const isColumn = oppositeText > 6;
+  const isColumn = t.col ? true : oppositeText > 6;
+  const forceLeft = t.col === "left";
 
   const yStart = yStartU * SCALE;
   const yEnd = Math.min(H, yEndU * SCALE);
@@ -114,8 +117,8 @@ for (const t of TARGETS) {
   await page.render({ canvasContext: canvas.getContext("2d"), viewport, canvasFactory: new NodeCanvasFactory() }).promise;
 
   let x0 = Math.round(0.035 * W), x1 = Math.round(0.965 * W);
-  if (isColumn && !capStartsRight) { x0 = Math.round(0.030 * W); x1 = Math.round(0.515 * W); }
-  if (isColumn && capStartsRight)  { x0 = Math.round(0.490 * W); x1 = Math.round(0.970 * W); }
+  if (isColumn && (forceLeft || !capStartsRight)) { x0 = Math.round(0.030 * W); x1 = Math.round(0.515 * W); }
+  else if (isColumn && capStartsRight) { x0 = Math.round(0.490 * W); x1 = Math.round(0.970 * W); }
   const sh = Math.max(40, Math.round(yEnd - yStart));
   const crop = createCanvas(x1 - x0, sh);
   crop.getContext("2d").drawImage(canvas, x0, Math.round(yStart), x1 - x0, sh, 0, 0, x1 - x0, sh);

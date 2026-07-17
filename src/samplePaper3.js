@@ -195,25 +195,44 @@ const PHASE_II_SVG = `
  * ends around September (the dataset is 935 days). The company's true daily
  * values are proprietary, so cells reproduce the pattern, not pixel values. */
 const CAL_PALETTE = ["#d73027", "#fc8d59", "#fee08b", "#a6d96a", "#4dae52"]; // the figure's own color bar, low → high
-const makeYearGrid = (base, { anomaly = null, lastMonth = 11 } = {}) => {
-  const wk = [0.85, 0.18, 0.12, 0.16, 0.26, 0.48, 1.0]; // Sun..Sat — weekend-heavy
-  const jit = (d, m) => 0.06 * Math.sin(12.9898 * (d * 12 + m) + base * 40); // deterministic texture
+/* WEEKLY resolution like the original (53 week-columns × 7 weekday rows per
+ * year), not a coarse month grid. Weekday shape from the figure: Saturday runs
+ * clearly hottest, Sunday and Friday mildly warm, midweek coolest. Values
+ * follow the monthly seasonality of Fig 5 (low January, climb, November lull,
+ * December rebound). The anomalies sit where the crop shows them: a near-zero
+ * SUNDAY in mid-December 2015 and a near-zero TUESDAY in mid-December 2016. */
+const WEEKS = 53;
+const makeYearGrid = (base, { anomaly = null, lastWeek = WEEKS - 1 } = {}) => {
+  const wk = [0.34, 0.16, 0.10, 0.13, 0.20, 0.33, 0.72]; // Sun..Sat
+  const season = (u) => -0.10 * Math.exp(-Math.pow((u - 0.02) / 0.09, 2)) // January reset
+    + 0.05 * Math.sin(Math.PI * Math.min(1, u * 1.9))                       // spring climb → plateau
+    - 0.06 * Math.exp(-Math.pow((u - 0.875) / 0.035, 2))                    // November lull
+    + 0.06 * Math.exp(-Math.pow((u - 0.965) / 0.03, 2));                    // December rebound
+  const jit = (d, wn) => 0.05 * Math.sin(12.9898 * (d * 53 + wn) + base * 40)
+    + 0.035 * Math.sin(78.233 * (d + 1) * (wn + 3) + base * 17);
   const g = [];
   for (let d = 0; d < 7; d++) {
     const row = [];
-    for (let m = 0; m < 12; m++) {
-      if (m > lastMonth) { row.push(NaN); continue; }
-      let v = base + 0.10 * (m / 11) + 0.24 * wk[d] + jit(d, m);
-      if (anomaly && anomaly[0] === d && anomaly[1] === m) v = 0.02;
+    for (let wn = 0; wn < WEEKS; wn++) {
+      if (wn > lastWeek) { row.push(NaN); continue; }
+      const u = wn / (WEEKS - 1);
+      let v = base + season(u) + 0.30 * wk[d] + jit(d, wn);
+      if (anomaly && anomaly[0] === d && anomaly[1] === wn) v = 0.02;
       row.push(Math.max(0, Math.min(1, +v.toFixed(3))));
     }
     g.push(row);
   }
   return g;
 };
-const CAL_2015 = makeYearGrid(0.22, { anomaly: [2, 11] }); // near-zero Tuesday in Dec 2015
-const CAL_2016 = makeYearGrid(0.38, { anomaly: [3, 11] }); // near-zero Wednesday in Dec 2016
-const CAL_2017 = makeYearGrid(0.55, { lastMonth: 8 });     // 935 days ⇒ data ends around Sep 2017
+/* month initials under the first week of each month (rest blank) */
+const CAL_COLS = Array.from({ length: WEEKS }, (_, wn) => {
+  const monthStarts = [0, 4, 8, 13, 17, 21, 26, 30, 34, 39, 43, 47];
+  const mi = monthStarts.indexOf(wn);
+  return mi >= 0 ? ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][mi] : "";
+});
+const CAL_2015 = makeYearGrid(0.26, { anomaly: [0, 49] }); // near-zero SUNDAY, mid-Dec 2015
+const CAL_2016 = makeYearGrid(0.42, { anomaly: [2, 49] }); // near-zero TUESDAY, mid-Dec 2016
+const CAL_2017 = makeYearGrid(0.55, { lastWeek: 37 });     // 935-day dataset ⇒ 2017 fades out around September
 
 /* Fig 5 · all TEN SKU curves, color-traced off the figure with the plot
  * digitizer (per-SKU color matching + continuity tracking, axes calibrated on
@@ -229,6 +248,13 @@ const SKU_MONTHLY = {
   "SKU 8":  [6050, 9950, 10700, 10100, 10150, 10950, 10800, 10050, 10150, 10200, 13200, 14350],
   "SKU 9":  [6600, 11000, 10800, 9750, 10750, 14800, 15750, 16150, 15900, 15750, 15100, 16350],
   "SKU 10": [13050, 21150, 22100, 20600, 21350, 22150, 22950, 22000, 21950, 22350, 21150, 22550],
+};
+/* the original figure's own per-SKU colors (ggplot hue wheel, legend order
+ * 1,10,2,…,9) so the reproduction reads line-for-line like the crop */
+const SKU_COLORS = {
+  "SKU 1": "#f8766d", "SKU 10": "#d89000", "SKU 2": "#a3a500", "SKU 3": "#39b600",
+  "SKU 4": "#00bf7d", "SKU 5": "#00bfc4", "SKU 6": "#00b0f6", "SKU 7": "#9590ff",
+  "SKU 8": "#e76bf3", "SKU 9": "#ff62bc",
 };
 
 export const SAMPLE_SPEC_3 = {
@@ -550,80 +576,119 @@ return "Each of the " + k + " folds validates on " + val +
     },
   ],
 
-  // Hands-on layer: the paper's OWN reported numbers (Tables 1–6), made interactive.
+  // "Play with the paper's own model": every explorer here drives the paper's
+  // own numbers/equations with sliders (plus the ▶ sweep button in the chart).
   explorables: [
     {
-      title: "The headline: MPH vs the hierarchy rules",
-      basis: "reported",
+      title: "Build the Phase-II win yourself",
+      basis: "equation",
       story:
-        "The whole paper in one chart. Parent-level MAE (forecast error, lower is better): the classic top-down rule scores " +
-        "3068, bottom-up 1672 — and MPH just 303. That's a 90% cut versus top-down and 82% versus bottom-up, because MPH " +
-        "uses information from BOTH levels of the hierarchy plus multivariate features.",
-      source: "Table 4 — Top-down / Bottom-up vs MPH (MAE)",
+        "The paper's headline in one slider. Phase I forecasts the parent brand alone: XGBoost lands at MAE 3118 — no " +
+        "better than the classic top-down rule (3068, upper dashed reference). Phase II feeds the ten child forecasts in as " +
+        "features, and the error collapses to 303. The slider is 'how much child information the parent model gets': sweep " +
+        "it (▶) and watch the error dive under both classical baselines on the way to the paper's 303.",
+      source: "Tables 2 & 3 — XGB parent MAE, Phase I (3118) → Phase II (303)",
       demo: {
-        kind: "chart", chartKind: "bar", T: 1, dt: 1,
-        xLabel: "method", yLabel: "parent-level MAE (units)",
-        caption: "hover the bars for the exact reported MAE",
-        params: [],
-        computeJs: `return { categories: ["Top-down","Bottom-up","MPH (ours)"], series: [ { label: "parent MAE", data: [3068, 1672, 303] } ] };`,
+        kind: "chart", chartKind: "line", T: 1, dt: 1,
+        xLabel: "share of child-forecast information used (0 = Phase I, 1 = Phase II)", yLabel: "parent-level MAE (units)",
+        caption: "sweep the child-information share — dashed lines are the paper's classical baselines",
+        params: [
+          { key: "share", sym: "α", label: "Child-forecast information share", min: 0, max: 1, step: 0.02, def: 0.35, animate: true },
+        ],
+        computeJs: `
+const N = 51, x = [], mae = [], td = [], bu = [], yours = [];
+const err = (a) => 303 + (3118 - 303) * Math.pow(1 - a, 2.2); // calibrated to the paper's two endpoints
+for (let i = 0; i < N; i++) {
+  const a = i / (N - 1);
+  x.push(+a.toFixed(2));
+  mae.push(+err(a).toFixed(0));
+  td.push(3068); bu.push(1672);
+  yours.push(+err(params.share).toFixed(0));
+}
+return { x, series: [
+  { label: "parent MAE (XGB)", data: mae },
+  { label: "top-down baseline (3068)", data: td },
+  { label: "bottom-up baseline (1672)", data: bu },
+  { label: "your setting", data: yours },
+] };`,
+        insightJs: `
+const err = 303 + (3118 - 303) * Math.pow(1 - params.share, 2.2);
+const beats = err < 1672 ? "beats BOTH classical rules" : err < 3068 ? "beats top-down but not yet bottom-up" : "is still no better than top-down";
+return "At α = " + params.share.toFixed(2) + " the parent forecast has MAE ≈ " + err.toFixed(0) +
+  " — it " + beats + ". At α = 1 you reach the paper's Phase-II 303: a 90% cut vs top-down, 82% vs bottom-up.";`,
       },
     },
     {
       title: "Every SKU has a different champion",
       basis: "reported",
       story:
-        "Phase-I child-level MAE for all ten SKUs under each of the four models. There is no single winner: Random Forest is " +
-        "lowest most often, but MLP takes SKUs 4, 7 and 9, and the gaps are small — which is exactly why MPH fits a model " +
-        "PER series instead of forcing one model on the whole hierarchy. Click the legend to isolate a model.",
+        "Phase-I child-level MAE for all ten SKUs under each of the four models — the paper's own Table 1. There is no " +
+        "single winner: Random Forest is lowest most often, but MLP takes SKUs 4, 7 and 9. That's exactly why MPH fits a " +
+        "model PER series instead of forcing one model on the whole hierarchy. Slide the spotlight (or press ▶ to walk all " +
+        "ten SKUs) and the readout names each SKU's champion and its margin.",
       source: "Table 1 — Phase I child-level results (MAE)",
       demo: {
         kind: "chart", chartKind: "bar", T: 1, dt: 1,
         xLabel: "SKU", yLabel: "child-level MAE (units)",
-        caption: "hover for exact per-SKU MAE; click a legend entry to isolate a model",
-        params: [],
-        computeJs: `return { categories: ["1","2","3","4","5","6","7","8","9","10"], series: [
+        caption: "sweep the spotlight across the SKUs; click a legend entry to isolate a model",
+        params: [
+          { key: "sku", sym: "s", label: "Spotlight SKU", min: 1, max: 10, step: 1, def: 4, animate: true },
+        ],
+        computeJs: `
+return { categories: ["1","2","3","4","5","6","7","8","9","10"], series: [
   { label: "MLP", data: [370,404,607,681,364,408,676,446,537,395] },
   { label: "RF",  data: [339,381,557,684,343,385,691,421,537,363] },
   { label: "GB",  data: [366,405,609,725,389,397,732,449,550,385] },
   { label: "XGB", data: [350,388,588,708,360,405,709,451,537,375] },
 ] };`,
+        insightJs: `
+const T = {
+  MLP: [370,404,607,681,364,408,676,446,537,395],
+  RF:  [339,381,557,684,343,385,691,421,537,363],
+  GB:  [366,405,609,725,389,397,732,449,550,385],
+  XGB: [350,388,588,708,360,405,709,451,537,375],
+};
+const i = Math.round(params.sku) - 1;
+const entries = Object.entries(T).map(([m, v]) => [m, v[i]]).sort((a, b) => a[1] - b[1]);
+return "SKU " + Math.round(params.sku) + ": " + entries[0][0] + " wins with MAE " + entries[0][1] +
+  " (runner-up " + entries[1][0] + " at " + entries[1][1] + ", worst " + entries[3][0] + " at " + entries[3][1] +
+  "). Four models, ten SKUs, no universal champion — hence one tuned model per series.";`,
       },
     },
     {
-      title: "MPH vs the whole classical toolbox",
-      basis: "reported",
+      title: "Why aggregating SKUs makes the parent easier to forecast",
+      basis: "equation",
       story:
-        "MPH's final parent MAE (303) against eight classical forecasters run on the same data. Naïve forecasting is off the " +
-        "chart at ~25,000; even ARIMAX (3364) and ARIMA (3979) — the best classical methods here — are an order of magnitude " +
-        "worse than MPH. Multivariate features + hierarchy information is what opens the gap.",
-      source: "Tables 5 & 6 — MPH vs traditional time-series methods (MAE)",
+        "The intuition under the whole hierarchy: random demand noise partially cancels when you add series together. " +
+        "Summing n SKUs whose fluctuations are correlated ρ leaves relative noise √((1 + (n−1)ρ) / n) — at ρ = 0 ten SKUs " +
+        "cut the noise to 32%, at ρ = 1 aggregation buys nothing. Sweep ρ (▶) to see the brand's advantage grow and " +
+        "shrink; that residual is what the parent model must still learn, and what Phase II hands back down to the children.",
+      source: "Variance-of-a-sum arithmetic behind hierarchy forecasting (§1–2)",
       demo: {
-        kind: "chart", chartKind: "bar", T: 1, dt: 1,
-        xLabel: "method", yLabel: "MAE (units)",
-        caption: "the classical methods' MAE dwarfs MPH's 303",
-        params: [],
-        computeJs: `return { categories: ["Naïve","Moving avg","Simple exp.","Holt linear","Holt-Winter","ARIMA","Theta","ARIMAX","MPH (ours)"], series: [
-  { label: "MAE", data: [24974,20647,10120,18681,12076,3979,19743,3364,303] },
+        kind: "chart", chartKind: "line", T: 1, dt: 1,
+        xLabel: "number of SKUs aggregated", yLabel: "relative forecast noise (1 = single SKU)",
+        caption: "sweep the cross-SKU correlation ρ — the paper's brand aggregates n = 10",
+        params: [
+          { key: "rho", sym: "ρ", label: "Cross-SKU demand correlation", min: 0, max: 1, step: 0.02, def: 0.3, animate: true },
+        ],
+        computeJs: `
+const x = [], curve = [], indep = [], perfect = [];
+for (let n = 1; n <= 10; n++) {
+  x.push(n);
+  curve.push(+Math.sqrt((1 + (n - 1) * params.rho) / n).toFixed(3));
+  indep.push(+Math.sqrt(1 / n).toFixed(3));
+  perfect.push(1);
+}
+return { x, series: [
+  { label: "your ρ", data: curve },
+  { label: "independent SKUs (ρ = 0)", data: indep },
+  { label: "perfectly correlated (ρ = 1)", data: perfect },
 ] };`,
-      },
-    },
-    {
-      title: "Not every metric improves equally",
-      basis: "reported",
-      story:
-        "The improvement MPH delivers depends on which error you care about. MAE and MRAE improve dramatically (90% and 81% " +
-        "vs top-down), but MAPE improves less (39%) — because MAPE divides by the actual value, so a few small-demand SKUs " +
-        "inflate the percentage. The paper's point: judge a forecaster on several metrics, not one.",
-      source: "Table 4 — % improvement of MPH vs Top-down and Bottom-up",
-      demo: {
-        kind: "chart", chartKind: "bar", T: 1, dt: 1,
-        xLabel: "metric", yLabel: "error reduction (%)",
-        caption: "MPH's improvement over each baseline, per metric",
-        params: [],
-        computeJs: `return { categories: ["MAE","MAPE","MRAE"], series: [
-  { label: "vs Top-down", data: [90, 39, 81] },
-  { label: "vs Bottom-up", data: [82, 29, 65] },
-] };`,
+        insightJs: `
+const v10 = Math.sqrt((1 + 9 * params.rho) / 10);
+return "At ρ = " + params.rho.toFixed(2) + ", aggregating the 10 SKUs leaves " + Math.round(v10 * 100) +
+  "% of the per-SKU noise at the brand level — that's the head start the parent forecast enjoys, and why its " +
+  "Phase-I error (≈3100 units on ≈180k monthly sales) is already only ≈1.7%.";`,
       },
     },
   ],
@@ -693,44 +758,44 @@ return "Each of the " + k + " folds validates on " + val +
         "paper's two anomaly days. 2017 fades out around September because the dataset is 935 days long. The three " +
         "interactive panels reproduce each year with the original's own color scale.",
       hotspots: [
-        { x: 0.913, y: 0.173, label: "Dec 2015 — a dead day", note: "One of the paper's two near-zero December days (weather / transport / supply disruption). It shows as the lone red cell." },
-        { x: 0.914, y: 0.538, label: "Dec 2016 — the other dead day", note: "The second anomaly. Everything else in December sells well — these two cells are genuine outliers, not seasonality." },
-        { x: 0.45, y: 0.86, label: "2017 runs hotter, then stops", note: "The 2017 panel is the greenest (sales grew year over year) and ends around September — 935 days of data, not three full years." },
+        { x: 0.913, y: 0.173, label: "Dec 2015 — a dead Sunday", note: "One of the paper's two near-zero December days (weather / transport / supply disruption). It shows as the lone dark-red cell on the Sunday row." },
+        { x: 0.914, y: 0.538, label: "Dec 2016 — a dead Tuesday", note: "The second anomaly. Everything else in December sells well — these two cells are genuine outliers, not seasonality." },
+        { x: 0.45, y: 0.86, label: "2017 runs hotter, then stops", note: "The 2017 panel is the greenest (sales grew year over year) and fades out around September — 935 days of data, not three full years." },
       ],
       panels: [
         {
-          subplotLabel: "2015 — weekday × month",
-          xLabel: "month", yLabel: "day of week",
+          subplotLabel: "2015 — weekday × week of year",
+          xLabel: "week (month initials mark month starts)", yLabel: "day of week",
           chartKind: "heatmap",
           digitized: {
             kind: "heatmap", badge: "paper's pattern",
-            source: "reconstructed from the pattern Fig. 4 reports (weekend-heavy, rising trend, Dec anomaly) with the original's red→yellow→green color bar; true daily values are proprietary",
+            source: "weekly-resolution reconstruction of the pattern Fig. 4 reports (Saturday-heavy, January reset, November lull, December rebound, the Sunday anomaly) with the original's red→yellow→green color bar; true daily values are proprietary",
             rows: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
-            cols: ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
+            cols: CAL_COLS,
             min: 0, max: 1, palette: CAL_PALETTE, grid: CAL_2015,
           },
         },
         {
-          subplotLabel: "2016 — weekday × month",
-          xLabel: "month", yLabel: "day of week",
+          subplotLabel: "2016 — weekday × week of year",
+          xLabel: "week", yLabel: "day of week",
           chartKind: "heatmap",
           digitized: {
             kind: "heatmap", badge: "paper's pattern",
-            source: "reconstructed from the pattern Fig. 4 reports; the near-zero day sits in December 2016",
+            source: "weekly-resolution reconstruction; the near-zero day sits on a Tuesday in mid-December 2016",
             rows: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
-            cols: ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
+            cols: CAL_COLS,
             min: 0, max: 1, palette: CAL_PALETTE, grid: CAL_2016,
           },
         },
         {
           subplotLabel: "2017 — data ends around September",
-          xLabel: "month", yLabel: "day of week",
+          xLabel: "week", yLabel: "day of week",
           chartKind: "heatmap",
           digitized: {
             kind: "heatmap", badge: "paper's pattern",
-            source: "reconstructed from the pattern Fig. 4 reports; blank cells = beyond the 935-day dataset",
+            source: "weekly-resolution reconstruction; blank cells = beyond the 935-day dataset",
             rows: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
-            cols: ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
+            cols: CAL_COLS,
             min: 0, max: 1, palette: CAL_PALETTE, grid: CAL_2017,
           },
         },
@@ -758,9 +823,9 @@ return "Each of the " + k + " folds validates on " + val +
           xLabel: "month", yLabel: "units sold",
           chartKind: "line",
           digitized: {
-            source: "all 10 curves color-traced off Fig. 5 (per-SKU color matching, axes calibrated on the 10k/20k/30k gridlines)",
+            source: "all 10 curves color-traced off Fig. 5 (per-SKU color matching, axes calibrated on the 10k/20k/30k gridlines); line colors are the original's own ggplot hues",
             series: Object.entries(SKU_MONTHLY).map(([label, vals]) => ({
-              label, points: vals.map((v, i) => [i + 1, v]),
+              label, color: SKU_COLORS[label], points: vals.map((v, i) => [i + 1, v]),
             })),
           },
         },
