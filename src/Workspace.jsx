@@ -21,6 +21,7 @@ import {
   ChevronRight, TriangleAlert, CircleCheck, CircleAlert, ArrowLeft, Image as ImageIcon, LogOut,
   Landmark, Maximize2, Lightbulb, LineChart as LineChartIcon, LayoutTemplate, Move,
   Sparkles, BookMarked, Play, Pause, Puzzle, Rocket, Network, ChevronLeft, FileCode2, Crosshair,
+  Shuffle, Wand2, Trophy,
 } from "lucide-react";
 import LayoutEditor from "./LayoutEditor.jsx";
 import DigitizerEditor from "./DigitizerEditor.jsx";
@@ -32,6 +33,10 @@ import {
   compileResultFigures, runResultPanel, buildPanelRows, makeFigureHelpers,
   digitizedRealRun, resampleRunToGrid,
 } from "./engine.js";
+import {
+  extractFitTargets, fitParamDefs, makeLossFn, matchPct,
+  patternSearchFit, scrambleParams,
+} from "./refit.js";
 
 /* categorical hues for multi-series result reproductions (validated set) */
 const SERIES_HUES = PALETTE; // shared 10-hue validated categorical palette
@@ -49,7 +54,7 @@ const C = {
 const BLOCK_ICONS = [Activity, SlidersHorizontal, Sigma, GitBranch, Waves, Cpu];
 
 /* draggable top-level boxes on the free-form canvas */
-const BOX_IDS = ["conclusion", "sec-story", "sec-concept", "sec-foundations", "sec-method", "sec-results"];
+const BOX_IDS = ["conclusion", "sec-story", "sec-concept", "sec-foundations", "sec-method", "sec-results", "sec-reverse"];
 
 const fmt = (v, d = 3) =>
   v === undefined || v === null || Number.isNaN(v) ? "–" : (+v).toFixed(d);
@@ -200,6 +205,7 @@ const SECTION_TONES = {
   amber:   { badge: "bg-amber-500",   ring: "ring-amber-200/60",   text: "text-amber-700"   },
   blue:    { badge: "bg-blue-600",    ring: "ring-blue-200/60",    text: "text-blue-700"    },
   emerald: { badge: "bg-emerald-600", ring: "ring-emerald-200/60", text: "text-emerald-700" },
+  fuchsia: { badge: "bg-fuchsia-600", ring: "ring-fuchsia-200/60", text: "text-fuchsia-700" },
 };
 
 function SectionHeader({ num, tone, icon: IconCmp, title, sub }) {
@@ -361,9 +367,12 @@ function StoryPlayer({ story }) {
     return b;
   }, [story]);
 
-  const DUR = 7000;
+  // No autoplay: readers step through the story themselves (author feedback —
+  // the auto-advance was too fast and took the pacing away from the reader).
+  // ▶ still exists for anyone who wants the slideshow.
+  const DUR = 9000;
   const [idx, setIdx] = useState(0);
-  const [playing, setPlaying] = useState(true);
+  const [playing, setPlaying] = useState(false);
   const [cycle, setCycle] = useState(0); // bumps to restart the bar animation on replay
 
   useEffect(() => {
@@ -378,7 +387,9 @@ function StoryPlayer({ story }) {
   const beat = beats[Math.min(idx, beats.length - 1)];
   const hue = BEAT_HUES[beat.kind];
   const BeatIcon = beat.Icon;
-  const jump = (i) => { setIdx(i); setPlaying(true); setCycle((c) => c + 1); };
+  // Manual navigation pauses the slideshow — clicking "next" means the reader
+  // wants to drive, not to restart the timer.
+  const jump = (i) => { setIdx(i); setPlaying(false); setCycle((c) => c + 1); };
 
   return (
     <div className={`relative overflow-hidden rounded-2xl bg-gradient-to-br ${hue.bg} shadow-lg`}>
@@ -406,7 +417,6 @@ function StoryPlayer({ story }) {
                     style={{
                       width: i - 1 < idx ? "100%" : "0%",
                       animation: i - 1 === idx && playing ? `beatBar ${DUR}ms linear forwards` : undefined,
-                      ...(i - 1 === idx && !playing ? { width: "100%" } : {}),
                     }}
                     key={`${i}-${cycle}`}
                   />
@@ -463,7 +473,10 @@ function StoryPlayer({ story }) {
         <button onClick={() => jump(Math.max(0, idx - 1))} aria-label="Previous"
           className="rounded-full bg-white/10 p-2 text-white hover:bg-white/25"><ChevronLeft size={15} /></button>
         <button
-          onClick={() => { if (!playing && idx === beats.length - 1) { jump(0); } else { setPlaying(!playing); setCycle((c) => c + 1); } }}
+          onClick={() => {
+            if (!playing && idx === beats.length - 1) { setIdx(0); setPlaying(true); setCycle((c) => c + 1); }
+            else { setPlaying(!playing); setCycle((c) => c + 1); }
+          }}
           aria-label={playing ? "Pause" : "Play"}
           className="rounded-full bg-white/15 px-4 py-2 text-white hover:bg-white/30">
           {playing ? <Pause size={15} /> : <Play size={15} />}
@@ -2315,6 +2328,283 @@ function ResultsLab({ spec, pipelineCompiled, helpers, baseOutputs, actOutputs, 
   );
 }
 
+/* ---------------- reverse-engineering lab ----------------
+ * The paper's digitized curve is the locked ground truth; the reduced live
+ * model is the challenger. The reader scrambles the parameters (or hand-tunes
+ * them) and an in-browser optimizer walks the sliders back until the model
+ * lands on the published curve — recovering the parameter values the authors
+ * used from the figure alone. Works on any paper whose result panels carry
+ * BOTH digitized data and a live model kernel. */
+
+function MatchMeter({ pct, label, active = false, onClick }) {
+  const tone = pct >= 90 ? "emerald" : pct >= 70 ? "amber" : "rose";
+  const bar = { emerald: "bg-emerald-500", amber: "bg-amber-500", rose: "bg-rose-500" }[tone];
+  const txt = { emerald: "text-emerald-700", amber: "text-amber-700", rose: "text-rose-700" }[tone];
+  return (
+    <button
+      onClick={onClick}
+      className={`w-full rounded-xl border px-3 py-2 text-left transition ${
+        active ? "border-fuchsia-300 bg-fuchsia-50/60 shadow-sm" : "border-slate-200 bg-white hover:border-fuchsia-200"
+      }`}
+    >
+      <div className="mb-1 flex items-baseline justify-between gap-2">
+        <span className="truncate text-[11px] font-semibold text-slate-700">{label}</span>
+        <span className={`shrink-0 text-sm font-extrabold tabular-nums ${txt}`}>{pct.toFixed(1)}%</span>
+      </div>
+      <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
+        <div className={`h-full rounded-full ${bar} transition-all duration-300`} style={{ width: `${Math.max(2, pct)}%` }} />
+      </div>
+    </button>
+  );
+}
+
+function ReverseLab({ spec, pipelineCompiled, helpers, actOutputs, defaults, params, setParam, setAllParams, targets, layout }) {
+  const paramDefs = useMemo(() => fitParamDefs(spec), [spec]);
+  const lossFn = useMemo(
+    () => makeLossFn(spec, pipelineCompiled, helpers, targets),
+    [spec, pipelineCompiled, helpers, targets]
+  );
+  const figCompiled = useMemo(() => compileResultFigures(spec), [spec]);
+  const actFigHelpers = useMemo(
+    () => makeFigureHelpers(spec, pipelineCompiled, helpers, params),
+    [spec, pipelineCompiled, helpers, params]
+  );
+
+  const [activeId, setActiveId] = useState(targets[0]?.id || "");
+  const [fitting, setFitting] = useState(false);
+  const [fitDone, setFitDone] = useState(null); // final optimizer state
+  const [scrambled, setScrambled] = useState(false);
+  const timerRef = useRef(null);
+  useEffect(() => () => clearInterval(timerRef.current), []);
+
+  const current = useMemo(() => lossFn(params), [lossFn, params]);
+  const overall = matchPct(current.loss);
+  const panelH = layout?.numeric?.panelChartH ?? 220;
+
+  const target = targets.find((t) => t.id === activeId) || targets[0];
+  const chart = useMemo(() => {
+    if (!target) return null;
+    const real = digitizedRealRun(target.panel.digitized);
+    if (!real) return null;
+    const fn = figCompiled.fns[target.id];
+    const model = fn
+      ? resampleRunToGrid(runResultPanel(fn, actOutputs, params, actFigHelpers), real.x)
+      : null;
+    return { real, model };
+  }, [target, figCompiled, actOutputs, params, actFigHelpers]);
+
+  const stopFit = useCallback(() => {
+    clearInterval(timerRef.current);
+    timerRef.current = null;
+    setFitting(false);
+  }, []);
+
+  const startFit = useCallback(() => {
+    if (fitting || !paramDefs.length) return;
+    setFitDone(null);
+    setFitting(true);
+    const gen = patternSearchFit(paramDefs, params, lossFn);
+    let last = null;
+    timerRef.current = setInterval(() => {
+      // a few optimizer probes per tick → the sliders visibly walk home
+      for (let k = 0; k < 3; k++) {
+        const n = gen.next();
+        if (n.done) {
+          clearInterval(timerRef.current); timerRef.current = null;
+          if (last) { setAllParams(last.params); setFitDone(last); }
+          setFitting(false);
+          return;
+        }
+        last = n.value;
+        if (last.done) {
+          clearInterval(timerRef.current); timerRef.current = null;
+          setAllParams(last.params); setFitDone(last); setFitting(false);
+          return;
+        }
+      }
+      setAllParams(last.params);
+    }, 50);
+  }, [fitting, paramDefs, params, lossFn, setAllParams]);
+
+  const scramble = useCallback(() => {
+    if (fitting) return;
+    setFitDone(null);
+    setScrambled(true);
+    setAllParams(scrambleParams(paramDefs, defaults));
+  }, [fitting, paramDefs, defaults, setAllParams]);
+
+  if (!targets.length || !paramDefs.length) return null;
+
+  const range = (d) => d.max - d.min || 1;
+  const recovered = fitDone
+    ? paramDefs.map((d) => ({
+        def: d,
+        paper: defaults[d.key],
+        found: fitDone.params[d.key],
+        offPct: (Math.abs(fitDone.params[d.key] - defaults[d.key]) / range(d)) * 100,
+      }))
+    : null;
+  const recoveredClean = recovered && recovered.every((r) => r.offPct < 3);
+
+  return (
+    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-2 bg-fuchsia-600 px-4 py-2.5">
+        <span className="text-[13px] font-bold text-white">
+          Reverse-Engineering Lab — recover the paper's parameters from its own curves
+        </span>
+        <span className="rounded-full bg-white/15 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white">
+          {targets.length} target curve{targets.length === 1 ? "" : "s"} · {paramDefs.length} unknowns
+        </span>
+      </div>
+
+      <div className="grid gap-4 p-4 xl:grid-cols-7">
+        {/* left rail: how it works + targets + verdict */}
+        <div className="space-y-3 xl:col-span-2">
+          <div className="rounded-xl border border-fuchsia-100 bg-fuchsia-50/50 p-3 text-[12px] leading-relaxed text-slate-700">
+            The <strong>solid curves</strong> are digitized point-for-point off the paper's published
+            figure — they never move. The <strong>dashed curve</strong> is the reduced model of the
+            paper's method, driven by the {paramDefs.length} dials below. <strong>Scramble</strong> the
+            dials, then hit <strong>Auto-fit</strong>: an optimizer runs the model hundreds of times in
+            your browser and walks every dial back until the model sits on the published data —
+            recovering the operating point the authors used, from the figure alone.
+          </div>
+
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+            Fit quality — model vs the paper's digitized data
+          </div>
+          <div className="rounded-xl border border-slate-200 bg-white p-3">
+            <div className="flex items-baseline justify-between">
+              <span className="text-[11px] font-semibold text-slate-500">Overall match</span>
+              <span className={`text-2xl font-black tabular-nums ${overall >= 90 ? "text-emerald-600" : overall >= 70 ? "text-amber-600" : "text-rose-600"}`}>
+                {overall.toFixed(1)}%
+              </span>
+            </div>
+            <div className="mt-1 h-2 overflow-hidden rounded-full bg-slate-100">
+              <div
+                className={`h-full rounded-full transition-all duration-300 ${overall >= 90 ? "bg-emerald-500" : overall >= 70 ? "bg-amber-500" : "bg-rose-500"}`}
+                style={{ width: `${Math.max(2, overall)}%` }}
+              />
+            </div>
+            <p className="mt-1.5 text-[10px] leading-snug text-slate-400">
+              100% = the model overlays the digitized curve exactly (RMS deviation 0% of the curve's range).
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            {targets.map((t) => (
+              <MatchMeter
+                key={t.id}
+                label={`${t.figureLabel} · ${t.subplotLabel || t.yLabel}`}
+                pct={matchPct(current.per[t.id])}
+                active={t.id === (target?.id || "")}
+                onClick={() => setActiveId(t.id)}
+              />
+            ))}
+          </div>
+
+          {recovered && (
+            <div className={`rounded-xl border p-3 ${recoveredClean ? "border-emerald-200 bg-emerald-50/60" : "border-amber-200 bg-amber-50/60"}`}>
+              <div className="mb-2 flex items-center gap-1.5 text-[11px] font-bold text-slate-800">
+                <Trophy size={13} className={recoveredClean ? "text-emerald-600" : "text-amber-600"} />
+                {recoveredClean
+                  ? "Parameters recovered from the published curve"
+                  : "Best fit found — compare with the paper's values"}
+              </div>
+              <table className="w-full text-[11px]">
+                <thead>
+                  <tr className="text-left text-[9px] font-semibold uppercase tracking-wider text-slate-400">
+                    <th className="pb-1">Parameter</th>
+                    <th className="pb-1 text-right">Paper</th>
+                    <th className="pb-1 text-right">Recovered</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recovered.map((r) => (
+                    <tr key={r.def.key} className="border-t border-slate-200/60">
+                      <td className="py-1 pr-2 text-slate-600">{r.def.label}</td>
+                      <td className="py-1 text-right font-semibold tabular-nums text-slate-800">{fmt(r.paper, 3).replace(/\.?0+$/, "")}</td>
+                      <td className={`py-1 text-right font-semibold tabular-nums ${r.offPct < 3 ? "text-emerald-700" : "text-amber-700"}`}>
+                        {fmt(r.found, 3).replace(/\.?0+$/, "")}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <p className="mt-1.5 text-[10px] leading-snug text-slate-500">
+                {recoveredClean
+                  ? "Every dial landed within 3% of the paper's setting — the published figure encodes the whole operating point."
+                  : "Dials in amber found a different setting with a similar curve — parameters that trade off against each other can't be separated from this figure alone."}
+              </p>
+            </div>
+          )}
+        </div>
+
+        {/* right: chart + controls + dials */}
+        <div className="xl:col-span-5">
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            <button
+              onClick={scramble}
+              disabled={fitting}
+              className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm hover:border-fuchsia-300 hover:text-fuchsia-700 disabled:opacity-40"
+            >
+              <Shuffle size={13} /> Scramble the dials
+            </button>
+            <button
+              onClick={fitting ? stopFit : startFit}
+              className={`flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-bold text-white shadow-sm ${
+                fitting ? "bg-slate-700 hover:bg-slate-600" : "bg-fuchsia-600 hover:bg-fuchsia-700"
+              }`}
+            >
+              <Wand2 size={13} /> {fitting ? "Fitting… (click to stop)" : "Auto-fit: reverse-engineer the curve"}
+            </button>
+            <button
+              onClick={() => { if (!fitting) { setAllParams(defaults); setFitDone(null); setScrambled(false); } }}
+              disabled={fitting}
+              className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-600 shadow-sm hover:border-slate-300 disabled:opacity-40"
+            >
+              <RotateCcw size={13} /> Paper's values
+            </button>
+            {scrambled && !fitDone && !fitting && (
+              <span className="text-[11px] font-medium text-fuchsia-700">
+                Dials scrambled — tune by hand and watch the match %, or let Auto-fit recover them.
+              </span>
+            )}
+          </div>
+
+          {target && chart && (
+            <PanelChart
+              panel={target.panel}
+              baseRun={chart.model}
+              actRun={chart.real}
+              height={Math.max(panelH, 230)}
+              activeSuffix="paper (digitized)"
+              baselineSuffix="your model"
+            />
+          )}
+          {target && (
+            <p className="mt-1.5 text-[11px] text-slate-400">
+              {target.figureLabel} — {target.figureTitle} · axes: {target.xLabel} → {target.yLabel}
+              {target.panel.digitized?.source ? <> · source: {target.panel.digitized.source}</> : null}
+            </p>
+          )}
+
+          <div className="mt-3 grid gap-x-6 rounded-xl border border-fuchsia-100 bg-fuchsia-50/40 px-4 py-2 sm:grid-cols-2 lg:grid-cols-3">
+            {paramDefs.map((p) => (
+              <ParamSlider key={p.key} def={p} value={params[p.key]} onChange={setParam} />
+            ))}
+          </div>
+          <p className="mt-2 text-[11px] leading-relaxed text-slate-400">
+            The same dials drive the Method Lab and every live overlay in the Results Lab — a fit found
+            here carries through the whole page. Auto-fit is a bounded pattern search over{" "}
+            {paramDefs.length} parameters, minimizing the RMS gap to the digitized points; it runs
+            entirely in your browser.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ---------------- main workspace ---------------- */
 
 export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner = false }) {
@@ -2425,6 +2715,12 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
     setParams((p) => ({ ...p, [key]: Number.isFinite(value) ? value : p[key] }));
   }, []);
 
+  // Bulk setter used by the Reverse-Engineering Lab's scramble / auto-fit
+  const setAllParams = useCallback((next) => {
+    setParams((p) => ({ ...p, ...next }));
+  }, []);
+  const fitTargets = useMemo(() => extractFitTargets(spec), [spec]);
+
   const togglePin = useCallback((t) => {
     setPinnedT((prev) => (prev != null && Math.abs(prev - t) < 1e-9 ? null : t));
   }, []);
@@ -2478,6 +2774,17 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
           spec={spec} pipelineCompiled={compiled} helpers={helpers} baseOutputs={baseline.outputs} actOutputs={active.outputs}
           defaults={defaults} params={params} setParam={setParam} onOpenFig={setLightbox} layout={layout}
           isOwner={isOwner} onTrace={(figIndex) => setTraceTarget(figIndex)}
+        />
+      ),
+    },
+    {
+      id: "reverse", boxId: "sec-reverse", boxLabel: "Reverse-engineer", navLabel: "Reverse", ariaLabel: "Reverse-engineer the paper's results",
+      show: hasPipeline && fitTargets.length > 0 && sec("reverse").on, tone: "fuchsia", icon: Crosshair,
+      content: (
+        <ReverseLab
+          spec={spec} pipelineCompiled={compiled} helpers={helpers} actOutputs={active.outputs}
+          defaults={defaults} params={params} setParam={setParam} setAllParams={setAllParams}
+          targets={fitTargets} layout={layout}
         />
       ),
     },

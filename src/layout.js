@@ -53,6 +53,7 @@ export const DEFAULT_SECTIONS = [
   { key: "method",      on: true, title: "Learn the method by playing", sub: "An app-style lab: pick a step of the pipeline on the left, watch the animated signal flow, turn its dials and see the plot react — plain language throughout." },
   { key: "explorables", on: true, title: "Play with the paper's own model", sub: "The paper's own equations on sliders, and its own reported numbers made interactive — hands-on even when the full method can't be simulated." },
   { key: "results",     on: true, title: "The results, from the paper itself", sub: "Every key result figure, cropped from the PDF with clickable hotspots and a guided tour — plus a live reproduction wherever one can honestly be built." },
+  { key: "reverse",     on: true, title: "Reverse-engineer the paper",  sub: "The ultimate test of understanding: scramble the model's parameters, then let an in-browser optimizer recover the authors' operating point from nothing but the curves digitized off the published figures." },
 ];
 
 /* Free-form canvas boxes: id -> { x,w in % of canvas width; y,h in px; font mult }.
