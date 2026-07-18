@@ -153,18 +153,133 @@ export const SAMPLE_SPEC_6 = {
   ],
   conceptFigures: [
     {
-      title: "FIG. 1 — Far-field vs zero-vacuum-gap TPX, and the spectral payoff",
+      title: "FIG. 1(a,b) — Two device stacks, one difference: what fills the gap",
       image: FIG("zt-fig1"),
       explanation:
-        "The whole idea in one stack diagram. (a) Conventional far-field TPX: a biased InGaAs LED radiates across " +
-        "a vacuum/air gap to an InGaAs PV cell; total internal reflection traps most photons inside the " +
-        "high-index LED. (b) The zero-vacuum-gap version: an amorphous-silicon spacer (n ≈ 3.5) fills the gap, " +
-        "index-matching LED to PV so the trapped photons propagate. Gold layers behind both act as reflectors " +
-        "that recycle sub-bandgap photons. (c) The computed spectral heat flux: the zTPX curve rides orders of " +
-        "magnitude above both the far-field device and the classical black-body limit — the cavity beats the " +
-        "'perfect' emitter because n² states now carry photons.",
+        "The whole idea in one stack diagram. (a) Conventional far-field TPX: a biased In₀.₅₃Ga₀.₄₇As LED " +
+        "radiates across a vacuum/air gap to an InGaAs PV cell. The physics problem: light leaving a " +
+        "high-index semiconductor (n ≈ 3.8) into vacuum (n = 1) is totally internally reflected beyond the " +
+        "critical angle θc = arcsin(1/n) ≈ 15°, so only photons inside a narrow escape cone — carrying parallel " +
+        "wave-vectors k∥ < k₀ = ω/c — ever cross. Everything else rattles inside the LED until it is reabsorbed. " +
+        "(b) The zero-vacuum-gap version: an amorphous-silicon spacer (n ≈ 3.5) fills the gap. Now propagating " +
+        "modes up to k∥ < n·k₀ cross the cavity — roughly n² ≈ 12× more optical states carrying power — and the " +
+        "near-matched indices (3.8 → 3.5 → 3.8) cut interfacial reflection below 2%. Gold layers behind both " +
+        "stacks reflect sub-bandgap photons back for another chance at absorption (photon recycling). Note what " +
+        "did NOT change: same LED, same PV cell, same temperatures — the entire gain comes from the optics of " +
+        "the gap.",
+    },
+    {
+      title: "FIG. 1(c) — The spectral payoff: beating the black-body 'limit'",
+      image: FIG("zt-fig1"),
+      explanation:
+        "Panel (c) is the physics headline, and reading its log axis is worth a minute. It plots spectral heat " +
+        "flux versus photon energy for three cases; the vertical axis spans 10⁻¹⁴ to 10⁻⁸ W m⁻² per unit " +
+        "angular frequency — each gridline is 100× more flux. Two things to notice. First, ABOVE the PV band " +
+        "gap (0.74 eV) both TPX curves ride above the classical black-body limit — legal, because the biased " +
+        "LED is not a passive thermal emitter: its photon population follows the generalized Planck law with a " +
+        "chemical potential μ = eV, so a 0.5 V bias at 600 K multiplies emission by exp(eV/k_BT) ≈ 10⁴. Second, " +
+        "the zero-gap curve sits ~2 decades above far-field across the useful band — that vertical offset IS " +
+        "the n² mode-count enhancement from the spacer, and it is exactly the ×150–320 power gain reported in " +
+        "Fig. 2. The black-body 'limit' only limits passive emitters radiating into vacuum; this device is " +
+        "neither.",
     },
   ],
+  /* The paper's methodology as the authors describe it — Sec. II.A, Eqs. (1)–(6)
+   * and the Supplemental Material, all from the published PDF. */
+  model: {
+    approach: "simulation",
+    summary:
+      "This is a purely computational device-physics study — no experiment. The authors build a " +
+      "fluctuational-electrodynamics model of the full layered stack (Au reflector / 2-µm InGaAs LED / solid " +
+      "spacer / 2-µm InGaAs PV / Au reflector), compute how many photons cross it at every frequency and " +
+      "angle, convert those photon fluxes into LED and PV currents with realistic loss channels, and subtract " +
+      "the LED's electrical bill from the PV's output. Every curve in the paper comes out of Eqs. (1)–(6).",
+    toolchain: [
+      { name: "Generalized Planck law", role: "LED emission with a photon chemical potential μ = eV — the quasi-Fermi-level splitting lets a biased LED out-radiate a black body above the band gap (Würfel 1982; Eq. 1–2)." },
+      { name: "Scattering-matrix optics", role: "Transmission functions ξ between every pair of layers computed with the multilayer dyadic-Green's-function / scattering-matrix formalism (Francoeur et al.), integrated over frequency ω and parallel wave-vector k∥." },
+      { name: "Detailed balance + losses", role: "Photon fluxes → currents with Auger recombination, Shockley–Read–Hall recombination and shunt-resistance losses included for both LED and PV (Eqs. 3–4)." },
+      { name: "Finite-difference conduction", role: "The spacer's parasitic heat leak q_cond solved numerically with temperature-dependent thermal conductivity κ(T) plus radiative absorption inside the spacer." },
+      { name: "Self-sustaining circuit model", role: "The Zhao et al. (PNAS 2019) series/parallel LED–PV circuit framework, adopted unmodified, to test whether the 98% EQE closes the loop with net power." },
+      { name: "CU Boulder Research Computing", role: "The k∥- and ω-resolved integrations over the material library (Table S1) ran on the University of Colorado Boulder Research Computing cluster." },
+    ],
+    equations: [
+      {
+        name: "Photon flux (gen. Planck)",
+        eq: "θ(ω,T,V) = ℏω / [exp((ℏω − eV)/k_BT) − 1];   F_PV = ∫ Σ (θ_LED − θ_PV)/ℏω · ξ dω",
+        source: "Eqs. (1)–(2), Sec. II.A — the heart of the model",
+        plain:
+          "θ is the mean energy of a light mode at frequency ω when the emitter sits at temperature T and bias V. " +
+          "The eV term is the photon chemical potential: it shifts the exponential so a biased LED emits as if it " +
+          "were far hotter — but only above its band gap, and only in the active region. The PV's received flux " +
+          "F_PV sums (emitter minus receiver) occupation differences over every pathway, weighted by how well the " +
+          "stack transmits that frequency (ξ).",
+        terms: [
+          { sym: "ℏω", meaning: "photon energy at angular frequency ω" },
+          { sym: "eV", meaning: "photon chemical potential — the LED bias converted to an energy shift; the paper's key lever" },
+          { sym: "ξ (xi)", meaning: "transmission function between two layers of the stack, from scattering-matrix optics; this is where the spacer's n² enhancement enters" },
+          { sym: "ω_c", meaning: "band-gap cutoff — integration starts at the PV/LED band edge (0.74 eV for InGaAs)" },
+        ],
+      },
+      {
+        name: "Currents & losses",
+        eq: "I_PV = e·F_PV − I_Auger − I_SRH − V/R_shunt;   I_LED = e·F_LED + I_Auger + I_SRH + V/R_shunt",
+        source: "Eqs. (3)–(4), Sec. II.A",
+        plain:
+          "Each absorbed photon ideally makes one electron-hole pair (e·F). Reality subtracts three loss channels: " +
+          "Auger recombination (three-carrier collisions, worst at high injection), Shockley–Read–Hall " +
+          "recombination (defect-assisted), and shunt leakage. The same losses that reduce the PV's harvest " +
+          "INCREASE the LED's bill — they appear with opposite signs in the two equations, which is why EQE " +
+          "matters twice.",
+        terms: [
+          { sym: "I_Auger", meaning: "Auger recombination current — dominant non-radiative loss in low-gap InGaAs" },
+          { sym: "I_SRH", meaning: "Shockley–Read–Hall (defect) recombination current" },
+          { sym: "R_shunt", meaning: "shunt resistance — parasitic leakage path across the junction" },
+        ],
+      },
+      {
+        name: "Efficiency",
+        eq: "η = P / (q_rad + q_cond − V_LED·I_LED),   P = J_PV·V_PV − J_LED·V_LED",
+        source: "Eqs. (5)–(6), Sec. II.A",
+        plain:
+          "Net electrical output P (PV harvest minus LED bill) divided by all the heat actually drawn from the hot " +
+          "side: the net radiative flux q_rad, plus the conduction leak q_cond down the solid spacer — the one " +
+          "term a vacuum-gap device doesn't have, and the reason Fig. 3 sweeps spacer length. The reduced " +
+          "browser model in the Method Lab is this equation with the optics collapsed into calibrated constants.",
+        terms: [
+          { sym: "q_rad", meaning: "net radiative heat flux from emitter to PV, integrated over the whole spectrum (Eq. 5)" },
+          { sym: "q_cond", meaning: "conductive heat leak through the spacer = κ(T)·ΔT/L, solved by finite differences — scales as 1/L" },
+          { sym: "V_LED·I_LED", meaning: "electrical power fed back into the LED (recovered in the denominator's accounting)" },
+        ],
+      },
+      {
+        name: "EQE & index matching",
+        eq: "EQE = IQE × (1 − R),   R_interface = ((n₁ − n₂)/(n₁ + n₂))²  →  <2% when 3.8 | 3.5 | 3.8",
+        source: "Sec. II.C, Fig. 4",
+        plain:
+          "External quantum efficiency is internal efficiency times the fraction of photons that actually cross " +
+          "the interfaces. Far-field devices lose 30%+ to the semiconductor-vacuum index step no matter how good " +
+          "the diode is; matching emitter (3.8), spacer (3.5) and PV (3.8) indices drives total interfacial " +
+          "reflectance under 2%, which is the whole 98% EQE record — and the self-sustaining threshold of Fig. 4(d) " +
+          "sits at ~97–98%.",
+        terms: [
+          { sym: "IQE", meaning: "internal quantum efficiency — photons per electron-hole pair inside the device" },
+          { sym: "R", meaning: "reflectance photons see entering the PV; the design variable this paper attacks" },
+        ],
+      },
+    ],
+    assumptions: [
+      "Planar, laterally infinite layers — 1D multilayer optics; no edge or lateral-transport effects.",
+      "The photon chemical potential μ = eV applies only in the LED active region and only above the band gap; all sub-gap radiation is ordinary thermal emission.",
+      "Material optical constants from the literature (a-Si: Pierce & Spicer; InGaAs: empirical band-gap model), spacer extinction assumed negligible in the transparency window.",
+      "PV cell held at 300 K; LED temperature treated as uniform at each operating point (400–900 K sweep).",
+      "The self-sustaining analysis adopts Zhao et al.'s circuit framework unmodified, so gains are attributable to the zero-gap optics alone.",
+    ],
+    validation:
+      "The framework reduces to standard far-field TPX when the spacer index → 1, reproducing prior published " +
+      "results (Zhao et al. 2018/2019); the zero-gap optics were validated against the authors' own zTPV " +
+      "experiments (Habibi et al., EES 2025); and sub-turn-on LED emission is cross-checked against the " +
+      "generalized-Planck prediction in Supplemental Fig. S3.",
+  },
   foundations: [
     {
       title: "Why low temperatures starve TPV",

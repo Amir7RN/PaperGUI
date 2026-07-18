@@ -54,10 +54,39 @@ const C = {
 const BLOCK_ICONS = [Activity, SlidersHorizontal, Sigma, GitBranch, Waves, Cpu];
 
 /* draggable top-level boxes on the free-form canvas */
-const BOX_IDS = ["conclusion", "sec-story", "sec-concept", "sec-foundations", "sec-method", "sec-results", "sec-reverse"];
+const BOX_IDS = ["conclusion", "sec-story", "sec-concept", "sec-foundations", "sec-model", "sec-method", "sec-results", "sec-reverse"];
 
 const fmt = (v, d = 3) =>
   v === undefined || v === null || Number.isNaN(v) ? "–" : (+v).toFixed(d);
+
+/* Recharts axis-title props — every chart carries its axis labels ON the plot
+ * (author feedback: header-only labels read as "unlabeled axes"). */
+const xAxisTitle = (label) => (label ? {
+  value: label, position: "insideBottom", offset: -6,
+  fill: "#64748b", fontSize: 10.5, fontWeight: 600,
+} : undefined);
+const yAxisTitle = (label) => (label ? {
+  value: label, angle: -90, position: "insideLeft", offset: 12,
+  fill: "#64748b", fontSize: 10.5, fontWeight: 600,
+  style: { textAnchor: "middle" },
+} : undefined);
+
+/** Plain-language note for log-scale axes — "−12" means 10⁻¹², not a negative
+ *  quantity. Shown under any chart whose axis labels mention a log scale. */
+function LogScaleNote({ labels }) {
+  const joined = (labels || []).filter(Boolean).join(" ");
+  if (!/log/i.test(joined)) return null;
+  return (
+    <p className="mt-1 flex items-start gap-1.5 px-1 text-[10.5px] leading-snug text-slate-400">
+      <Info size={11} className="mt-0.5 shrink-0" />
+      <span>
+        Log₁₀ scale: each step of 1 is a factor of 10. A reading of −12 means 10⁻¹²
+        in the axis unit (a millionth of a millionth) — negative numbers mean
+        “very small”, not “below zero”.
+      </span>
+    </p>
+  );
+}
 
 /** Axis tick formatter with decimals adapted to magnitude, so a ±0.05 error
  *  axis doesn't collapse every tick to "0.0". */
@@ -1195,17 +1224,19 @@ function PanelChart({ panel, baseRun, actRun, height = 170, onHover, activeSuffi
         <div className="rounded border border-red-200 bg-red-50 px-2 py-2 text-[11px] text-red-700">{err}</div>
       ) : kind === "bar" ? (
         <ResponsiveContainer width="100%" height={height}>
-          <BarChart data={rows} margin={{ top: 6, right: 10, bottom: 2, left: -12 }}
+          <BarChart data={rows} margin={{ top: 6, right: 10, bottom: 14, left: 2 }}
             onMouseMove={handleMove} onClick={handleClick} style={{ cursor: "pointer" }}>
             <CartesianGrid stroke={C.grid} strokeWidth={1} vertical={false} />
             <XAxis
               dataKey={categories ? "_c" : "_i"} type="category"
               tick={{ fill: C.inkMuted, fontSize: 9 }} stroke={C.axis} tickLine={false}
               interval={0} angle={rows.length > 6 ? -30 : 0} height={rows.length > 6 ? 42 : 30}
+              label={xAxisTitle(panel.xLabel)}
             />
             <YAxis
               tick={{ fill: C.inkMuted, fontSize: 9 }} stroke="transparent"
-              tickLine={false} width={42} tickFormatter={fmtTick}
+              tickLine={false} width={50} tickFormatter={fmtTick}
+              label={yAxisTitle(panel.yLabel)}
             />
             <Tooltip content={() => null} cursor={{ fill: "rgba(100,116,139,0.08)" }}
               isAnimationActive={false} />
@@ -1221,17 +1252,19 @@ function PanelChart({ panel, baseRun, actRun, height = 170, onHover, activeSuffi
         </ResponsiveContainer>
       ) : (
         <ResponsiveContainer width="100%" height={height}>
-          <LineChart data={rows} margin={{ top: 6, right: 10, bottom: 2, left: -12 }}
+          <LineChart data={rows} margin={{ top: 6, right: 10, bottom: 14, left: 2 }}
             onMouseMove={handleMove} onClick={handleClick} style={{ cursor: "pointer" }}>
             <CartesianGrid stroke={C.grid} strokeWidth={1} vertical={false} />
             <XAxis
               dataKey="_i" type="number" domain={["dataMin", "dataMax"]}
               tick={{ fill: C.inkMuted, fontSize: 9 }} stroke={C.axis} tickLine={false}
               tickFormatter={fmtTick}
+              label={xAxisTitle(panel.xLabel)}
             />
             <YAxis
               tick={{ fill: C.inkMuted, fontSize: 9 }} stroke="transparent"
-              tickLine={false} width={42} tickFormatter={fmtTick}
+              tickLine={false} width={50} tickFormatter={fmtTick}
+              label={yAxisTitle(panel.yLabel)}
             />
             {pinned != null && (
               <ReferenceLine x={pinned.x} stroke={C.ink} strokeWidth={1.5} strokeDasharray="5 3" />
@@ -1273,6 +1306,7 @@ function PanelChart({ panel, baseRun, actRun, height = 170, onHover, activeSuffi
           <span className="text-slate-400">hover for exact values, click to lock them</span>
         )}
       </div>
+      <LogScaleNote labels={[panel.xLabel, panel.yLabel]} />
     </div>
   );
 }
@@ -1647,16 +1681,18 @@ function DemoChart({ demo }) {
             </span>
             <span className="text-[10px] text-slate-400">{demo.xLabel} → {demo.yLabel}</span>
           </div>
-          <ResponsiveContainer width="100%" height={210}>
+          <ResponsiveContainer width="100%" height={230}>
             {kind === "bar" || categories ? (
-              <BarChart data={rows} margin={{ top: 6, right: 10, bottom: 2, left: -8 }}
+              <BarChart data={rows} margin={{ top: 6, right: 10, bottom: 16, left: 4 }}
                 onMouseMove={handleMove} onClick={handleClick} style={{ cursor: "pointer" }}>
                 <CartesianGrid stroke={C.grid} strokeWidth={1} vertical={false} />
                 <XAxis dataKey={categories ? "_c" : "_i"} type="category"
                   tick={{ fill: C.inkMuted, fontSize: 9 }} stroke={C.axis} tickLine={false}
-                  interval={0} angle={rows.length > 6 ? -30 : 0} height={rows.length > 6 ? 44 : 30} />
+                  interval={0} angle={rows.length > 6 ? -30 : 0} height={rows.length > 6 ? 44 : 30}
+                  label={xAxisTitle(demo.xLabel)} />
                 <YAxis tick={{ fill: C.inkMuted, fontSize: 9 }} stroke="transparent"
-                  tickLine={false} width={44} tickFormatter={fmtTick} />
+                  tickLine={false} width={52} tickFormatter={fmtTick}
+                  label={yAxisTitle(demo.yLabel)} />
                 <Tooltip content={() => null} cursor={{ fill: "rgba(100,116,139,0.08)" }}
                   isAnimationActive={false} />
                 {legend.filter((l) => !hidden.has(l.key)).map((l) => (
@@ -1664,14 +1700,16 @@ function DemoChart({ demo }) {
                 ))}
               </BarChart>
             ) : (
-              <LineChart data={rows} margin={{ top: 6, right: 10, bottom: 2, left: -8 }}
+              <LineChart data={rows} margin={{ top: 6, right: 10, bottom: 16, left: 4 }}
                 onMouseMove={handleMove} onClick={handleClick} style={{ cursor: "pointer" }}>
                 <CartesianGrid stroke={C.grid} strokeWidth={1} vertical={false} />
                 <XAxis dataKey="_i" type="number" domain={["dataMin", "dataMax"]}
                   tick={{ fill: C.inkMuted, fontSize: 9 }} stroke={C.axis} tickLine={false}
-                  tickFormatter={fmtTick} />
+                  tickFormatter={fmtTick}
+                  label={xAxisTitle(demo.xLabel)} />
                 <YAxis tick={{ fill: C.inkMuted, fontSize: 9 }} stroke="transparent"
-                  tickLine={false} width={44} tickFormatter={fmtTick} />
+                  tickLine={false} width={52} tickFormatter={fmtTick}
+                  label={yAxisTitle(demo.yLabel)} />
                 <Tooltip content={() => null}
                   cursor={{ stroke: C.inkMuted, strokeWidth: 1, strokeDasharray: "3 3" }}
                   isAnimationActive={false} />
@@ -1703,6 +1741,7 @@ function DemoChart({ demo }) {
                 : <span className="text-slate-400">hover for values</span>}
             </div>
           </div>
+          <LogScaleNote labels={[demo.xLabel, demo.yLabel]} />
         </div>
       )}
       {insight && (
@@ -2328,6 +2367,135 @@ function ResultsLab({ spec, pipelineCompiled, helpers, baseOutputs, actOutputs, 
   );
 }
 
+/* ---------------- the model: how the paper actually works ----------------
+ * Renders spec.model — the paper's methodology at the level authors care
+ * about: experiment vs simulation, the actual toolchain (instruments,
+ * software, algorithms), the governing equations with a term-by-term
+ * glossary, the assumptions, and how the results were validated. */
+
+const APPROACH_META = {
+  experiment: { label: "Experimental study", Icon: FlaskConical, tone: "bg-rose-50 text-rose-700 border-rose-200" },
+  simulation: { label: "Computational / theory study", Icon: Cpu, tone: "bg-blue-50 text-blue-700 border-blue-200" },
+  hybrid:     { label: "Experiment + simulation", Icon: Waves, tone: "bg-violet-50 text-violet-700 border-violet-200" },
+};
+
+function TheModel({ model }) {
+  const [openEq, setOpenEq] = useState(0);
+  if (!model) return null;
+  const meta = APPROACH_META[model.approach] || APPROACH_META.simulation;
+  const AIcon = meta.Icon;
+  const eq = model.equations?.[Math.min(openEq, (model.equations?.length || 1) - 1)];
+
+  return (
+    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-2 bg-slate-800 px-4 py-2.5">
+        <span className="text-[13px] font-bold text-white">
+          The Model — what the paper actually did, and the equations underneath
+        </span>
+        <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${meta.tone}`}>
+          <AIcon size={12} /> {meta.label}
+        </span>
+      </div>
+
+      <div className="grid gap-4 p-4 xl:grid-cols-5">
+        {/* left: what kind of study + the toolchain + assumptions */}
+        <div className="space-y-3 xl:col-span-2">
+          <p className="leading-relaxed text-slate-700" style={{ fontSize: "calc(var(--found-text, 13px) * var(--box-font-scale, 1))" }}>
+            {model.summary}
+          </p>
+
+          {model.toolchain?.length ? (
+            <div>
+              <div className="mb-1.5 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                <Code2 size={12} /> The actual toolchain — instruments &amp; software
+              </div>
+              <div className="space-y-1.5">
+                {model.toolchain.map((t, i) => (
+                  <div key={i} className="flex items-start gap-2 rounded-lg border border-slate-100 bg-slate-50/60 px-3 py-1.5">
+                    <span className="mt-0.5 shrink-0 rounded bg-slate-800 px-1.5 py-0.5 text-[9.5px] font-bold text-white">{t.name}</span>
+                    <span className="text-[11.5px] leading-snug text-slate-600">{t.role}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {model.assumptions?.length ? (
+            <div>
+              <div className="mb-1.5 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                <CircleAlert size={12} /> Assumptions the results rest on
+              </div>
+              <ul className="space-y-1">
+                {model.assumptions.map((a, i) => (
+                  <li key={i} className="flex items-start gap-2 text-[11.5px] leading-snug text-slate-600">
+                    <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-slate-400" />{a}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
+          {model.validation ? (
+            <div className="flex items-start gap-2 rounded-lg border border-emerald-100 bg-emerald-50/60 px-3 py-2">
+              <CircleCheck size={13} className="mt-0.5 shrink-0 text-emerald-600" />
+              <p className="text-[11.5px] leading-relaxed text-emerald-900">
+                <span className="font-semibold">How it was checked: </span>{model.validation}
+              </p>
+            </div>
+          ) : null}
+        </div>
+
+        {/* right: the governing equations, one at a time, term by term */}
+        <div className="xl:col-span-3">
+          <div className="mb-1.5 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+            <Sigma size={12} /> Governing equations — click one, read it term by term
+          </div>
+          {model.equations?.length ? (
+            <>
+              <div className="mb-2 flex flex-wrap gap-1.5">
+                {model.equations.map((e, i) => (
+                  <button key={i} onClick={() => setOpenEq(i)}
+                    className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold transition ${
+                      i === openEq ? "border-slate-800 bg-slate-800 text-white" : "border-slate-200 bg-white text-slate-600 hover:border-slate-400"
+                    }`}>
+                    {e.name}
+                  </button>
+                ))}
+              </div>
+              {eq && (
+                <div className="rounded-xl border border-slate-200 bg-white p-3">
+                  <Eq>{eq.eq}</Eq>
+                  {eq.source ? (
+                    <p className="mt-1 text-[10.5px] italic text-slate-400">{eq.source}</p>
+                  ) : null}
+                  <p className="mt-2 text-[12px] leading-relaxed text-slate-700">{eq.plain}</p>
+                  {eq.terms?.length ? (
+                    <table className="mt-2 w-full border-t border-slate-100 text-[11px]">
+                      <tbody>
+                        {eq.terms.map((t, i) => (
+                          <tr key={i} className="border-b border-slate-50">
+                            <td className="w-24 py-1 pr-3 align-top font-semibold text-slate-800"
+                              style={{ fontFamily: "Georgia, serif", fontStyle: "italic" }}>{t.sym}</td>
+                            <td className="py-1 leading-snug text-slate-600">{t.meaning}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  ) : null}
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="flex min-h-[120px] items-center justify-center rounded-lg border border-dashed border-slate-200 text-[11px] text-slate-400">
+              No governing equations extracted for this paper
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ---------------- reverse-engineering lab ----------------
  * The paper's digitized curve is the locked ground truth; the reduced live
  * model is the challenger. The reader scrambles the parameters (or hand-tunes
@@ -2750,6 +2918,11 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
       id: "foundations", boxId: "sec-foundations", boxLabel: "Background", navLabel: "Background", ariaLabel: "Foundations from prior work",
       show: !!spec.foundations?.length && sec("foundations").on, tone: "amber", icon: Landmark,
       content: <FoundationsLab foundations={spec.foundations} />,
+    },
+    {
+      id: "model", boxId: "sec-model", boxLabel: "The model", navLabel: "Model", ariaLabel: "The paper's methodology, tools and governing equations",
+      show: !!spec.model && sec("model").on, tone: "blue", icon: Sigma,
+      content: <TheModel model={spec.model} />,
     },
     {
       id: "method", boxId: "sec-method", boxLabel: "Method lab", navLabel: "Method", ariaLabel: "The paper's contribution",

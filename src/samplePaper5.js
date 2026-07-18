@@ -169,7 +169,114 @@ export const SAMPLE_SPEC_5 = {
         "bridge. The thermal-resistance network shows why it works: the probe's R_th ≈ 0.7×10⁶ K/W converts " +
         "~30 pW into a readable temperature signal.",
     },
+    {
+      title: "Fig. 2 — Watching ONE molecule carry heat, live",
+      image: FIG("ph-fig2"),
+      explanation:
+        "What a single measurement actually looks like — the paper's second core idea: no averaging. (a) A " +
+        "simultaneous trace: as the piezo withdraws, the electrical conductance (blue, log scale — each " +
+        "gridline is 10×) drops in molecular steps, and at the moment the LAST molecule ruptures, the thermal " +
+        "trace (red) steps down too. That step height IS one molecule's thermal conductance, read in real time. " +
+        "The thermal step lags the electrical one by ~10 ms — not physics, just the probe's thermal time " +
+        "constant (τ ≈ 11 ms), like a thermometer catching up. (b,c) Hundreds of such traces stack into " +
+        "histograms whose peaks give the reported values. Previous techniques needed to average hundreds of " +
+        "low-resolution traces to see anything; the twin-tip probe's ~3 pW K⁻¹ Hz⁻¹ᐟ² noise floor resolves the " +
+        "step in EVERY trace — which is what lets the paper report junction-to-junction statistics honestly.",
+    },
+    {
+      title: "Fig. 4 — The interference fingerprint: antiresonances in transmission",
+      image: FIG("ph-fig4"),
+      explanation:
+        "Why the effect happens, in the theory's own language. The computed phonon transmission τ(ω) through " +
+        "each isomer (log scale) is the probability that a vibration at frequency ω crosses the molecule. " +
+        "Meta-OPE3's curve is carved by sharp dips — antiresonances near 60 and 80 cm⁻¹ — frequencies at which " +
+        "the two vibrational paths through the offset ring arrive exactly out of phase and cancel: destructive " +
+        "phonon interference. Para-OPE3's paths stay in phase, so its transmission stays smooth and higher. " +
+        "Integrate τ(ω) over the thermally occupied spectrum at 300 K and the missing transmission in meta " +
+        "becomes the measured ≈50% conductance deficit (17 vs 28 pW/K). The key theoretical result: these " +
+        "antiresonances SURVIVE room-temperature contact dynamics in meta — the interference is not washed out " +
+        "by the mess of a real junction.",
+    },
   ],
+  /* The paper's methodology exactly as its Methods section describes it —
+   * instruments, software, force fields and the governing transport formula. */
+  model: {
+    approach: "hybrid",
+    summary:
+      "A hard experiment backed by quantum-mechanically-derived simulation. Experimentally: custom-nanofabricated " +
+      "twin-tip scanning thermal probes measure electrical AND thermal conductance of one molecule at a time, at " +
+      "room temperature, in real time. Computationally: non-equilibrium molecular dynamics with force fields " +
+      "derived from quantum chemistry reproduces the measured conductances and explains WHY — phonon " +
+      "antiresonances — via a Landauer transmission analysis. Neither half stands alone: the experiment can't " +
+      "see frequencies, the simulation can't be trusted without the measured 50% deficit to hit.",
+    toolchain: [
+      { name: "Twin-tip NbN SThM probe", role: "Custom-nanofabricated (500-µm Si wafer, 5-µm SiO₂ beams, 25-nm sputtered NbN thermometers, Cr/Au lines, deep reactive-ion etched); measurement + drift-matching tips in a full Wheatstone bridge, gain-1000 instrumentation amplifier." },
+      { name: "3ω calibration", role: "Probe thermal conductance G_th,probe ≈ 1.5 µW/K and time constant τ ≈ 11 ms measured by the 3-omega method in a Janis ST-100 cryostat; NbN TCR calibrated 295–420 K with Keithley 6221 source + lock-in (Signal Recovery 7280)." },
+      { name: "FEMTO DLCPA-200", role: "Variable-gain transimpedance amplifier reading the junction's tunnelling current — the electrical half of every simultaneous trace (10–50 µs rise time)." },
+      { name: "LAMMPS", role: "Equilibrium MD + non-equilibrium MD (NEMD): 11,200 atoms, 0.25-fs Verlet steps, Langevin thermostats holding the gold contacts at 290 K and 330 K; heat flux tallied from thermostat energies over 40-ns runs." },
+      { name: "Joyce QM-FF", role: "Quantum-mechanically derived force fields for the OPE3 isomers (DFT-parametrized via the Joyce methodology); gold via Sheng's embedded-atom model, Au–S bond via a Morse potential, INTERFACE FF for the rest." },
+      { name: "SCUFF-EM", role: "Boundary-element fluctuational-electrodynamics solver used to compute the near-field radiation background between tip and substrate (~200 pW/K at 1–2 nm) and confirm it stays constant during a trace — so it subtracts out." },
+    ],
+    equations: [
+      {
+        name: "Landauer heat current",
+        eq: "G_th·ΔT = (ΔT/2π) ∫ dω · ℏω · τ(ω) · dn(ω)/dT",
+        source: "Methods, 'Landauer phonon transmission function'",
+        plain:
+          "The phonon analogue of Landauer's conduction formula: the heat current is every vibration frequency's " +
+          "energy ℏω, times the probability τ(ω) that it crosses the molecule, times how strongly that mode's " +
+          "thermal population responds to the temperature difference. All the molecule-specific physics — " +
+          "including interference — lives inside τ(ω).",
+        terms: [
+          { sym: "τ(ω)", meaning: "phonon transmission function — probability a phonon at frequency ω crosses the junction; antiresonances are its zeros" },
+          { sym: "n(ω)", meaning: "Bose–Einstein phonon occupation of the contacts; dn/dT weights which frequencies matter at 300 K" },
+          { sym: "ΔT", meaning: "temperature bias across the junction (40 K in the NEMD: 330 K vs 290 K)" },
+        ],
+      },
+      {
+        name: "Transmission kernel",
+        eq: "τ(ω) ∝ (ℏω)² k_l² k_r² ρ_L(ω) ρ_R(ω) |d_lr(ω)|²,   d_lr(ω) = Σ_j C_l^j·C_r^j / [(ℏω+iη)² − ℏω_j²]",
+        source: "Methods, following Klöckner–Cuevas–Pauly",
+        plain:
+          "τ(ω) factorizes into leads × molecule. The molecular part |d_lr|² — the Green's function between the two " +
+          "sulfur anchor atoms — is a sum over the molecule's normal modes j. Modes can contribute with opposite " +
+          "signs: when two terms cancel at some ω, transmission drops to (nearly) zero. That cancellation is the " +
+          "phonon antiresonance, and whether it happens depends on the mode shapes C — which is exactly what the " +
+          "meta vs para wiring changes.",
+        terms: [
+          { sym: "d_lr(ω)", meaning: "bare molecular phonon Green's function between left/right anchor (sulfur) atoms — the interference happens in this sum" },
+          { sym: "C_l^j", meaning: "amplitude of normal mode j at the left anchor atom, from the QM-FF Hessian's eigenvectors" },
+          { sym: "ρ_L,R(ω)", meaning: "phonon density of states of the gold leads at the contact atoms" },
+          { sym: "η", meaning: "small imaginary broadening keeping the Green's function finite at resonance" },
+        ],
+      },
+      {
+        name: "Probe signal chain",
+        eq: "ΔT_tip = Q·R_th ≈ 21 µK at 30 pW;   noise ≈ 3 pW K⁻¹ Hz⁻¹ᐟ²",
+        source: "Methods, probe characterization (Extended Data Figs. 2–3)",
+        plain:
+          "The sensitivity budget of the experiment: one molecule's ~30 pW crossing a probe of thermal resistance " +
+          "R_th ≈ 0.7×10⁶ K/W shifts the tip by ~21 µK, read as an NbN resistance change through the Wheatstone " +
+          "bridge. The twin-tip differential scheme cancels environmental drift ~4×, bringing the noise floor to " +
+          "~3 pW K⁻¹ Hz⁻¹ᐟ² — below one molecule's signal, which is the whole game.",
+        terms: [
+          { sym: "R_th", meaning: "probe thermal resistance to its base, ≈0.7×10⁶ K/W — measured by the 3ω method" },
+          { sym: "TCR α", meaning: "NbN thermometer's temperature coefficient of resistance, α = dR/(R₀dT), calibrated 295–420 K" },
+        ],
+      },
+    ],
+    assumptions: [
+      "Trace selection: only junctions with drift <100 pW K⁻¹ nm⁻¹, a clean final electrical step, and stable trapped-state signals enter the histograms (three explicit criteria in Methods).",
+      "The near-field radiation background (~200 pW/K) is constant while the piezo holds still, so the rupture step isolates the molecular contribution.",
+      "NEMD force fields are classical once parametrized — quantum statistics enter only through the QM-derived Hessian; contacts are ideal Au(111) blocks under 0.35 nN strain.",
+      "The Landauer analysis is harmonic (elastic transport); anharmonic effects appear only in the full NEMD, which is why both are computed and compared.",
+    ],
+    validation:
+      "Measured vs simulated thermal conductances agree for BOTH isomers (≈17 vs ≈28 pW/K), the electrical " +
+      "10× meta/para ratio matches known charge-interference results, the near-field background matches the " +
+      "SCUFF-EM prediction quantitatively (~100 pW/K change per 10 nm), and the no-tip noise floor matches the " +
+      "Johnson-noise estimate — four independent cross-checks.",
+  },
   foundations: [
     {
       title: "Turning picowatts into micro-kelvins",
