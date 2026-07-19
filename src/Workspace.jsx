@@ -21,8 +21,9 @@ import {
   ChevronRight, TriangleAlert, CircleCheck, CircleAlert, ArrowLeft, Image as ImageIcon, LogOut,
   Landmark, Maximize2, Lightbulb, LineChart as LineChartIcon, LayoutTemplate, Move,
   Sparkles, BookMarked, Play, Pause, Puzzle, Rocket, Network, ChevronLeft, FileCode2, Crosshair,
-  Shuffle, Wand2, Trophy,
+  Shuffle, Wand2, Trophy, Bot,
 } from "lucide-react";
+import SectionChat from "./SectionChat.jsx";
 import LayoutEditor from "./LayoutEditor.jsx";
 import DigitizerEditor from "./DigitizerEditor.jsx";
 import { DigitizedPanel, isSpecialDigitized, PALETTE } from "./DigitizedPanels.jsx";
@@ -237,7 +238,7 @@ const SECTION_TONES = {
   fuchsia: { badge: "bg-fuchsia-600", ring: "ring-fuchsia-200/60", text: "text-fuchsia-700" },
 };
 
-function SectionHeader({ num, tone, icon: IconCmp, title, sub }) {
+function SectionHeader({ num, tone, icon: IconCmp, title, sub, onAsk }) {
   const t = SECTION_TONES[tone];
   return (
     <div className="pp-rise mb-4 flex items-start gap-3" style={{ marginTop: "var(--sec-gap, 40px)" }}>
@@ -247,12 +248,21 @@ function SectionHeader({ num, tone, icon: IconCmp, title, sub }) {
       >
         {num}
       </div>
-      <div className="min-w-0">
+      <div className="min-w-0 flex-1">
         <h2 className="flex items-center gap-2 font-bold text-slate-900" style={{ fontSize: "calc(var(--sec-head, 16px) * var(--box-font-scale, 1))" }}>
           <IconCmp size={16} className={t.text} /> {title}
         </h2>
         <p className="mt-0.5 leading-relaxed text-slate-500" style={{ fontSize: "calc(var(--sec-sub, 12px) * var(--box-font-scale, 1))" }}>{sub}</p>
       </div>
+      {onAsk && (
+        <button
+          onClick={onAsk}
+          title="Chat with an AI assistant about this section"
+          className="mt-0.5 flex shrink-0 items-center gap-1.5 rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-[11px] font-semibold text-indigo-700 shadow-sm transition hover:border-indigo-400 hover:bg-indigo-100"
+        >
+          <Bot size={13} /> Ask AI
+        </button>
+      )}
     </div>
   );
 }
@@ -2808,6 +2818,7 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
   const [lightbox, setLightbox] = useState(null);
   const [layout, setLayout] = useState(loadLayout);
   const [editorOpen, setEditorOpen] = useState(false);
+  const [chatSection, setChatSection] = useState(null); // {sectionId, title} | null
   const sec = useCallback((k) => sectionByKey(layout, k), [layout]);
 
   // free-form canvas ("PowerPoint mode")
@@ -3068,12 +3079,17 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
         {sections.map((s, i) => (
           <DesignBox key={s.id} id={s.boxId} label={s.boxLabel} mode={free ? "free" : "flow"} rect={layout.boxes[s.boxId]} onRect={setBox} register={registerBox}>
             <section aria-label={s.ariaLabel}>
-              <SectionHeader num={i + 1} tone={s.tone} icon={s.icon} title={sec(s.id).title} sub={sec(s.id).sub} />
+              <SectionHeader
+                num={i + 1} tone={s.tone} icon={s.icon} title={sec(s.id).title} sub={sec(s.id).sub}
+                onAsk={() => setChatSection({ sectionId: s.id, title: sec(s.id).title })}
+              />
               {s.content}
             </section>
           </DesignBox>
         ))}
       </main>
+
+      <SectionChat spec={spec} open={chatSection} onClose={() => setChatSection(null)} />
 
       <InfoModal block={infoBlock} onClose={() => setInfoKey(null)} />
       <ReferencesDrawer references={spec.references} open={refsOpen} onClose={() => setRefsOpen(false)} />
