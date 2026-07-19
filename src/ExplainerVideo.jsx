@@ -22,7 +22,7 @@ const wordCount = (s) => (s ? s.trim().split(/\s+/).length : 0);
 // caption-only fallback: ~2.6 spoken words/sec, min 3.5s per scene
 const fallbackMs = (s) => Math.max(3500, Math.round((wordCount(s) / 2.6) * 1000));
 
-export default function ExplainerVideo({ explainer, renderVisual, accent = "#6366f1" }) {
+export default function ExplainerVideo({ explainer, renderVisual, accent = "#6366f1", material = [] }) {
   const scenes = explainer?.scenes || [];
   const voice = explainer?.voice || "onyx";
 
@@ -98,6 +98,22 @@ export default function ExplainerVideo({ explainer, renderVisual, accent = "#636
 
     return clearTimers;
   }, [idx, playing, audioFailed, muted, voice, scenes, advance, clearTimers]);
+
+  // Warm the TTS cache so the voice-over starts INSTANTLY instead of stalling
+  // ~3s on the first synthesis round-trip. We prefetch the current scene's audio
+  // as soon as the player mounts (by the time the reader hits play it's ready),
+  // and the NEXT scene's while the current one plays, so advances stay gapless.
+  // fetchSceneAudio memoizes per session; prefetch errors are swallowed here and
+  // surfaced properly by the real play path instead.
+  useEffect(() => {
+    if (audioFailed) return;
+    const warm = (i) => {
+      const n = scenes[i]?.narration;
+      if (n) fetchSceneAudio(n, voice).catch(() => {});
+    };
+    warm(idx);
+    warm(idx + 1);
+  }, [idx, scenes, voice, audioFailed]);
 
   // <audio> events: progress + auto-advance on end.
   const onTimeUpdate = () => {
@@ -200,6 +216,23 @@ export default function ExplainerVideo({ explainer, renderVisual, accent = "#636
       {note && (
         <div className="border-t border-white/10 bg-white/5 px-3 py-1.5 text-[11px] text-slate-300">{note}</div>
       )}
+      {/* audio source + reading material — narration is spoken by a TTS API over
+          the paper's own figures; the captions above are the readable transcript. */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-white/10 bg-white/5 px-3 py-1.5 text-[10px] text-slate-400">
+        <span className="inline-flex items-center gap-1">
+          <Volume2 size={11} /> Voice-over: OpenAI TTS ({voice}) · captions above are the full transcript
+        </span>
+        {material.filter((m) => m?.url).length > 0 && (
+          <span className="inline-flex flex-wrap items-center gap-2">
+            <span className="text-slate-500">Read more:</span>
+            {material.filter((m) => m?.url).map((m, i) => (
+              <a key={i} href={m.url} target="_blank" rel="noreferrer"
+                className="underline decoration-dotted underline-offset-2 hover:text-slate-200"
+                style={{ color: accent }}>{m.label || m.url}</a>
+            ))}
+          </span>
+        )}
+      </div>
       {/* thin overall-progress hairline */}
       <div className="h-0.5 w-full bg-white/10">
         <div className="h-full transition-[width]" style={{ width: `${overall * 100}%`, background: accent }} />

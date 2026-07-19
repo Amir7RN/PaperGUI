@@ -1969,6 +1969,43 @@ function LabShell({ children }) {
   return <div className="pp-lab"><div className="pp-lab__inner p-3 sm:p-4">{children}</div></div>;
 }
 
+/** Rich dark opening slide for the Background explainer — the concepts this
+ * paper builds on, previewed as cards (with their real figure thumbnails where
+ * available), so the first slide teaches instead of sitting blank. */
+function FoundationsStageIntro({ foundations = [], accent = "#d97706" }) {
+  return (
+    <div className="relative flex h-full w-full flex-col justify-center gap-4 overflow-hidden rounded-lg p-6"
+      style={{ background: "radial-gradient(120% 90% at 50% 0%, #2a2113, #0b1220)" }}>
+      <div className="flex items-center gap-2">
+        <span className="grid h-11 w-11 place-items-center rounded-2xl" style={{ background: `${accent}22`, border: `1px solid ${accent}66` }}>
+          <Landmark size={22} style={{ color: "#fbbf24" }} />
+        </span>
+        <div>
+          <div className="text-xl font-bold text-white sm:text-2xl">The background this paper builds on</div>
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-300">
+            {foundations.length} idea{foundations.length === 1 ? "" : "s"} from prior work — not this paper's results
+          </div>
+        </div>
+      </div>
+      <div className="grid gap-2 sm:grid-cols-2">
+        {foundations.slice(0, 4).map((c, i) => (
+          <div key={i} className="flex items-start gap-3 rounded-xl border border-white/12 bg-white/8 p-2.5">
+            {c.figure?.image ? (
+              <img src={c.figure.image} alt="" className="h-12 w-16 shrink-0 rounded-md object-cover ring-1 ring-white/15" />
+            ) : (
+              <span className="grid h-12 w-16 shrink-0 place-items-center rounded-md bg-white/10 text-[10px] font-bold text-amber-200">{i + 1}</span>
+            )}
+            <div className="min-w-0">
+              <div className="truncate text-[12.5px] font-semibold text-white">{c.title}</div>
+              <div className="truncate text-[10.5px] text-slate-300">{(c.source || "").split(",")[0]}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function FoundationsLab({ foundations, explainer, onOpenFig }) {
   const [pageIdx, setPageIdx] = useState(0);
   const f = foundations[Math.min(pageIdx, foundations.length - 1)];
@@ -1985,7 +2022,7 @@ function FoundationsLab({ foundations, explainer, onOpenFig }) {
     }
     const fi = foundations[visual?.foundationIdx];
     if (fi) return <IntroCard title={fi.title} sub={fi.source} icon={Landmark} accent="#d97706" />;
-    return <IntroCard title="The background you need first" sub="ideas from prior work — not this paper's results" icon={Landmark} accent="#d97706" />;
+    return <FoundationsStageIntro foundations={foundations} />;
   };
 
   return (
@@ -2582,12 +2619,223 @@ const APPROACH_META = {
   hybrid:     { label: "Experiment + simulation", Icon: Waves, tone: "bg-violet-50 text-violet-700 border-violet-200" },
 };
 
+/** The Model methodology as a SEQUENCED panel instead of a wall of text: one
+ * stage at a time (overview → each governing equation → assumptions → how it
+ * was checked), advanced by Prev/Next or a Play button that auto-reveals the
+ * sequence, each stage fading in. Replaces the old everything-at-once grid that
+ * read like a retyped methods section. */
+function ModelSequence({ model }) {
+  const meta = APPROACH_META[model.approach] || APPROACH_META.simulation;
+  const AIcon = meta.Icon;
+  const steps = useMemo(() => {
+    const s = [{ kind: "overview", label: "Overview" }];
+    (model.equations || []).forEach((e, i) => s.push({ kind: "equation", i, label: e.name || `Eq. ${i + 1}` }));
+    if (model.assumptions?.length) s.push({ kind: "assumptions", label: "Assumptions" });
+    if (model.validation) s.push({ kind: "validation", label: "How it was checked" });
+    return s;
+  }, [model]);
+
+  const [step, setStep] = useState(0);
+  const [playing, setPlaying] = useState(false);
+  const timer = useRef(null);
+  const clamp = (i) => Math.max(0, Math.min(steps.length - 1, i));
+  const go = (i) => { setPlaying(false); setStep(clamp(i)); };
+
+  useEffect(() => {
+    clearTimeout(timer.current);
+    if (!playing) return;
+    if (step >= steps.length - 1) { setPlaying(false); return; }
+    timer.current = setTimeout(() => setStep((s) => clamp(s + 1)), 6500);
+    return () => clearTimeout(timer.current);
+  }, [playing, step, steps.length]);
+  useEffect(() => () => clearTimeout(timer.current), []);
+
+  const cur = steps[Math.min(step, steps.length - 1)];
+  const eq = cur.kind === "equation" ? model.equations[cur.i] : null;
+
+  return (
+    <div className="p-4">
+      {/* transport: play the sequence, or step through it */}
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <button
+          onClick={() => { if (step >= steps.length - 1) setStep(0); setPlaying((p) => !p); }}
+          className="inline-flex items-center gap-1.5 rounded-full bg-blue-600 px-3 py-1.5 text-[12px] font-semibold text-white transition hover:bg-blue-700"
+          title={playing ? "Pause" : "Play the methodology, stage by stage"}>
+          {playing ? <Pause size={13} fill="currentColor" /> : <Play size={13} fill="currentColor" className="translate-x-[1px]" />}
+          {playing ? "Pause" : "Play the walkthrough"}
+        </button>
+        <div className="flex items-center gap-1">
+          <button onClick={() => go(step - 1)} disabled={step === 0}
+            className="grid h-8 w-8 place-items-center rounded-lg text-slate-500 transition hover:bg-slate-100 disabled:opacity-30" title="Previous stage">
+            <ChevronLeft size={16} />
+          </button>
+          <button onClick={() => go(step + 1)} disabled={step >= steps.length - 1}
+            className="grid h-8 w-8 place-items-center rounded-lg text-slate-500 transition hover:bg-slate-100 disabled:opacity-30" title="Next stage">
+            <ChevronRight size={16} />
+          </button>
+        </div>
+        {/* labelled step pills */}
+        <div className="flex flex-wrap items-center gap-1">
+          {steps.map((s, i) => (
+            <button key={i} onClick={() => go(i)}
+              className={`rounded-full px-2 py-0.5 text-[10px] font-semibold transition ${
+                i === step ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200"}`}
+              title={s.label}>
+              {i === step ? s.label : i + 1}
+            </button>
+          ))}
+        </div>
+        <span className="ml-auto text-[10px] font-medium tabular-nums text-slate-400">{step + 1} / {steps.length}</span>
+      </div>
+
+      {/* stage — ONE thing at a time, re-fades on every change */}
+      <div key={step} className="pp-rise min-h-[320px] rounded-2xl border border-slate-200 bg-gradient-to-b from-slate-50 to-white p-5">
+        {cur.kind === "overview" && (
+          <div className="space-y-4">
+            <div className="flex items-center gap-2">
+              <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${meta.tone}`}>
+                <AIcon size={12} /> {meta.label}
+              </span>
+            </div>
+            <p className="max-w-3xl text-[15px] leading-relaxed text-slate-800">{model.summary}</p>
+            {model.toolchain?.length ? (
+              <div>
+                <div className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                  <Code2 size={12} /> The actual toolchain — instruments &amp; software
+                </div>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {model.toolchain.map((t, i) => (
+                    <div key={i} className="flex items-start gap-2 rounded-xl border border-slate-100 bg-white px-3 py-2 shadow-sm">
+                      <span className="mt-0.5 shrink-0 rounded bg-slate-800 px-1.5 py-0.5 text-[9.5px] font-bold text-white">{t.name}</span>
+                      <span className="text-[11.5px] leading-snug text-slate-600">{t.role}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </div>
+        )}
+
+        {cur.kind === "equation" && eq && (
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-baseline gap-2">
+              <h4 className="text-sm font-bold text-slate-900">{eq.name}</h4>
+              {eq.source ? <span className="text-[10.5px] italic text-slate-400">{eq.source}</span> : null}
+              <ProvenanceChip provenance={eq.provenance} />
+            </div>
+            <div className="pp-eq rounded-2xl px-4 py-6 text-center text-lg sm:text-xl"><Eq>{eq.eq}</Eq></div>
+            <p className="max-w-3xl text-[13px] leading-relaxed text-slate-700">{eq.plain}</p>
+            {eq.terms?.length ? (
+              <table className="w-full border-t border-slate-100 text-[11.5px]">
+                <tbody>
+                  {eq.terms.map((t, i) => (
+                    <tr key={i} className="border-b border-slate-50">
+                      <td className="w-24 py-1.5 pr-3 align-top font-semibold text-slate-800" style={{ fontFamily: "Georgia, serif", fontStyle: "italic" }}>{t.sym}</td>
+                      <td className="py-1.5 leading-snug text-slate-600">{t.meaning}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : null}
+          </div>
+        )}
+
+        {cur.kind === "assumptions" && (
+          <div className="space-y-3">
+            <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+              <CircleAlert size={12} /> The assumptions the results rest on
+            </div>
+            <ul className="grid gap-2 sm:grid-cols-2">
+              {model.assumptions.map((a, i) => (
+                <li key={i} className="flex items-start gap-2.5 rounded-xl border border-slate-100 bg-white px-3 py-2.5 text-[12.5px] leading-snug text-slate-700 shadow-sm">
+                  <span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-slate-800 text-[10px] font-bold text-white">{i + 1}</span>
+                  {a}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {cur.kind === "validation" && (
+          <div className="flex h-full flex-col justify-center gap-3">
+            <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-600">
+              <CircleCheck size={12} /> How the authors checked themselves
+            </div>
+            <p className="max-w-3xl rounded-2xl border border-emerald-100 bg-emerald-50/60 px-5 py-4 text-[14px] leading-relaxed text-emerald-900">
+              {model.validation}
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Rich dark stage card for the Model explainer's opening slide — fills the
+ * frame with the approach + summary + toolchain instead of a bare title. */
+function ModelStageIntro({ model, accent = "#2563eb" }) {
+  const meta = APPROACH_META[model.approach] || APPROACH_META.simulation;
+  const AIcon = meta.Icon;
+  return (
+    <div className="relative flex h-full w-full flex-col justify-center gap-3 overflow-hidden rounded-lg p-6"
+      style={{ background: "radial-gradient(120% 90% at 15% 0%, #16233b, #0b1220)" }}>
+      <div className="flex items-center gap-2">
+        <span className="grid h-11 w-11 place-items-center rounded-2xl" style={{ background: `${accent}22`, border: `1px solid ${accent}66` }}>
+          <AIcon size={22} style={{ color: "#93c5fd" }} />
+        </span>
+        <div>
+          <div className="text-xl font-bold text-white sm:text-2xl">What the paper actually did</div>
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-blue-300">{meta.label}</div>
+        </div>
+      </div>
+      <p className="max-w-2xl text-[13.5px] leading-relaxed text-slate-200 line-clamp-4">{model.summary}</p>
+      {model.toolchain?.length ? (
+        <div className="flex flex-wrap gap-1.5">
+          {model.toolchain.slice(0, 6).map((t, i) => (
+            <span key={i} className="rounded-full border border-white/15 bg-white/10 px-2.5 py-1 text-[11px] font-medium text-slate-100" title={t.role}>
+              {t.name}
+            </span>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/** Rich dark stage card for the Model explainer's closing slide — the real
+ * validation + assumptions, not an empty "How it was checked" title. */
+function ModelStageValidation({ model, accent = "#10b981" }) {
+  return (
+    <div className="relative flex h-full w-full flex-col justify-center gap-3 overflow-hidden rounded-lg p-6"
+      style={{ background: "radial-gradient(120% 90% at 85% 0%, #0f2a22, #0b1220)" }}>
+      <div className="flex items-center gap-2">
+        <span className="grid h-11 w-11 place-items-center rounded-2xl" style={{ background: `${accent}22`, border: `1px solid ${accent}66` }}>
+          <CircleCheck size={22} style={{ color: "#6ee7b7" }} />
+        </span>
+        <div className="text-xl font-bold text-white sm:text-2xl">How we know it holds up</div>
+      </div>
+      {model.validation ? (
+        <p className="max-w-2xl text-[13.5px] leading-relaxed text-emerald-50">{model.validation}</p>
+      ) : (
+        <p className="max-w-2xl text-[13.5px] leading-relaxed text-slate-300">The paper reports no explicit validation step.</p>
+      )}
+      {model.assumptions?.length ? (
+        <div className="flex flex-wrap gap-1.5">
+          {model.assumptions.slice(0, 4).map((a, i) => (
+            <span key={i} className="max-w-[46%] truncate rounded-full border border-white/12 bg-white/8 px-2.5 py-1 text-[10.5px] text-slate-200" title={a}>
+              · {a}
+            </span>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function TheModel({ model, explainer, onOpenFig }) {
-  const [openEq, setOpenEq] = useState(0);
   if (!model) return null;
   const meta = APPROACH_META[model.approach] || APPROACH_META.simulation;
   const AIcon = meta.Icon;
-  const eq = model.equations?.[Math.min(openEq, (model.equations?.length || 1) - 1)];
 
   // The Model explainer shows the paper's real governing EQUATIONS, big and
   // filling the frame — the methodology, not the result figures (those live,
@@ -2596,15 +2844,15 @@ function TheModel({ model, explainer, onOpenFig }) {
     if (visual?.type === "equation" && model.equations?.[visual.equationIdx]) {
       return <StageEquation eq={model.equations[visual.equationIdx]} accent="#2563eb" />;
     }
-    if (visual?.type === "validation") return <IntroCard title="How it was checked" sub={model.validation ? "validation & benchmarks" : meta.label} icon={CircleCheck} accent="#2563eb" />;
-    return <IntroCard title="What the paper actually did" sub={meta.label} icon={Sigma} accent="#2563eb" />;
+    if (visual?.type === "validation") return <ModelStageValidation model={model} />;
+    return <ModelStageIntro model={model} />;
   };
 
   return (
    <LabShell>
     {explainer?.scenes?.length ? (
       <div className="mb-4">
-        <ExplainerVideo explainer={explainer} renderVisual={renderVisual} accent="#2563eb" />
+        <ExplainerVideo explainer={explainer} renderVisual={renderVisual} accent="#2563eb" material={model.material || []} />
       </div>
     ) : null}
     <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -2617,106 +2865,7 @@ function TheModel({ model, explainer, onOpenFig }) {
         </span>
       </div>
 
-      <div className="grid gap-4 p-4 xl:grid-cols-5">
-        {/* left: what kind of study + the toolchain + assumptions */}
-        <div className="space-y-3 xl:col-span-2">
-          <p className="leading-relaxed text-slate-700" style={{ fontSize: "calc(var(--found-text, 13px) * var(--box-font-scale, 1))" }}>
-            {model.summary}
-          </p>
-
-          {model.toolchain?.length ? (
-            <div>
-              <div className="mb-1.5 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-                <Code2 size={12} /> The actual toolchain — instruments &amp; software
-              </div>
-              <div className="space-y-1.5">
-                {model.toolchain.map((t, i) => (
-                  <div key={i} className="flex items-start gap-2 rounded-lg border border-slate-100 bg-slate-50/60 px-3 py-1.5">
-                    <span className="mt-0.5 shrink-0 rounded bg-slate-800 px-1.5 py-0.5 text-[9.5px] font-bold text-white">{t.name}</span>
-                    <span className="text-[11.5px] leading-snug text-slate-600">{t.role}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : null}
-
-          {model.assumptions?.length ? (
-            <div>
-              <div className="mb-1.5 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-                <CircleAlert size={12} /> Assumptions the results rest on
-              </div>
-              <ul className="space-y-1">
-                {model.assumptions.map((a, i) => (
-                  <li key={i} className="flex items-start gap-2 text-[11.5px] leading-snug text-slate-600">
-                    <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-slate-400" />{a}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
-
-          {model.validation ? (
-            <div className="flex items-start gap-2 rounded-lg border border-emerald-100 bg-emerald-50/60 px-3 py-2">
-              <CircleCheck size={13} className="mt-0.5 shrink-0 text-emerald-600" />
-              <p className="text-[11.5px] leading-relaxed text-emerald-900">
-                <span className="font-semibold">How it was checked: </span>{model.validation}
-              </p>
-            </div>
-          ) : null}
-        </div>
-
-        {/* right: the governing equations, one at a time, term by term */}
-        <div className="xl:col-span-3">
-          <div className="mb-1.5 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-            <Sigma size={12} /> Governing equations — click one, read it term by term
-          </div>
-          {model.equations?.length ? (
-            <>
-              <div className="mb-2 flex flex-wrap gap-1.5">
-                {model.equations.map((e, i) => (
-                  <button key={i} onClick={() => setOpenEq(i)}
-                    className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold transition ${
-                      i === openEq ? "border-slate-800 bg-slate-800 text-white" : "border-slate-200 bg-white text-slate-600 hover:border-slate-400"
-                    }`}>
-                    {e.name}
-                  </button>
-                ))}
-              </div>
-              {eq && (
-                <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-                  <div className="pp-eq px-3 py-3"><Eq>{eq.eq}</Eq></div>
-                  <div className="p-3">
-                    <div className="flex flex-wrap items-center gap-2">
-                      {eq.source ? (
-                        <p className="text-[10.5px] italic text-slate-400">{eq.source}</p>
-                      ) : null}
-                      <ProvenanceChip provenance={eq.provenance} />
-                    </div>
-                    <p className="mt-2 text-[12px] leading-relaxed text-slate-700">{eq.plain}</p>
-                    {eq.terms?.length ? (
-                      <table className="mt-2 w-full border-t border-slate-100 text-[11px]">
-                        <tbody>
-                          {eq.terms.map((t, i) => (
-                            <tr key={i} className="border-b border-slate-50">
-                              <td className="w-24 py-1 pr-3 align-top font-semibold text-slate-800"
-                                style={{ fontFamily: "Georgia, serif", fontStyle: "italic" }}>{t.sym}</td>
-                              <td className="py-1 leading-snug text-slate-600">{t.meaning}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    ) : null}
-                  </div>
-                </div>
-              )}
-            </>
-          ) : (
-            <div className="flex min-h-[120px] items-center justify-center rounded-lg border border-dashed border-slate-200 text-[11px] text-slate-400">
-              No governing equations extracted for this paper
-            </div>
-          )}
-        </div>
-      </div>
+      <ModelSequence model={model} />
       <div className="px-4 pb-4">
         <LearnStrip terms={model.glossary} takeaways={model.takeaways} material={model.material} />
       </div>
