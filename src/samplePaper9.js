@@ -239,21 +239,21 @@ export const SAMPLE_SPEC_9 = {
     foundations: {
       voice: "onyx",
       scenes: [
-        { caption: "The background this paper builds on", narration:
-          "Four ideas frame the study: electrifying heat with heat pumps, why that spikes the winter peak, why power and gas must be planned together, and what deep decarbonization forces onto the supply side. Each ties to a real figure.",
+        { caption: "The background you need first", narration:
+          "Four ideas from prior work frame the study — before its own results. Electrifying heat with heat pumps, why that spikes the winter peak, why power and gas must be planned together, and what deep decarbonization forces onto the supply side. Play with each one.",
           visual: { type: "intro" } },
         { caption: "1 — Electrifying heat with heat pumps", narration:
-          "Heat pumps replace gas furnaces and move heating load onto the electric grid. Figure 2 shows the five scenarios, from reference adoption up to high electrification with building-envelope improvements.",
+          "Heat pumps replace gas furnaces and move heating load onto the electric grid, at two to four times the efficiency. Drag through the five electrification scenarios, from reference adoption up to high electrification with building-envelope improvements.",
           visual: { type: "demo", foundationIdx: 0 } },
         { caption: "2 — Why the winter peak explodes", narration:
-          "In a cold region, that load lands in winter when it's coldest and solar is weakest. Figure 3B shows peak electricity demand rising from about 12 gigawatts today to over 30 under high electrification.",
-          visual: { type: "figure", image: FIG("cost-fig3"), label: "FIG. 3B — peak demand by scenario", foundationIdx: 1 } },
+          "In a cold region, that load lands in winter — coldest hours, weakest solar. Peaks size the grid, so this is what drives cost. Explore how the winter peak overtakes summer as electrification deepens.",
+          visual: { type: "demo", foundationIdx: 1 } },
         { caption: "3 — Planning power and gas together", narration:
-          "Gas-fired plants draw from the gas system, so the two are coupled. Figure 1's framework co-optimizes both — cutting building gas while power still leans on some gas for cold-snap reliability.",
-          visual: { type: "figure", image: FIG("cost-fig1"), label: "FIG. 1 — the joint framework", foundationIdx: 2 } },
+          "Gas-fired plants draw fuel from the gas system, so the two are physically coupled. Electrifying buildings cuts gas there while power still leans on some gas for cold snaps — which is why they must be planned together.",
+          visual: { type: "demo", foundationIdx: 2 } },
         { caption: "4 — Decarbonization reshapes supply", narration:
-          "An economy-wide emissions cap pushes the fleet toward wind, solar, storage and low-carbon fuel. Figure 5 shows capacity far above today's, dominated by renewables, with cost rising as the cap tightens.",
-          visual: { type: "figure", image: FIG("cost-fig5"), label: "FIG. 5 — the decarbonized fleet", foundationIdx: 3 } },
+          "An economy-wide emissions cap pushes the fleet toward wind, solar, storage and low-carbon fuel. Tighten the cap and the expensive firming grows — which is what raises the system cost.",
+          visual: { type: "demo", foundationIdx: 3 } },
       ],
     },
     model: {
@@ -431,77 +431,17 @@ return { categories: ${JSON.stringify(SCEN)},
     },
   ],
 
-  explorables: [
-    {
-      title: "Annual residential demand by scenario (Fig. 3A, digitized)",
-      basis: "reported",
-      story:
-        "The paper's Fig. 3A, traced. As electrification deepens (RF→HX), residential POWER demand climbs and GAS " +
-        "demand falls — the substitution at the heart of the study. Values are the median of the 20 weather years.",
-      source: "Fig. 3A (median of 20 weather years)",
-      demo: {
-        kind: "chart", chartKind: "bar", T: 1, dt: 1,
-        xLabel: "scenario", yLabel: "residential annual demand (TWh)",
-        caption: "power rises, gas falls with electrification — the paper's Fig. 3A",
-        params: [],
-        computeJs: `
-return { categories: ${JSON.stringify(SCEN6)},
-  series: [
-    { label: "power demand (TWh)", data: [53, 57, 69, 63, 86, 72] },
-    { label: "gas demand (TWh)", data: [79, 73, 49, 43, 24, 20] },
-  ] };`,
-      },
-    },
-    {
-      title: "Peak electricity demand by scenario (Fig. 3B, digitized)",
-      basis: "reported",
-      story:
-        "Fig. 3B, traced. Watch the WINTER peak (blue in the paper) shoot past the summer peak under high " +
-        "electrification — the winter-peaking flip that sizes the grid. Under HE the winter peak nears 31 GW vs " +
-        "about 12.5 GW today.",
-      source: "Fig. 3B (scenario means)",
-      demo: {
-        kind: "chart", chartKind: "bar", T: 1, dt: 1,
-        xLabel: "scenario", yLabel: "residential peak electricity demand (GW)",
-        caption: "summer vs winter peak — the winter flip under high electrification",
-        params: [],
-        computeJs: `
-return { categories: ${JSON.stringify(SCEN6)},
-  series: [
-    { label: "summer peak (GW)", data: [13, 14, 16, 15, 17.5, 15] },
-    { label: "winter peak (GW)", data: [12.5, 13, 16.5, 14.5, 31, 24] },
-  ] };`,
-      },
-    },
-    {
-      title: "Annual system cost by scenario (Fig. 5D, digitized)",
-      basis: "reported",
-      story:
-        "Fig. 5D, traced — the headline economics. Across both emissions targets, cost FALLS as electrification " +
-        "deepens (RF is the most expensive), and the 95% target costs far more than 80%. High electrification with " +
-        "envelope (HX) is the least-cost decarbonized pathway.",
-      source: "Fig. 5D (annualized cost, exemplary weather year)",
-      demo: {
-        kind: "chart", chartKind: "bar", T: 1, dt: 1,
-        xLabel: "scenario", yLabel: "annual system cost ($ billion)",
-        caption: "cost falls with electrification; the 95% cap costs more than 80%",
-        params: [],
-        computeJs: `
-return { categories: ${JSON.stringify(SCEN)},
-  series: [
-    { label: "80% emissions target ($B)", data: [19, 16.5, 15.2, 16.2, 14] },
-    { label: "95% emissions target ($B)", data: [27.5, 24, 22, 21.2, 18.8] },
-  ] };`,
-      },
-    },
-  ],
+  // The digitized reproductions live in the Results lab (below) as interactive
+  // panels next to each real figure — the mandated place — so this section is
+  // intentionally empty to avoid duplicating them here.
+  explorables: [],
 
   protocol: {
     T: 1, dt: 1,
     description:
       "The results come from a large co-optimization solved offline, not a browser-runnable simulation, so there " +
-      "is no live pipeline. Interactivity is the paper's own reported figures reproduced as interactive charts " +
-      "(the explorables) and the grounded foundation demos.",
+      "is no live pipeline. Interactivity is the paper's own figures reproduced point-for-point as interactive " +
+      "digitized panels in the Results lab, plus the grounded foundation demos.",
   },
   blocks: [],
 
@@ -522,7 +462,30 @@ return { categories: ${JSON.stringify(SCEN)},
         { x: 0.82, y: 0.2, label: "Gas collapses", note: "Residential gas demand falls to ~20 TWh under HX." },
         { x: 0.82, y: 0.7, label: "Winter peak spikes", note: "HE winter peak nears 31 GW vs ~12.5 GW today." },
       ],
-      panels: [],
+      panels: [
+        {
+          subplotLabel: "A · Annual residential demand (TWh) — digitized from Fig. 3A",
+          xLabel: "scenario", yLabel: "residential annual demand (TWh)",
+          chartKind: "bar",
+          computeJs: `
+return { categories: ${JSON.stringify(SCEN6)},
+  series: [
+    { label: "power demand", data: [53, 57, 69, 63, 86, 72] },
+    { label: "gas demand", data: [79, 73, 49, 43, 24, 20] },
+  ] };`,
+        },
+        {
+          subplotLabel: "B · Peak electricity demand (GW) — digitized from Fig. 3B",
+          xLabel: "scenario", yLabel: "residential peak electricity demand (GW)",
+          chartKind: "bar",
+          computeJs: `
+return { categories: ${JSON.stringify(SCEN6)},
+  series: [
+    { label: "summer peak", data: [13, 14, 16, 15, 17.5, 15] },
+    { label: "winter peak", data: [12.5, 13, 16.5, 14.5, 31, 24] },
+  ] };`,
+        },
+      ],
     },
     {
       figureLabel: "FIG. 5",
@@ -534,13 +497,35 @@ return { categories: ${JSON.stringify(SCEN)},
         "Capacity (A), generation (B), gas demand/supply (C) and annual cost (D) across scenarios and the 80%/95% " +
         "targets. Capacity climbs far above 2021's 30 GW, dominated by wind and solar; generation is VRE-led; gas " +
         "shrinks in buildings but persists in power, met increasingly by low-carbon fuel; and cost (D) is lowest " +
-        "for high-electrification scenarios and much higher under the 95% target. Panel D is the paper's economic " +
-        "headline — reproduced interactively in the Explorables lab.",
+        "for high-electrification scenarios and much higher under the 95% target. Panels D and A are reproduced " +
+        "point-for-point as the interactive digitized charts below.",
       hotspots: [
         { x: 0.2, y: 0.35, label: "Far above 30 GW", note: "2050 capacity dwarfs 2021's 30 GW — mostly VRE." },
         { x: 0.78, y: 0.35, label: "Cost rises with the cap", note: "95% target costs far more than 80%." },
       ],
-      panels: [],
+      panels: [
+        {
+          subplotLabel: "D · Annual system cost ($B) — digitized from Fig. 5D",
+          xLabel: "scenario", yLabel: "annual system cost ($ billion)",
+          chartKind: "bar",
+          computeJs: `
+return { categories: ${JSON.stringify(SCEN)},
+  series: [
+    { label: "80% emissions target", data: [19, 16.5, 15.2, 16.2, 14] },
+    { label: "95% emissions target", data: [27.5, 24, 22, 21.2, 18.8] },
+  ] };`,
+        },
+        {
+          subplotLabel: "A · Installed capacity (GW), 80% target — digitized from Fig. 5A",
+          xLabel: "scenario", yLabel: "installed capacity (GW)",
+          chartKind: "bar",
+          computeJs: `
+return { categories: ${JSON.stringify(SCEN)},
+  series: [
+    { label: "total capacity", data: [83, 86, 83, 93, 88] },
+  ] };`,
+        },
+      ],
     },
   ],
 

@@ -140,10 +140,12 @@ export default function ExplainerVideo({ explainer, renderVisual, accent = "#636
         </span>
       </div>
 
-      {/* stage: the visual for this scene */}
+      {/* stage: the visual for this scene — fills the whole frame */}
       <div className="relative aspect-[16/9] w-full bg-slate-950">
-        <div className="absolute inset-0 overflow-auto p-3">
-          {renderVisual ? renderVisual(cur.visual, idx) : null}
+        <div className={`absolute inset-0 overflow-hidden p-2 ${showCaptions ? "pb-24" : ""}`}>
+          <div className="h-full w-full">
+            {renderVisual ? renderVisual(cur.visual, idx) : null}
+          </div>
         </div>
         {/* caption overlay */}
         {showCaptions && (

@@ -319,7 +319,7 @@ export const SAMPLE_SPEC_6 = {
       voice: "onyx",
       scenes: [
         { caption: "The background this paper builds on", narration:
-          "Before the new device, four ideas set the stage. Each one is tied to a real figure from the paper, so you can see it there — not just take our word for it. Let's walk through them.",
+          "Before the new device, four ideas from prior physics set the stage — the background you need before the paper's own results. Play with each one to build the intuition.",
           visual: { type: "intro" } },
         { caption: "1 — The low-temperature photon cliff", narration:
           "A solar cell only uses photons above its band gap. As an emitter cools, that above-gap supply collapses exponentially — far faster than the total heat. That's why moderate-temperature waste heat had no good converter.",

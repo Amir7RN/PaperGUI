@@ -1974,26 +1974,18 @@ function FoundationsLab({ foundations, explainer, onOpenFig }) {
   const f = foundations[Math.min(pageIdx, foundations.length - 1)];
   if (!f) return null;
 
-  // Real figures this section owns — used to fill the intro/closing scenes so
-  // they are never a blank black page behind the voice-over.
-  const sectionFigures = foundations.map((x) => x.figure).filter((g) => g?.image);
-
-  // The explainer's visual stage renders THIS section's real figures + live demos.
+  // The Background section teaches PRIOR-WORK concepts you need before the paper
+  // — NOT the paper's own results. So the explainer stage shows the interactive
+  // concept demos (filling the frame), never the paper's result figures; those
+  // live, digitized and interactive, in the Results lab.
   const renderVisual = (visual) => {
-    if (!visual) return <IntroCard title="The background this paper builds on" figures={sectionFigures} icon={Landmark} accent="#d97706" />;
-    if (visual.type === "figure" && visual.image) {
-      return <PaperFigure figure={{ image: visual.image, label: visual.label }} onOpen={onOpenFig} className="mx-auto max-w-2xl" />;
+    const d = foundations[visual?.foundationIdx]?.demo;
+    if ((visual?.type === "demo" || visual?.type === "figure") && d) {
+      return <StageDemo demo={d} />;
     }
-    if (visual.type === "demo" && foundations[visual.foundationIdx]?.demo) {
-      const d = foundations[visual.foundationIdx].demo;
-      return d.kind === "frames" ? <DemoFrames demo={d} /> : <DemoChart demo={d} />;
-    }
-    if (visual.type === "demo" || visual.type === "figure") {
-      const fi = foundations[visual.foundationIdx];
-      return <IntroCard title={fi?.title || "The background this paper builds on"} sub={fi?.source} figures={sectionFigures} icon={Landmark} accent="#d97706" />;
-    }
-    // intro / any other non-plot scene → animated montage of the real figures
-    return <IntroCard title="The background this paper builds on" figures={sectionFigures} icon={Landmark} accent="#d97706" />;
+    const fi = foundations[visual?.foundationIdx];
+    if (fi) return <IntroCard title={fi.title} sub={fi.source} icon={Landmark} accent="#d97706" />;
+    return <IntroCard title="The background you need first" sub="ideas from prior work — not this paper's results" icon={Landmark} accent="#d97706" />;
   };
 
   return (
@@ -2031,9 +2023,6 @@ function FoundationsLab({ foundations, explainer, onOpenFig }) {
                 <span className="font-semibold">What this paper adds: </span>{f.whyItMatters}
               </p>
             </div>
-            {/* The paper's OWN figure for this concept — the anchor that stops
-                the demo reading as invented. */}
-            {f.figure?.image ? <PaperFigure figure={f.figure} onOpen={onOpenFig} className="mt-3" /> : null}
             {f.svg && (
               <div className="mt-3 rounded-lg border border-slate-100 bg-white p-2"
                 dangerouslySetInnerHTML={{ __html: f.svg }} />
@@ -2063,41 +2052,56 @@ function FoundationsLab({ foundations, explainer, onOpenFig }) {
   );
 }
 
-/** Title/intro card for the explainer's non-plot scenes. Never a blank black
- * page: it shows an animated motif and, when the section has real figures, a
- * gently-animated montage of the paper's OWN figures so even the opening and
- * closing scenes carry information, not just voice-over. */
-function IntroCard({ title, sub, figures = [], icon: Icon = GraduationCap, accent = "#6366f1" }) {
-  const figs = (figures || []).filter((f) => f?.image).slice(0, 4);
+/** Title card for the explainer's opening/closing scenes — fills the whole
+ * frame with a large animated motif and the scene title, so there is no dead
+ * black space and no tiny floating thumbnails. Deliberately carries NO result
+ * figures: the Background/Model title scenes are framing, and the paper's own
+ * result figures live (digitized, interactive) in the Results lab instead. */
+function IntroCard({ title, sub, icon: Icon = GraduationCap, accent = "#6366f1" }) {
   return (
-    <div className="relative flex h-full min-h-[200px] flex-col items-center justify-center gap-3 overflow-hidden rounded-lg p-4 text-center"
-      style={{ background: "linear-gradient(135deg, #0f172a, #1e293b)" }}>
-      {/* soft animated aura so the stage is never dead-black */}
-      <div className="pointer-events-none absolute inset-0" aria-hidden>
-        <span className="pp-ring absolute left-1/2 top-1/2 h-40 w-40 -translate-x-1/2 -translate-y-1/2 rounded-full"
-          style={{ border: `2px solid ${accent}`, animationDelay: "0s" }} />
-        <span className="pp-ring absolute left-1/2 top-1/2 h-40 w-40 -translate-x-1/2 -translate-y-1/2 rounded-full"
-          style={{ border: `2px solid ${accent}`, animationDelay: "1.1s" }} />
-        <span className="pp-ring absolute left-1/2 top-1/2 h-40 w-40 -translate-x-1/2 -translate-y-1/2 rounded-full"
-          style={{ border: `2px solid ${accent}`, animationDelay: "2.2s" }} />
+    <div className="relative flex h-full w-full flex-col items-center justify-center gap-4 overflow-hidden rounded-lg p-6 text-center"
+      style={{ background: "radial-gradient(120% 90% at 50% 0%, #1e293b, #0b1220)" }}>
+      {/* large animated aura filling the frame */}
+      <div className="pointer-events-none absolute inset-0 flex items-center justify-center" aria-hidden>
+        {[0, 1.1, 2.2].map((d, i) => (
+          <span key={i} className="pp-ring absolute rounded-full"
+            style={{ height: "60vh", width: "60vh", maxHeight: "80%", maxWidth: "80%", border: `2px solid ${accent}`, animationDelay: `${d}s` }} />
+        ))}
       </div>
-      <div className="pp-float relative grid h-11 w-11 place-items-center rounded-2xl"
-        style={{ background: `${accent}22`, border: `1px solid ${accent}55` }}>
-        <Icon size={22} style={{ color: accent }} />
+      <div className="pp-float relative grid h-16 w-16 place-items-center rounded-3xl"
+        style={{ background: `${accent}22`, border: `1px solid ${accent}66` }}>
+        <Icon size={32} style={{ color: accent }} />
       </div>
       <div className="relative">
-        <div className="text-base font-bold text-white">{title}</div>
-        {sub && <div className="mt-0.5 text-[11px] text-slate-400">{sub}</div>}
+        <div className="text-2xl font-bold text-white sm:text-3xl">{title}</div>
+        {sub && <div className="mt-1.5 text-sm text-slate-300">{sub}</div>}
       </div>
-      {figs.length > 0 && (
-        <div className="relative mt-1 flex flex-wrap items-center justify-center gap-2">
-          {figs.map((f, i) => (
-            <img key={i} src={f.image} alt={f.label || "paper figure"} loading="lazy"
-              className="pp-rise h-20 max-w-[42%] rounded-md border border-white/15 bg-white object-contain shadow-lg sm:max-w-[22%]"
-              style={{ animationDelay: `${i * 130}ms` }} />
-          ))}
+    </div>
+  );
+}
+
+/** A live demo (foundation concept toy or reproduced chart) shown big on the
+ * explainer stage — centered and using the full width, so no wasted black. */
+function StageDemo({ demo }) {
+  return (
+    <div className="flex h-full w-full items-center justify-center overflow-auto rounded-lg bg-white p-3">
+      <div className="w-full max-w-3xl">
+        {demo.kind === "frames" ? <DemoFrames demo={demo} /> : <DemoChart demo={demo} />}
+      </div>
+    </div>
+  );
+}
+
+/** A governing equation shown big on the explainer stage. */
+function StageEquation({ eq, accent = "#2563eb" }) {
+  return (
+    <div className="flex h-full w-full items-center justify-center p-3">
+      <div className="w-full max-w-3xl">
+        <div className="pp-eq rounded-2xl px-6 py-8 text-center">
+          <div className="text-lg sm:text-xl"><Eq>{eq.eq}</Eq></div>
         </div>
-      )}
+        {eq.plain && <p className="mt-3 text-center text-[13px] leading-relaxed text-slate-200">{eq.plain}</p>}
+      </div>
     </div>
   );
 }
@@ -2585,24 +2589,15 @@ function TheModel({ model, explainer, onOpenFig }) {
   const AIcon = meta.Icon;
   const eq = model.equations?.[Math.min(openEq, (model.equations?.length || 1) - 1)];
 
-  // Real figures the model's equations produce — used to fill the intro/closing
-  // scenes so they are never a blank black page behind the voice-over.
-  const modelFigures = (model.equations || []).map((e) => e.figure).filter((g) => g?.image);
-
-  // The explainer stage for the Model section shows the real governing equations
-  // (and any figure an equation produces), never an invented plot.
+  // The Model explainer shows the paper's real governing EQUATIONS, big and
+  // filling the frame — the methodology, not the result figures (those live,
+  // digitized and interactive, in the Results lab).
   const renderVisual = (visual) => {
     if (visual?.type === "equation" && model.equations?.[visual.equationIdx]) {
-      const e = model.equations[visual.equationIdx];
-      return (
-        <div className="mx-auto max-w-2xl">
-          <div className="pp-eq rounded-xl p-4"><Eq>{e.eq}</Eq></div>
-          {e.figure?.image ? <PaperFigure figure={e.figure} onOpen={onOpenFig} className="mt-2" /> : null}
-        </div>
-      );
+      return <StageEquation eq={model.equations[visual.equationIdx]} accent="#2563eb" />;
     }
-    if (visual?.type === "validation") return <IntroCard title="How it was checked" sub={model.validation ? "validation & benchmarks" : meta.label} figures={modelFigures} icon={CircleCheck} accent="#2563eb" />;
-    return <IntroCard title="What the paper actually did" sub={meta.label} figures={modelFigures} icon={Sigma} accent="#2563eb" />;
+    if (visual?.type === "validation") return <IntroCard title="How it was checked" sub={model.validation ? "validation & benchmarks" : meta.label} icon={CircleCheck} accent="#2563eb" />;
+    return <IntroCard title="What the paper actually did" sub={meta.label} icon={Sigma} accent="#2563eb" />;
   };
 
   return (
@@ -2711,9 +2706,6 @@ function TheModel({ model, explainer, onOpenFig }) {
                         </tbody>
                       </table>
                     ) : null}
-                    {/* the real figure this equation produces — closes the loop
-                        from "here's the math" to "here's it in the paper" */}
-                    {eq.figure?.image ? <PaperFigure figure={eq.figure} onOpen={onOpenFig} className="mt-3" /> : null}
                   </div>
                 </div>
               )}

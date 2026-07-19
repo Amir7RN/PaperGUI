@@ -278,7 +278,7 @@ export const SAMPLE_SPEC_8 = {
       voice: "onyx",
       scenes: [
         { caption: "The background this paper builds on", narration:
-          "Four ideas set up the method: zonotopes as computable sets, assume-guarantee contracts, robust invariant sets, and the Hausdorff distance that measures correctness. Each is tied to a real figure from the paper.",
+          "Four ideas from prior work set up the method — the background you need before the paper's own results: zonotopes as computable sets, assume-guarantee contracts, robust invariant sets, and the Hausdorff distance that measures correctness. Play with each.",
           visual: { type: "intro" } },
         { caption: "1 — Zonotopes: sets you can compute with", narration:
           "A zonotope is a center plus a few generator vectors. Add them, scale them, push them through a matrix — the result is still a zonotope. That closure is why the whole method stays linear instead of exploding in complexity.",
