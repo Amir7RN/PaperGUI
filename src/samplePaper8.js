@@ -582,6 +582,31 @@ return {
 
   resultFigures: [
     {
+      figureLabel: "TABLE 1",
+      title: "Scalability — synthesis time vs system dimension (digitized)",
+      explanation:
+        "The paper's Table 1 (Case Study 3), reproduced point-for-point as an interactive log–log chart. Average " +
+        "synthesis time versus state dimension n for three methods: the centralized solve (Cen), the decentralized-" +
+        "from-centralized solve (DecCen), and the compositional method (Compose). Read the slopes: Cen climbs " +
+        "steeply and stops at n = 50 (it timed out beyond ~n = 100); DecCen reaches n = 500 before blowing up; only " +
+        "Compose continues to n = 10,000 with a gentle, near-linear slope. Every point is the exact reported value.",
+      panels: [
+        {
+          subplotLabel: "Synthesis time vs dimension — the paper's Table 1, digitized",
+          xLabel: "log₁₀ system dimension n", yLabel: "log₁₀ synthesis time (s)",
+          chartKind: "line",
+          digitized: {
+            source: "traced from TABLE 1 (exact reported values); '—' = timed out, point omitted",
+            series: [
+              { label: "Cen (centralized)", color: "#c0392b", points: [[1, -0.585], [1.301, 0.509], [1.477, 1.292], [1.699, 2.287]] },
+              { label: "DecCen (decentralized)", color: "#e08e3a", points: [[1, -2.0], [1.301, -1.0], [1.477, -0.585], [1.699, 0.013], [2, 0.637], [2.301, 1.569], [2.699, 2.761]] },
+              { label: "Compose (compositional)", color: "#1f8a4c", points: [[1, -1.523], [1.301, -1.301], [1.477, -0.62], [1.699, -0.252], [2, 0.22], [2.301, 0.81], [2.699, 1.026], [3, 1.093], [4, 2.185]] },
+            ],
+          },
+        },
+      ],
+    },
+    {
       figureLabel: "FIG. 4",
       page: 13,
       bbox: { x: 0.055, y: 0.085, w: 0.430, h: 0.170 },

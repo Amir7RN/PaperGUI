@@ -1974,9 +1974,13 @@ function FoundationsLab({ foundations, explainer, onOpenFig }) {
   const f = foundations[Math.min(pageIdx, foundations.length - 1)];
   if (!f) return null;
 
+  // Real figures this section owns — used to fill the intro/closing scenes so
+  // they are never a blank black page behind the voice-over.
+  const sectionFigures = foundations.map((x) => x.figure).filter((g) => g?.image);
+
   // The explainer's visual stage renders THIS section's real figures + live demos.
   const renderVisual = (visual) => {
-    if (!visual) return <IntroCard title="The background" />;
+    if (!visual) return <IntroCard title="The background this paper builds on" figures={sectionFigures} icon={Landmark} accent="#d97706" />;
     if (visual.type === "figure" && visual.image) {
       return <PaperFigure figure={{ image: visual.image, label: visual.label }} onOpen={onOpenFig} className="mx-auto max-w-2xl" />;
     }
@@ -1984,8 +1988,12 @@ function FoundationsLab({ foundations, explainer, onOpenFig }) {
       const d = foundations[visual.foundationIdx].demo;
       return d.kind === "frames" ? <DemoFrames demo={d} /> : <DemoChart demo={d} />;
     }
-    const fi = foundations[visual.foundationIdx];
-    return <IntroCard title={fi?.title || "The background this paper builds on"} sub={fi?.source} />;
+    if (visual.type === "demo" || visual.type === "figure") {
+      const fi = foundations[visual.foundationIdx];
+      return <IntroCard title={fi?.title || "The background this paper builds on"} sub={fi?.source} figures={sectionFigures} icon={Landmark} accent="#d97706" />;
+    }
+    // intro / any other non-plot scene → animated montage of the real figures
+    return <IntroCard title="The background this paper builds on" figures={sectionFigures} icon={Landmark} accent="#d97706" />;
   };
 
   return (
@@ -2055,13 +2063,41 @@ function FoundationsLab({ foundations, explainer, onOpenFig }) {
   );
 }
 
-/** Simple title/intro card used on the explainer stage for non-visual scenes. */
-function IntroCard({ title, sub }) {
+/** Title/intro card for the explainer's non-plot scenes. Never a blank black
+ * page: it shows an animated motif and, when the section has real figures, a
+ * gently-animated montage of the paper's OWN figures so even the opening and
+ * closing scenes carry information, not just voice-over. */
+function IntroCard({ title, sub, figures = [], icon: Icon = GraduationCap, accent = "#6366f1" }) {
+  const figs = (figures || []).filter((f) => f?.image).slice(0, 4);
   return (
-    <div className="flex h-full min-h-[160px] flex-col items-center justify-center gap-2 rounded-lg bg-gradient-to-br from-slate-800 to-slate-900 p-4 text-center">
-      <GraduationCap size={28} className="text-indigo-300" />
-      <div className="text-base font-bold text-white">{title}</div>
-      {sub && <div className="text-[11px] text-slate-400">{sub}</div>}
+    <div className="relative flex h-full min-h-[200px] flex-col items-center justify-center gap-3 overflow-hidden rounded-lg p-4 text-center"
+      style={{ background: "linear-gradient(135deg, #0f172a, #1e293b)" }}>
+      {/* soft animated aura so the stage is never dead-black */}
+      <div className="pointer-events-none absolute inset-0" aria-hidden>
+        <span className="pp-ring absolute left-1/2 top-1/2 h-40 w-40 -translate-x-1/2 -translate-y-1/2 rounded-full"
+          style={{ border: `2px solid ${accent}`, animationDelay: "0s" }} />
+        <span className="pp-ring absolute left-1/2 top-1/2 h-40 w-40 -translate-x-1/2 -translate-y-1/2 rounded-full"
+          style={{ border: `2px solid ${accent}`, animationDelay: "1.1s" }} />
+        <span className="pp-ring absolute left-1/2 top-1/2 h-40 w-40 -translate-x-1/2 -translate-y-1/2 rounded-full"
+          style={{ border: `2px solid ${accent}`, animationDelay: "2.2s" }} />
+      </div>
+      <div className="pp-float relative grid h-11 w-11 place-items-center rounded-2xl"
+        style={{ background: `${accent}22`, border: `1px solid ${accent}55` }}>
+        <Icon size={22} style={{ color: accent }} />
+      </div>
+      <div className="relative">
+        <div className="text-base font-bold text-white">{title}</div>
+        {sub && <div className="mt-0.5 text-[11px] text-slate-400">{sub}</div>}
+      </div>
+      {figs.length > 0 && (
+        <div className="relative mt-1 flex flex-wrap items-center justify-center gap-2">
+          {figs.map((f, i) => (
+            <img key={i} src={f.image} alt={f.label || "paper figure"} loading="lazy"
+              className="pp-rise h-20 max-w-[42%] rounded-md border border-white/15 bg-white object-contain shadow-lg sm:max-w-[22%]"
+              style={{ animationDelay: `${i * 130}ms` }} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -2549,6 +2585,10 @@ function TheModel({ model, explainer, onOpenFig }) {
   const AIcon = meta.Icon;
   const eq = model.equations?.[Math.min(openEq, (model.equations?.length || 1) - 1)];
 
+  // Real figures the model's equations produce — used to fill the intro/closing
+  // scenes so they are never a blank black page behind the voice-over.
+  const modelFigures = (model.equations || []).map((e) => e.figure).filter((g) => g?.image);
+
   // The explainer stage for the Model section shows the real governing equations
   // (and any figure an equation produces), never an invented plot.
   const renderVisual = (visual) => {
@@ -2561,8 +2601,8 @@ function TheModel({ model, explainer, onOpenFig }) {
         </div>
       );
     }
-    if (visual?.type === "validation") return <IntroCard title="How it was checked" sub={model.approach} />;
-    return <IntroCard title="What the paper actually did" sub={meta.label} />;
+    if (visual?.type === "validation") return <IntroCard title="How it was checked" sub={model.validation ? "validation & benchmarks" : meta.label} figures={modelFigures} icon={CircleCheck} accent="#2563eb" />;
+    return <IntroCard title="What the paper actually did" sub={meta.label} figures={modelFigures} icon={Sigma} accent="#2563eb" />;
   };
 
   return (

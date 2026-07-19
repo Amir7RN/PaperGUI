@@ -26,6 +26,7 @@ import { SAMPLE_SPEC_5 } from "./samplePaper5.js";
 import { SAMPLE_SPEC_6 } from "./samplePaper6.js";
 import { SAMPLE_SPEC_7 } from "./samplePaper7.js";
 import { SAMPLE_SPEC_8 } from "./samplePaper8.js";
+import { SAMPLE_SPEC_9 } from "./samplePaper9.js";
 import { analyzePaper, MODEL_TIERS, getModelTier, setModelTier } from "./api.js";
 import { fileToBase64, renderPdfRegions } from "./pdf.js";
 import {
@@ -615,6 +616,18 @@ function Landing({
                 Control theory, with fully grounded Background &amp; Model sections: narrated
                 explainers, the paper's own figures beside every plot, and the convex potential
                 function &amp; scalability table on live sliders.
+              </span>
+            </button>
+            <button
+              onClick={() => onSample(SAMPLE_SPEC_9)}
+              disabled={busy}
+              className="group flex flex-col items-start gap-1 rounded-2xl border border-slate-200/80 bg-white/90 p-4 text-left shadow-sm backdrop-blur transition hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-xl disabled:opacity-50"
+            >
+              <span className="text-sm font-semibold text-slate-800">Decarbonized power-gas planning under heating electrification (Cell Reports Sustainability)</span>
+              <span className="text-xs leading-relaxed text-slate-500">
+                Energy-systems planning with grounded Background &amp; Model sections, narrated
+                explainers, and the paper's headline figures — annual/peak demand and system cost
+                by scenario — reproduced point-for-point as interactive digitized charts.
               </span>
             </button>
           </div>
