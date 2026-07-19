@@ -38,7 +38,7 @@ export function setModelTier(id) {
  */
 const PHASES = [
   { id: "overview", title: "Story & foundations", from: 3,  to: 34,
-    keys: ["meta", "archetype", "story", "mindmap", "conclusion", "references", "conceptFigures", "foundations"] },
+    keys: ["meta", "archetype", "story", "mindmap", "conclusion", "references", "conceptFigures", "foundations", "model"] },
   { id: "method",   title: "Interactive method layer", from: 34, to: 67,
     keys: ["protocol", "blocks", "explorables"] },
   { id: "results",  title: "Result figures",      from: 67, to: 99,

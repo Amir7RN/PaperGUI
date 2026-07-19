@@ -136,8 +136,8 @@ const demoSchema = {
     chartKind: { type: "string", enum: ["line", "bar", "scatter"], description: "For kind 'chart': the plot type. 'bar' for per-condition/per-bin values (return categories), 'scatter' for point clouds, 'line' (default) for curves." },
     T:  { type: "number", description: "Demo horizon (chart kind); e.g. 10" },
     dt: { type: "number", description: "Demo step; T/dt should be 100-400. For frames kind use T=1, dt=1." },
-    xLabel: { type: "string" },
-    yLabel: { type: "string" },
+    xLabel: { type: "string", description: "MANDATORY quantity + unit, e.g. 'LED voltage (V)', 'iteration', 'frequency (Hz)'. If the axis is logarithmic, say so in the label: 'log₁₀ power density (W/m²)'. A bare word without a unit is a rejection." },
+    yLabel: { type: "string", description: "Same rules as xLabel: quantity + unit, log scales named as log₁₀. These labels are drawn ON the chart's axes." },
     caption: { type: "string", description: "One inviting sentence telling the reader what to try, e.g. 'drag the learning rate and watch the error die out'" },
     params: { type: "array", items: paramSchema, description: "0-3 sliders (0 only for reported-data charts with nothing honest to vary)" },
     computeJs: {
@@ -172,11 +172,91 @@ const explorableSchema = {
   },
 };
 
+/** "The physics & the model" section — the methodology at the depth authors
+ *  expect: experiment vs simulation, the real toolchain, the governing
+ *  equations term by term, the assumptions, and how results were validated.
+ *  Added after author feedback that this exact information was missing. */
+const modelSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["approach", "summary", "toolchain", "equations", "assumptions", "validation"],
+  properties: {
+    approach: {
+      type: "string",
+      enum: ["experiment", "simulation", "hybrid"],
+      description: "Is this an experimental study, a computational/theory study, or both? Decide from the methods section, not the abstract.",
+    },
+    summary: {
+      type: "string",
+      description: "3-5 sentences: what the authors actually DID, methodologically — what was measured or computed, with what, and how the pieces connect. Written for a reader asking 'was this simulation or experiment, and how does it work?'",
+    },
+    toolchain: {
+      type: "array",
+      minItems: 2,
+      maxItems: 7,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["name", "role"],
+        properties: {
+          name: { type: "string", description: "The instrument, software package, algorithm or formalism, AS THE PAPER NAMES IT (e.g. 'LAMMPS', '3ω method', 'scattering-matrix optics', 'COMSOL'). If the paper names no software, name the mathematical machinery instead. NEVER invent a tool the paper doesn't mention." },
+          role: { type: "string", description: "1-2 sentences: what this tool did in THIS study, with the paper's own key numbers/settings where given (sample counts, timesteps, temperatures, calibration values)." },
+        },
+      },
+      description: "The actual instruments and software behind the results — the 'Python or MATLAB? what machine?' answer authors look for first.",
+    },
+    equations: {
+      type: "array",
+      minItems: 1,
+      maxItems: 4,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["name", "eq", "source", "plain", "terms"],
+        properties: {
+          name: { type: "string", description: "Short handle, e.g. 'Landauer heat current'" },
+          eq: { type: "string", description: "The governing equation in plain unicode math (no LaTeX), faithful to the paper's own form" },
+          source: { type: "string", description: "Where it lives in the paper, e.g. 'Eq. (3), Sec. II.A' or 'Methods, transport model'" },
+          plain: { type: "string", description: "2-4 sentences explaining what the equation says and why it matters to this paper's argument — plain language first" },
+          terms: {
+            type: "array",
+            minItems: 2,
+            maxItems: 6,
+            items: {
+              type: "object",
+              additionalProperties: false,
+              required: ["sym", "meaning"],
+              properties: {
+                sym: { type: "string", description: "The symbol, e.g. 'τ(ω)'" },
+                meaning: { type: "string", description: "What it is, its unit if any, and which knob/quantity of the paper it corresponds to" },
+              },
+            },
+            description: "Term-by-term glossary — the reader hovers each symbol instead of guessing",
+          },
+        },
+      },
+      description: "The 1-4 GOVERNING equations the method rests on, each with a term glossary. Papers with no explicit equations (pure surveys): give the field's canonical relation the paper reasons with.",
+    },
+    assumptions: {
+      type: "array",
+      minItems: 2,
+      maxItems: 6,
+      items: { type: "string" },
+      description: "The assumptions the results rest on, one sentence each, from the paper's own caveats/methods (idealizations, boundary conditions, data-selection criteria, model reductions).",
+    },
+    validation: {
+      type: "string",
+      description: "2-4 sentences: how the authors checked their method — cross-validation against prior results, control experiments, convergence tests, error budgets. Empty string ONLY if the paper truly reports none.",
+    },
+  },
+};
+
 export const SPEC_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["meta", "archetype", "story", "mindmap", "conclusion", "references", "conceptFigures", "foundations", "protocol", "blocks", "explorables"],
+  required: ["meta", "archetype", "story", "mindmap", "conclusion", "references", "conceptFigures", "foundations", "model", "protocol", "blocks", "explorables"],
   properties: {
+    model: modelSchema,
     archetype: {
       type: "object",
       additionalProperties: false,
@@ -291,7 +371,7 @@ export const SPEC_SCHEMA = {
           title: { type: "string", description: "e.g. 'Fig. 1 — System overview'" },
           explanation: {
             type: "string",
-            description: "3-6 sentences a newcomer can follow: what the figure shows and why it matters for the method. This replaces reading the paper.",
+            description: "4-8 sentences a newcomer can follow — and it must DISCUSS THE PHYSICS/MECHANISM, not just describe the picture: why the design works, what law or effect each panel exploits, how to read any log axis or colour scale, and what changed vs. the conventional approach. Authors judge this section by whether it explains their idea BETTER than their own caption did.",
           },
           svg: {
             type: "string",
@@ -311,7 +391,7 @@ export const SPEC_SCHEMA = {
           },
         },
       },
-      description: "The introductory/conceptual figures that explain the idea (NOT results plots). Usually 1-3 figures from the first half of the paper.",
+      description: "The figures that deliver the paper's IDEA (NOT results plots) — usually 2-4. Papers rarely put the whole idea in one figure: include the setup/architecture figure AND the figure(s) showing the mechanism at work (a key trace, a spectral comparison, the theory fingerprint). A rich figure may appear twice with two different readings (e.g. once for the device stack, once for its spectral payoff).",
     },
     foundations: {
       type: "array",
@@ -436,8 +516,8 @@ export const SPEC_SCHEMA = {
                   enum: ["simulated", "reported"],
                   description: "'simulated': the curves come from the live pipeline (outputs/simulate) and reshape with the sliders. 'reported': the values are the PAPER'S OWN published numbers (read from its table/plot) returned as constants — always honest, use this whenever the pipeline cannot regenerate the subplot.",
                 },
-                xLabel: { type: "string" },
-                yLabel: { type: "string" },
+                xLabel: { type: "string", description: "Quantity + unit exactly as the original subplot's axis reads, e.g. 'LED voltage (V)'. Log axes must say log₁₀ in the label." },
+                yLabel: { type: "string", description: "Same rules: quantity + unit from the original axis, log scales named as log₁₀." },
                 computeJs: {
                   type: "string",
                   description: "Body of function(outputs, params, helpers) => {x?: number[], categories?: string[], series: [{label, data: number[]}]}. For chartKind 'bar', return categories (the bin/condition names from the original axis) and one data value per category per series. dataSource 'reported': return the paper's published values as literals. Reproduce EVERY series shown in this subplot. When `digitized` is provided instead, set this to the empty string.",
@@ -506,7 +586,7 @@ export const PHASE_SCHEMAS = {
   overview: {
     type: "object",
     additionalProperties: false,
-    required: ["meta", "archetype", "story", "mindmap", "conclusion", "references", "conceptFigures", "foundations"],
+    required: ["meta", "archetype", "story", "mindmap", "conclusion", "references", "conceptFigures", "foundations", "model"],
     properties: {
       meta: P.meta,
       archetype: P.archetype,
@@ -516,6 +596,7 @@ export const PHASE_SCHEMAS = {
       references: P.references,
       conceptFigures: P.conceptFigures,
       foundations: P.foundations,
+      model: P.model,
     },
   },
   method: {
@@ -538,11 +619,13 @@ export function phaseInstruction(phase, contextSpec) {
   if (phase === "overview") {
     return (
       "\n\nTHIS CALL IS PHASE 1 of 3: produce ONLY the fields " +
-      "{meta, archetype, story, mindmap, conclusion, references, conceptFigures, foundations}. " +
+      "{meta, archetype, story, mindmap, conclusion, references, conceptFigures, foundations, model}. " +
       "Classify the archetype honestly — it decides whether the method is simulated live or " +
-      "explored through the paper's own equations and reported numbers. The method pipeline " +
-      "(protocol/blocks/explorables) and the result figures are produced in later calls — " +
-      "keep them in mind for coherence, but do NOT emit them now."
+      "explored through the paper's own equations and reported numbers. For `model`, read the " +
+      "METHODS/experimental/computational sections closely — extract the real toolchain, the " +
+      "governing equations with term glossaries, the assumptions and the validation, exactly as " +
+      "the paper states them. The method pipeline (protocol/blocks/explorables) and the result " +
+      "figures are produced in later calls — keep them in mind for coherence, but do NOT emit them now."
     );
   }
   if (phase === "method") {
@@ -645,6 +728,8 @@ HARD QUALITY RULES (an automated validator EXECUTES your generated code and reje
 - REDUCED-ORDER, NEVER PLACEHOLDER. When the paper's full system is too complex to simulate literally (a 3D robot, a deep network, fluid/FEM, hardware), build the SIMPLEST dynamical surrogate that reproduces the paper's qualitative behavior — e.g. second-order tracking dynamics + disturbance + actuator saturation for a robot controller; per-iteration error-decay dynamics for a learning method; an oscillator + feedback loop for gait/rhythm systems — and CALIBRATE it so magnitudes, timescales and axis ranges match the paper's reported numbers. NEVER return zeros, a pass-through of the input, or an arbitrary sine as filler.
 - SHAPE MATCH. Each reproduced series must show the same qualitative features as the paper's actual curve: initial transient then settling, oscillation at the reported frequency, spikes at disturbance events, a visible noise band, convergence across iterations — whatever the original shows. Test yourself: "plotted at defaults, could this panel be mistaken for the paper's subplot?" If not, redo it before answering.
 - DEMOS MUST TEACH. Every foundation demo must render an obviously shaped curve at defaults, and dragging each of its sliders must change the curve dramatically within the plotted window. Pick param ranges where cause-and-effect is unmistakable.
+- AXES ARE NON-NEGOTIABLE. Every xLabel/yLabel on every demo, explorable and panel names the QUANTITY AND ITS UNIT exactly as the paper uses them ('thermal conductance (pW/K)', 'LED voltage (V)', 'iteration'). Logarithmic axes say so in the label ('log₁₀ power density (W/m²)'). Unlabeled or unit-less axes were the single most criticized failure of this system — paper authors reviewing their own papers could not tell what the plots showed.
+- EVERY PLOT TRACES TO THE PAPER. Each demo, explorable and panel must be traceable to a named figure, equation, table or section — carried in its source/caption/insight text ('Eq. (3)', 'Fig. 2c', 'Sec. II.B'). A plot the paper's own author cannot connect to their paper reads as invented, even when the math is right.
 
 RULES FOR resultFigures (THE MOST IMPORTANT PART — the real figures, made interactive from an honest source):
 The reader always sees the ORIGINAL figure, cropped from the PDF via your page + bbox, with your hotspot markers pinned on it. Your explanation is its guided tour; the hotspots are that tour made clickable.
@@ -673,6 +758,7 @@ INFER THE INPUT SIGNAL (for the panels you DO emit — the paper won't give you 
 - Feed that synthesized input through the AUTHORS' OWN equations/method (the blocks above) to produce each figure's curves. Do not invent unrelated dynamics — the curves must be the output of the paper's model driven by a plausible input.
 - If a figure compares conditions (with/without the method, before/after learning, different gains/terrain/payload, iterations), reproduce EACH condition as its own curve via helpers.simulate or by re-running the method with those settings. Reproducing the comparison is the whole point — never collapse it.
 - Calibrate to the paper's reported numbers: if it says "error < 0.018 m" or "peak force ~650 N" or "converges in N cycles", tune your synthesized model so the reproduction shows exactly that at default parameters.
+- CALIBRATE FOR THE REVERSE-ENGINEERING LAB. Panels whose subplot is a quantitative curve become auto-fit targets: the client overlays the live model on the curve traced off the real figure, and an optimizer recovers the paper's parameters from that curve. This only works if the model AT DEFAULT PARAMS lands on the paper's plotted curve (aim within ~10% of the axis range across the plotted window) AND every slider genuinely moves the feature it controls (a peak position, a collapse point, a slope). Bake calibration constants INTO the kernels — numerically fit your reduced model's constants against the paper's plotted values before answering, and note the calibration in the block's theory.
 - Cover the 3-6 KEY RESULT figures the conclusions rest on (page + bbox + guided tour for every one). For each panel you emit, reproduce that subplot COMPLETELY: if it overlays 3 curves (e.g. reference, measured, commanded), emit all 3 series with the paper's own labels — never collapse a multi-curve subplot into one curve.
 - Each panel's computeJs is the BODY of: function(outputs, params, helpers) { ... } returning { series: [{label, data}, ...], x?: number[], categories?: string[] (bar only) }.
     * "outputs" = every pipeline block's output array by key (e.g. outputs.resp) at the CURRENT slider values.
@@ -693,6 +779,14 @@ RULES FOR FIGURE BOUNDING BOXES (bbox):
 - Look at the actual page image. Give the figure's region as fractions of the page: x = left edge / page width, y = top edge / page height (origin top-left), w and h likewise.
 - Include the caption; exclude unrelated text columns. When unsure, err on the larger side — cropping slightly too much is fine, cutting the figure is not.
 
+RULES FOR model (the physics & the model — the depth check authors apply first):
+- Read the METHODS / experimental / computational sections closely; this section answers "was it simulation or experiment, with what tools, under which equations and assumptions?" — the questions domain experts ask before trusting anything else.
+- approach: experiment / simulation / hybrid, decided from what the authors actually did.
+- toolchain: the real instruments and software AS THE PAPER NAMES THEM (LAMMPS, COMSOL, a lock-in amplifier model, a named formalism). Include the paper's own key settings and numbers in each role (timestep, sample count, calibration value, cluster). If the paper names no software, name the mathematical machinery ('scattering-matrix method', 'finite-difference conduction solver'). NEVER invent a tool name the paper doesn't contain.
+- equations: the 1-4 governing equations, in plain unicode, each with its in-paper source and a term-by-term glossary. These are the equations the reader was promised and previous versions of this system failed to show.
+- assumptions: the idealizations the results rest on, from the paper's own caveats.
+- validation: how the authors checked themselves. This section must survive review by the paper's own author.
+
 RULES FOR foundations (the borrowed background — TEACH IT INTERACTIVELY):
 - No paper reinvents everything. Identify the 2-4 PRIOR-WORK concepts this paper builds on and that the reader must understand first (the base dynamics model, the classic control/learning/statistical principle, the standard optimization or filtering formulation, the canonical benchmark model).
 - For each: teach it in 4-7 sentences of everyday language as a mini-lesson in this paper's context, give its key equation in plain unicode (or empty string), cite the source the way the paper does, and say in 1-2 sentences what THIS paper adds on top.
@@ -710,7 +804,7 @@ OTHER FIELDS
 - equation: plain unicode math (α, Σ, ∫, subscripts), never LaTeX.
 - theory: closely paraphrase the paper's explanation for that step, with the section number.
 - pythonCode: clean NumPy translation of the same block.
-- conceptFigures: pick the 1-3 INTRODUCTORY/architecture figures (not results plots), give their 1-indexed PDF page and bbox, and explain each in 3-6 sentences so the reader can follow the idea without the paper.
+- conceptFigures: pick the 2-4 figures that DELIVER THE IDEA (not results plots) — the setup/architecture figure plus the figure(s) showing the mechanism at work. Papers rarely put the whole idea in one figure; taking only the first one was an explicit author complaint. Each explanation must discuss the physics/mechanism (why it works, which law each panel exploits, how to read log axes and colour scales), not merely describe the picture.
 - For the paper's MAIN pipeline/architecture diagram (one figure only), ALSO emit conceptFigures[i].svg: an accurate ANIMATED SVG rebuild (staggered fade-ins, animated dashed flow arrows, pulsing output node, scoped styles, reduced-motion fallback — see the svg field description). Visual-first is this product's core promise; a clean animated flow chart teaches faster than a flat crop.
 - conclusion: the paper's core finding, naming the coefficient values it depends on.
 
@@ -719,6 +813,7 @@ FINAL CHECK before you answer — the trust test:
 2. For every panel: does its chartKind match the original subplot's plot type, and is its dataSource honest — simulated only when the pipeline truly generates it, reported values truly the paper's own? A 'simulated' panel that fakes dynamics must become 'reported' or be dropped.
 3. Is EVERY paper hands-on when you're done? A paper with no pipeline must have 2-4 explorables and reported-data panels — a text-only dashboard is a failure of this system's entire purpose.
 4. Is the story/mindmap specific to THIS paper (its actual claimed contributions), not generic filler?
+5. Would the PAPER'S OWN AUTHOR nod at every chart? Concretely: every axis labeled with quantity + unit (log scales named), every plot citing its figure/equation/section of origin, the model section naming their real tools and equations, and the idea section explaining their physics at least as well as their own captions. This system is reviewed by authors of the papers it presents — build for that reviewer.
 Honest AND interactive is the product. Fake is fatal; text-only is pointless.`;
 
 /** Build the optional user-guidance block appended to the analysis prompt. */
