@@ -25,6 +25,7 @@ import { SAMPLE_SPEC_4 } from "./samplePaper4.js";
 import { SAMPLE_SPEC_5 } from "./samplePaper5.js";
 import { SAMPLE_SPEC_6 } from "./samplePaper6.js";
 import { SAMPLE_SPEC_7 } from "./samplePaper7.js";
+import { SAMPLE_SPEC_8 } from "./samplePaper8.js";
 import { analyzePaper, MODEL_TIERS, getModelTier, setModelTier } from "./api.js";
 import { fileToBase64, renderPdfRegions } from "./pdf.js";
 import {
@@ -604,6 +605,18 @@ function Landing({
                 own registration, noise and runtime tables.
               </span>
             </button>
+            <button
+              onClick={() => onSample(SAMPLE_SPEC_8)}
+              disabled={busy}
+              className="group flex flex-col items-start gap-1 rounded-2xl border border-slate-200/80 bg-white/90 p-4 text-left shadow-sm backdrop-blur transition hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-xl disabled:opacity-50"
+            >
+              <span className="text-sm font-semibold text-slate-800">Compositional synthesis via convex AG contracts (Automatica)</span>
+              <span className="text-xs leading-relaxed text-slate-500">
+                Control theory, with fully grounded Background &amp; Model sections: narrated
+                explainers, the paper's own figures beside every plot, and the convex potential
+                function &amp; scalability table on live sliders.
+              </span>
+            </button>
           </div>
 
           <button
@@ -797,12 +810,24 @@ export default function App() {
       try {
         const concept = newSpec.conceptFigures || [];
         const results = newSpec.resultFigures || [];
-        const items = [...concept, ...results].map((f) => ({ page: f.page, bbox: f.bbox }));
+        // Sections 4 & 5 (Background + Model) now ground their live plots against
+        // the paper's OWN figure. Those figure refs carry a page+bbox too, so they
+        // ride the same crop pass — a foundation's `figure` and a model equation's
+        // `figure` each get a real `.image`, which is what stops those sections
+        // reading as invented.
+        const foundFigs = (newSpec.foundations || [])
+          .map((f) => f.figure).filter((g) => g && g.bbox);
+        const eqFigs = (newSpec.model?.equations || [])
+          .map((e) => e.figure).filter((g) => g && g.bbox);
+        const groundFigs = [...foundFigs, ...eqFigs];
+        const items = [...concept, ...results, ...groundFigs].map((f) => ({ page: f.page, bbox: f.bbox }));
         const crops = await renderPdfRegions(arrayBuffer, items);
         // A concept figure carrying an animated SVG rebuild shows THAT instead
         // of the flat page crop — don't attach an image that would override it.
         concept.forEach((f, i) => { if (crops[i] && !f.svg) f.image = crops[i]; });
         results.forEach((f, i) => { if (crops[concept.length + i]) f.image = crops[concept.length + i]; });
+        const gOff = concept.length + results.length;
+        groundFigs.forEach((g, i) => { if (crops[gOff + i]) g.image = crops[gOff + i]; });
       } catch {
         // figure previews are optional — explanations still show
       }

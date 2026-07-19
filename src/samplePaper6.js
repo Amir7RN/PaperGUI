@@ -207,6 +207,12 @@ export const SAMPLE_SPEC_6 = {
         name: "Photon flux (gen. Planck)",
         eq: "θ(ω,T,V) = ℏω / [exp((ℏω − eV)/k_BT) − 1];   F_PV = ∫ Σ (θ_LED − θ_PV)/ℏω · ξ dω",
         source: "Eqs. (1)–(2), Sec. II.A — the heart of the model",
+        provenance: { equation: "Eqs. (1)–(2)", section: "Sec. II.A", figure: "FIG. 2" },
+        figure: {
+          image: FIG("zt-fig2"),
+          label: "FIG. 2 — what this equation produces",
+          caption: "Integrating this photon-flux equation over the stack gives the paper's Fig. 2 power/efficiency curves.",
+        },
         plain:
           "θ is the mean energy of a light mode at frequency ω when the emitter sits at temperature T and bias V. " +
           "The eV term is the photon chemical potential: it shifts the exponential so a biased LED emits as if it " +
@@ -224,6 +230,7 @@ export const SAMPLE_SPEC_6 = {
         name: "Currents & losses",
         eq: "I_PV = e·F_PV − I_Auger − I_SRH − V/R_shunt;   I_LED = e·F_LED + I_Auger + I_SRH + V/R_shunt",
         source: "Eqs. (3)–(4), Sec. II.A",
+        provenance: { equation: "Eqs. (3)–(4)", section: "Sec. II.A" },
         plain:
           "Each absorbed photon ideally makes one electron-hole pair (e·F). Reality subtracts three loss channels: " +
           "Auger recombination (three-carrier collisions, worst at high injection), Shockley–Read–Hall " +
@@ -240,6 +247,12 @@ export const SAMPLE_SPEC_6 = {
         name: "Efficiency",
         eq: "η = P / (q_rad + q_cond − V_LED·I_LED),   P = J_PV·V_PV − J_LED·V_LED",
         source: "Eqs. (5)–(6), Sec. II.A",
+        provenance: { equation: "Eqs. (5)–(6)", section: "Sec. II.B", figure: "FIG. 3" },
+        figure: {
+          image: FIG("zt-fig3"),
+          label: "FIG. 3 — efficiency vs spacer length",
+          caption: "The conduction term q_cond ∝ 1/L in this equation is why Fig. 3 shows efficiency climbing with spacer length.",
+        },
         plain:
           "Net electrical output P (PV harvest minus LED bill) divided by all the heat actually drawn from the hot " +
           "side: the net radiative flux q_rad, plus the conduction leak q_cond down the solid spacer — the one " +
@@ -255,6 +268,12 @@ export const SAMPLE_SPEC_6 = {
         name: "EQE & index matching",
         eq: "EQE = IQE × (1 − R),   R_interface = ((n₁ − n₂)/(n₁ + n₂))²  →  <2% when 3.8 | 3.5 | 3.8",
         source: "Sec. II.C, Fig. 4",
+        provenance: { section: "Sec. II.C", figure: "FIG. 4" },
+        figure: {
+          image: FIG("zt-fig4"),
+          label: "FIG. 4 — the EQE / index-matching result",
+          caption: "Fig. 4: driving interfacial reflectance under 2% by matching indices, and the self-sustaining threshold near 97–98%.",
+        },
         plain:
           "External quantum efficiency is internal efficiency times the fraction of photons that actually cross " +
           "the interfaces. Far-field devices lose 30%+ to the semiconductor-vacuum index step no matter how good " +
@@ -279,11 +298,77 @@ export const SAMPLE_SPEC_6 = {
       "results (Zhao et al. 2018/2019); the zero-gap optics were validated against the authors' own zTPV " +
       "experiments (Habibi et al., EES 2025); and sub-turn-on LED emission is cross-checked against the " +
       "generalized-Planck prediction in Supplemental Fig. S3.",
+    takeaways: [
+      "This is a purely computational device-physics study — fluctuational electrodynamics of the full layered stack, no experiment.",
+      "Every curve in the paper comes out of Eqs. (1)–(6): photon fluxes → currents (with Auger/SRH/shunt losses) → net power and efficiency.",
+      "The reduced browser model in the Method Lab is Eq. (5)–(6) with the optics collapsed into constants calibrated to the paper's own figures.",
+    ],
+    glossary: [
+      { sym: "θ(ω,T,V)", meaning: "mean energy of a light mode — the generalized-Planck occupation with photon chemical potential eV" },
+      { sym: "ξ", meaning: "transmission function between two layers, from scattering-matrix optics — where the n² enhancement enters" },
+      { sym: "q_cond", meaning: "parasitic conduction leak down the solid spacer, κ(T)·ΔT/L — the term a vacuum-gap device doesn't have" },
+      { sym: "EQE", meaning: "external quantum efficiency = internal efficiency × (1 − reflectance); the paper's key ~98% record" },
+    ],
+    material: [
+      { label: "Generalized Planck law (Würfel 1982)", url: "https://doi.org/10.1088/0022-3719/15/18/012" },
+      { label: "PRX Energy 5, 013005 (2026)", url: "https://doi.org/10.1103/PRXEnergy.5.013005" },
+    ],
+  },
+  explainer: {
+    foundations: {
+      voice: "onyx",
+      scenes: [
+        { caption: "The background this paper builds on", narration:
+          "Before the new device, four ideas set the stage. Each one is tied to a real figure from the paper, so you can see it there — not just take our word for it. Let's walk through them.",
+          visual: { type: "intro" } },
+        { caption: "1 — The low-temperature photon cliff", narration:
+          "A solar cell only uses photons above its band gap. As an emitter cools, that above-gap supply collapses exponentially — far faster than the total heat. That's why moderate-temperature waste heat had no good converter.",
+          visual: { type: "demo", foundationIdx: 0 } },
+        { caption: "2 — The LED as a photon pump", narration:
+          "The paper's trick: bias an LED and its photon emission multiplies by exp of q V over k T. At 600 kelvin, half a volt boosts emission about fifteen thousand times. Figure 2 shows the output power climbing with bias exactly this way.",
+          visual: { type: "figure", image: FIG("zt-fig2"), label: "FIG. 2(a) — power climbs with LED bias", foundationIdx: 1 } },
+        { caption: "3 — Index matching kills reflection", narration:
+          "Fill the vacuum gap with a matched-index solid and reflection nearly vanishes: no critical angle, near-zero Fresnel loss. Interfacial reflectance drops from about thirty percent to under two — the basis of the record efficiency in Figure 4.",
+          visual: { type: "figure", image: FIG("zt-fig4"), label: "FIG. 4 — the index-matching payoff", foundationIdx: 2 } },
+        { caption: "4 — The self-sustaining EQE cliff", narration:
+          "A self-sustaining device powers its own LED from the cell's output. Below about ninety-seven percent efficiency the loop loses more than it makes. Figure 4d shows net power appearing only in the top-right corner, where this paper sits.",
+          visual: { type: "figure", image: FIG("zt-fig4"), label: "FIG. 4(d) — net-power contour", foundationIdx: 3 } },
+      ],
+    },
+    model: {
+      voice: "onyx",
+      scenes: [
+        { caption: "What the paper actually did", narration:
+          "This is a purely computational study — a fluctuational-electrodynamics model of the whole layered stack. It counts photons crossing every interface, turns them into currents, and subtracts the LED's electrical bill. Every curve comes from six equations.",
+          visual: { type: "intro" } },
+        { caption: "Eqs. (1)–(2): photon flux", narration:
+          "The heart of the model. Theta is the occupation of a light mode; the e V term is the photon chemical potential that lets a biased LED out-radiate a black body above its gap. Integrating the flux over the stack gives Figure 2.",
+          visual: { type: "equation", equationIdx: 0 } },
+        { caption: "Eqs. (3)–(4): currents and losses", narration:
+          "Each photon ideally makes one electron-hole pair, but three loss channels bite: Auger, Shockley-Read-Hall, and shunt leakage. The same losses that shrink the cell's harvest inflate the LED's bill — which is why efficiency matters twice.",
+          visual: { type: "equation", equationIdx: 1 } },
+        { caption: "Eqs. (5)–(6): efficiency", narration:
+          "Net output divided by all the heat drawn from the hot side — including the conduction leak down the solid spacer, which scales as one over length. That single term is why Figure 3 sweeps spacer length.",
+          visual: { type: "equation", equationIdx: 2 } },
+        { caption: "EQE and index matching", narration:
+          "External quantum efficiency is internal efficiency times the photons that actually cross the interfaces. Matching the emitter, spacer and cell indices drives reflectance under two percent — the whole ninety-eight percent record.",
+          visual: { type: "equation", equationIdx: 3 } },
+        { caption: "How it was checked", narration:
+          "Trust comes from limits: the model reduces to standard far-field results when the spacer index goes to one, and the zero-gap optics were validated against the authors' own experiments. That's the validation ladder.",
+          visual: { type: "validation" } },
+      ],
+    },
   },
   foundations: [
     {
       title: "Why low temperatures starve TPV",
       source: "Black-body radiation + the PV band gap (Introduction)",
+      provenance: { section: "Introduction" },
+      takeaways: [
+        "A PV cell only harvests photons above its band gap E_g.",
+        "That above-gap slice collapses like e^(−E_g/k_BT) as the emitter cools — far faster than the total σT⁴ heat.",
+        "So moderate-temperature (300–700 °C) waste heat had no efficient converter — the gap this paper attacks.",
+      ],
       concept:
         "A photovoltaic cell only uses photons above its band gap. A hot surface radiates σT⁴ in total, but the " +
         "above-gap slice shrinks catastrophically as the emitter cools — it scales like exp(−E_g/k_BT). Halve the " +
@@ -325,6 +410,17 @@ return "With E_g = " + params.eg.toFixed(2) + " eV, cooling from 2000 K to 600 K
     {
       title: "The LED as a photon pump",
       source: "Generalized Planck law (Sec. II.A)",
+      provenance: { equation: "Eqs. (1)–(2)", section: "Sec. II.A", figure: "FIG. 2" },
+      figure: {
+        image: FIG("zt-fig2"),
+        label: "FIG. 2(a) — the paper's own power curves",
+        caption: "The paper's Fig. 2(a): output power climbing exponentially with LED bias, exactly the lever this concept describes. Your live demo is a toy model of this curve.",
+      },
+      takeaways: [
+        "Biasing an LED multiplies its photon emission by exp(qV/k_BT) — the bias acts as a photon chemical potential.",
+        "At 600 K, half a volt boosts emission ~15,000×; a colder LED gets more leverage per volt.",
+        "This is how a 600 K TPX mimics a much hotter passive emitter — Fig. 2's curves all climb with bias.",
+      ],
       concept:
         "Bias an LED at voltage V and its emitted photon flux is the thermal flux multiplied by exp(qV/k_BT) — the " +
         "quasi-Fermi-level splitting acts like a chemical potential for photons. At 600 K, half a volt multiplies " +
@@ -360,6 +456,17 @@ return "At " + params.T + " K, a 0.5 V bias boosts emission 10^" + b.toFixed(1) 
     {
       title: "Index matching: killing reflection at interfaces",
       source: "Fresnel reflection (Sec. II.C)",
+      provenance: { equation: "R = ((n₁−n₂)/(n₁+n₂))²", section: "Sec. II.C", figure: "FIG. 4" },
+      figure: {
+        image: FIG("zt-fig4"),
+        label: "FIG. 4 — the index-matching payoff",
+        caption: "Fig. 4 of the paper: how matched indices drive interfacial reflectance toward zero and EQE toward its record. The demo sweeps the same Fresnel formula.",
+      },
+      takeaways: [
+        "Reflection at an interface is R = ((n₁−n₂)/(n₁+n₂))² — zero only when the indices match.",
+        "A matched-index solid spacer also removes total internal reflection (no critical angle).",
+        "Result: <2% interfacial reflectance vs ~30% for a vacuum gap — the basis of the 98% EQE record.",
+      ],
       concept:
         "Light crossing from index n₁ to n₂ reflects R = ((n₁−n₂)/(n₁+n₂))² even at normal incidence — and beyond " +
         "the critical angle it reflects TOTALLY. An LED with n ≈ 3.5 facing vacuum (n = 1) traps most of its " +
@@ -399,6 +506,17 @@ return "An n₁ = " + params.n1.toFixed(2) + " emitter loses " + rV.toFixed(0) +
     {
       title: "The self-sustaining loop and its EQE cliff",
       source: "Self-sustaining circuit analysis (Sec. II.C, Fig. 4d)",
+      provenance: { section: "Sec. II.C", figure: "FIG. 4(d)" },
+      figure: {
+        image: FIG("zt-fig4"),
+        label: "FIG. 4(d) — net power only in the top-right corner",
+        caption: "Fig. 4(d): the contour where a self-sustaining loop yields net power. It opens only above ~97–98% EQE — where this paper sits and prior ≤96% devices don't.",
+      },
+      takeaways: [
+        "A self-sustaining TPX powers its own LED from PV output — loop gain ≈ EQE_LED × EQE_PV × voltage ratio.",
+        "Below a threshold EQE (~90–98%) the loop consumes more than it makes: net power is negative.",
+        "This reframes the 98% EQE record as THE enabling number — the reason 20 years of ~90% devices produced nothing.",
+      ],
       concept:
         "A self-sustaining TPX powers its own LED from its PV output — no external supply. Every photon cycle " +
         "loses a fraction (1 − EQE) to non-radiative recombination, so the loop gain is roughly " +
