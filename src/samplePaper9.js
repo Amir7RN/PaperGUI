@@ -22,6 +22,28 @@ const FIG = (name) => `${BASE}figs/${name}.jpg`;
 const SCEN = ["RF", "ME", "MX", "HE", "HX"];
 const SCEN6 = ["Present-day", "RF", "ME", "MX", "HE", "HX"];
 
+/* violin density outline: narrow tails, widest at `peak`, over [lo,hi] — traced
+ * to match the blob shapes in Fig. 3B (half-width 0..1 of the max). */
+const V = (peak, lo, hi) => {
+  const N = 9, spread = (hi - lo) / 2.3, out = [];
+  for (let i = 0; i < N; i++) {
+    const y = lo + (hi - lo) * (i / (N - 1));
+    out.push({ y: +y.toFixed(2), w: +Math.max(0.07, Math.exp(-((y - peak) ** 2) / (2 * spread * spread))).toFixed(3) });
+  }
+  return out;
+};
+
+/* paper colour palette read off the Fig. 5 legends */
+const CAP_COLORS = {
+  "nuclear": "#a11d1d", "hydro": "#4a90d9", "CCGT-CCS": "#d8c9a0",
+  "wind-offshore-new": "#1baf7a", "solar-new": "#cdd93a", "Li-ion": "#b07aa1",
+  "Canadian-hydro": "#7c3aed", "existing-gas": "#3a0d0d",
+};
+const COST_COLORS = {
+  "Power gen + storage fix": "#8fb3e0", "Gas fixed cost": "#f0a30a",
+  "NG Import": "#1f7a7a", "LCF Import": "#8a9a3a", "Nuclear Fuel": "#2a6fdb", "CCS": "#17c3d6",
+};
+
 export const SAMPLE_SPEC_9 = {
   meta: {
     title: "Cost-effective planning of decarbonized power-gas infrastructure to meet the challenges of heating electrification",
@@ -464,26 +486,70 @@ return { categories: ${JSON.stringify(SCEN)},
       ],
       panels: [
         {
-          subplotLabel: "A · Annual residential demand (TWh) — digitized from Fig. 3A",
+          subplotLabel: "(A) Annual residential demand (TWh)",
           xLabel: "scenario", yLabel: "residential annual demand (TWh)",
           chartKind: "bar",
-          computeJs: `
-return { categories: ${JSON.stringify(SCEN6)},
-  series: [
-    { label: "power demand", data: [53, 57, 69, 63, 86, 72] },
-    { label: "gas demand", data: [79, 73, 49, 43, 24, 20] },
-  ] };`,
+          computeJs: "",
+          digitized: {
+            kind: "box",
+            source: "Fig. 3A — box-and-whisker over 20 weather years (gas red, power green; purple dots = power+gas avg)",
+            badge: "traced from Fig. 3A",
+            unit: " TWh",
+            colors: { "gas demand": "#e34948", "power demand": "#1baf7a", "power + gas (avg)": "#7c3aed" },
+            categories: [
+              { name: "Present-day",
+                boxes: [
+                  { label: "gas demand", min: 67, q1: 74, med: 79, q3: 84, max: 90 },
+                  { label: "power demand", min: 51, q1: 52, med: 53, q3: 54, max: 55 },
+                ], points: [{ label: "power + gas (avg)", value: 131 }] },
+              { name: "RF",
+                boxes: [
+                  { label: "gas demand", min: 63, q1: 68, med: 73, q3: 79, max: 86 },
+                  { label: "power demand", min: 54, q1: 55, med: 57, q3: 59, max: 61 },
+                ], points: [{ label: "power + gas (avg)", value: 130 }] },
+              { name: "ME",
+                boxes: [
+                  { label: "gas demand", min: 40, q1: 45, med: 49, q3: 53, max: 58 },
+                  { label: "power demand", min: 66, q1: 67, med: 69, q3: 70, max: 71 },
+                ], points: [{ label: "power + gas (avg)", value: 118 }] },
+              { name: "MX",
+                boxes: [
+                  { label: "gas demand", min: 34, q1: 39, med: 43, q3: 47, max: 52 },
+                  { label: "power demand", min: 61, q1: 62, med: 63, q3: 64, max: 65 },
+                ], points: [{ label: "power + gas (avg)", value: 105 }] },
+              { name: "HE",
+                boxes: [
+                  { label: "gas demand", min: 20, q1: 22, med: 24, q3: 26, max: 29 },
+                  { label: "power demand", min: 81, q1: 84, med: 86, q3: 88, max: 90 },
+                ], points: [{ label: "power + gas (avg)", value: 109 }] },
+              { name: "HX",
+                boxes: [
+                  { label: "gas demand", min: 16, q1: 18, med: 20, q3: 22, max: 24 },
+                  { label: "power demand", min: 68, q1: 70, med: 72, q3: 73, max: 75 },
+                ], points: [{ label: "power + gas (avg)", value: 92 }] },
+            ],
+          },
         },
         {
-          subplotLabel: "B · Peak electricity demand (GW) — digitized from Fig. 3B",
+          subplotLabel: "(B) Peak electricity demand (GW)",
           xLabel: "scenario", yLabel: "residential peak electricity demand (GW)",
           chartKind: "bar",
-          computeJs: `
-return { categories: ${JSON.stringify(SCEN6)},
-  series: [
-    { label: "summer peak", data: [13, 14, 16, 15, 17.5, 15] },
-    { label: "winter peak", data: [12.5, 13, 16.5, 14.5, 31, 24] },
-  ] };`,
+          computeJs: "",
+          digitized: {
+            kind: "violin",
+            source: "Fig. 3B — overlaid summer (orange) and winter (blue) peak distributions across 20 weather years",
+            badge: "traced from Fig. 3B",
+            unit: " GW",
+            colors: { "summer": "#eda100", "winter": "#4f46e5" },
+            categories: [
+              { name: "Present-day", violins: [{ label: "summer", dist: V(13, 11.5, 14.5) }, { label: "winter", dist: V(12.5, 10.5, 14) }] },
+              { name: "RF", violins: [{ label: "summer", dist: V(13.5, 12, 15.5) }, { label: "winter", dist: V(13, 11, 15) }] },
+              { name: "ME", violins: [{ label: "summer", dist: V(16.5, 14.5, 18.5) }, { label: "winter", dist: V(16, 14, 19) }] },
+              { name: "MX", violins: [{ label: "summer", dist: V(15, 13.5, 16.5) }, { label: "winter", dist: V(14.5, 13, 16) }] },
+              { name: "HE", violins: [{ label: "summer", dist: V(17.5, 16, 19.5) }, { label: "winter", dist: V(31, 25.5, 36.5) }] },
+              { name: "HX", violins: [{ label: "summer", dist: V(15, 14, 16.5) }, { label: "winter", dist: V(24, 19.5, 27.5) }] },
+            ],
+          },
         },
       ],
     },
@@ -497,33 +563,101 @@ return { categories: ${JSON.stringify(SCEN6)},
         "Capacity (A), generation (B), gas demand/supply (C) and annual cost (D) across scenarios and the 80%/95% " +
         "targets. Capacity climbs far above 2021's 30 GW, dominated by wind and solar; generation is VRE-led; gas " +
         "shrinks in buildings but persists in power, met increasingly by low-carbon fuel; and cost (D) is lowest " +
-        "for high-electrification scenarios and much higher under the 95% target. Panels D and A are reproduced " +
-        "point-for-point as the interactive digitized charts below.",
+        "for high-electrification scenarios and much higher under the 95% target. Panels A, B and D are reproduced " +
+        "below as interactive vertical stacked bars — same technology/component stack, same 80% vs 95% pairing and " +
+        "the same 2021 reference lines as the original. (Panel C's mirrored demand/supply diverging bars are shown " +
+        "in the cropped figure above.)",
       hotspots: [
         { x: 0.2, y: 0.35, label: "Far above 30 GW", note: "2050 capacity dwarfs 2021's 30 GW — mostly VRE." },
         { x: 0.78, y: 0.35, label: "Cost rises with the cap", note: "95% target costs far more than 80%." },
       ],
       panels: [
         {
-          subplotLabel: "D · Annual system cost ($B) — digitized from Fig. 5D",
-          xLabel: "scenario", yLabel: "annual system cost ($ billion)",
-          chartKind: "bar",
-          computeJs: `
-return { categories: ${JSON.stringify(SCEN)},
-  series: [
-    { label: "80% emissions target", data: [19, 16.5, 15.2, 16.2, 14] },
-    { label: "95% emissions target", data: [27.5, 24, 22, 21.2, 18.8] },
-  ] };`,
-        },
-        {
-          subplotLabel: "A · Installed capacity (GW), 80% target — digitized from Fig. 5A",
+          subplotLabel: "(A) Installed capacity (GW) — 80% vs 95% target",
           xLabel: "scenario", yLabel: "installed capacity (GW)",
           chartKind: "bar",
-          computeJs: `
-return { categories: ${JSON.stringify(SCEN)},
-  series: [
-    { label: "total capacity", data: [83, 86, 83, 93, 88] },
-  ] };`,
+          computeJs: "",
+          digitized: {
+            kind: "stackedBar",
+            source: "Fig. 5A — capacity stacked by technology, 80% and 95% emissions targets",
+            badge: "traced from Fig. 5A",
+            unit: " GW",
+            colors: CAP_COLORS,
+            subPanels: [
+              { name: "80%", refLines: [{ label: "2021 Capacity: 30 GW", value: 30 }], groups: [
+                { name: "RF", segments: [{ label: "nuclear", value: 18 }, { label: "hydro", value: 2 }, { label: "CCGT-CCS", value: 8 }, { label: "wind-offshore-new", value: 18 }, { label: "solar-new", value: 20 }, { label: "Li-ion", value: 16 }] },
+                { name: "ME", segments: [{ label: "nuclear", value: 24 }, { label: "hydro", value: 2 }, { label: "CCGT-CCS", value: 8 }, { label: "wind-offshore-new", value: 18 }, { label: "solar-new", value: 20 }, { label: "Li-ion", value: 14 }] },
+                { name: "MX", segments: [{ label: "nuclear", value: 24 }, { label: "hydro", value: 2 }, { label: "CCGT-CCS", value: 6 }, { label: "wind-offshore-new", value: 16 }, { label: "solar-new", value: 22 }, { label: "Li-ion", value: 13 }] },
+                { name: "HE", segments: [{ label: "nuclear", value: 24 }, { label: "hydro", value: 2 }, { label: "CCGT-CCS", value: 10 }, { label: "wind-offshore-new", value: 24 }, { label: "solar-new", value: 22 }, { label: "Li-ion", value: 11 }] },
+                { name: "HX", segments: [{ label: "nuclear", value: 21 }, { label: "hydro", value: 2 }, { label: "CCGT-CCS", value: 8 }, { label: "wind-offshore-new", value: 20 }, { label: "solar-new", value: 21 }, { label: "Li-ion", value: 16 }] },
+              ] },
+              { name: "95%", refLines: [{ label: "2021 Capacity: 30 GW", value: 30 }], groups: [
+                { name: "RF", segments: [{ label: "nuclear", value: 18 }, { label: "hydro", value: 2 }, { label: "CCGT-CCS", value: 8 }, { label: "wind-offshore-new", value: 18 }, { label: "solar-new", value: 21 }, { label: "Li-ion", value: 16 }] },
+                { name: "ME", segments: [{ label: "nuclear", value: 18 }, { label: "hydro", value: 2 }, { label: "CCGT-CCS", value: 10 }, { label: "wind-offshore-new", value: 20 }, { label: "solar-new", value: 22 }, { label: "Li-ion", value: 14 }] },
+                { name: "MX", segments: [{ label: "nuclear", value: 17 }, { label: "hydro", value: 2 }, { label: "CCGT-CCS", value: 8 }, { label: "wind-offshore-new", value: 18 }, { label: "solar-new", value: 23 }, { label: "Li-ion", value: 16 }] },
+                { name: "HE", segments: [{ label: "nuclear", value: 21 }, { label: "hydro", value: 2 }, { label: "CCGT-CCS", value: 12 }, { label: "wind-offshore-new", value: 28 }, { label: "solar-new", value: 22 }, { label: "Li-ion", value: 11 }] },
+                { name: "HX", segments: [{ label: "nuclear", value: 21 }, { label: "hydro", value: 2 }, { label: "CCGT-CCS", value: 8 }, { label: "wind-offshore-new", value: 20 }, { label: "solar-new", value: 21 }, { label: "Li-ion", value: 16 }] },
+              ] },
+            ],
+          },
+        },
+        {
+          subplotLabel: "(B) Power generation (TWh) — 80% vs 95% target",
+          xLabel: "scenario", yLabel: "power generation (TWh)",
+          chartKind: "bar",
+          computeJs: "",
+          digitized: {
+            kind: "stackedBar",
+            source: "Fig. 5B — generation stacked by technology, 80% and 95% emissions targets",
+            badge: "traced from Fig. 5B",
+            unit: " TWh",
+            colors: CAP_COLORS,
+            subPanels: [
+              { name: "80%", refLines: [{ label: "2021 Generation: 97 TWh", value: 97 }], groups: [
+                { name: "RF", segments: [{ label: "nuclear", value: 30 }, { label: "hydro", value: 22 }, { label: "CCGT-CCS", value: 10 }, { label: "wind-offshore-new", value: 82 }, { label: "solar-new", value: 45 }, { label: "Canadian-hydro", value: 21 }] },
+                { name: "ME", segments: [{ label: "nuclear", value: 31 }, { label: "hydro", value: 24 }, { label: "CCGT-CCS", value: 12 }, { label: "wind-offshore-new", value: 92 }, { label: "solar-new", value: 45 }, { label: "Canadian-hydro", value: 21 }] },
+                { name: "MX", segments: [{ label: "nuclear", value: 30 }, { label: "hydro", value: 24 }, { label: "CCGT-CCS", value: 10 }, { label: "wind-offshore-new", value: 88 }, { label: "solar-new", value: 44 }, { label: "Canadian-hydro", value: 21 }] },
+                { name: "HE", segments: [{ label: "nuclear", value: 31 }, { label: "hydro", value: 24 }, { label: "CCGT-CCS", value: 14 }, { label: "wind-offshore-new", value: 100 }, { label: "solar-new", value: 52 }, { label: "Canadian-hydro", value: 23 }] },
+                { name: "HX", segments: [{ label: "nuclear", value: 30 }, { label: "hydro", value: 22 }, { label: "CCGT-CCS", value: 12 }, { label: "wind-offshore-new", value: 96 }, { label: "solar-new", value: 46 }, { label: "Canadian-hydro", value: 22 }] },
+              ] },
+              { name: "95%", refLines: [{ label: "2021 Generation: 97 TWh", value: 97 }], groups: [
+                { name: "RF", segments: [{ label: "nuclear", value: 30 }, { label: "hydro", value: 22 }, { label: "CCGT-CCS", value: 10 }, { label: "wind-offshore-new", value: 82 }, { label: "solar-new", value: 45 }, { label: "Canadian-hydro", value: 21 }] },
+                { name: "ME", segments: [{ label: "nuclear", value: 31 }, { label: "hydro", value: 24 }, { label: "CCGT-CCS", value: 12 }, { label: "wind-offshore-new", value: 90 }, { label: "solar-new", value: 45 }, { label: "Canadian-hydro", value: 21 }] },
+                { name: "MX", segments: [{ label: "nuclear", value: 30 }, { label: "hydro", value: 24 }, { label: "CCGT-CCS", value: 10 }, { label: "wind-offshore-new", value: 88 }, { label: "solar-new", value: 44 }, { label: "Canadian-hydro", value: 21 }] },
+                { name: "HE", segments: [{ label: "nuclear", value: 31 }, { label: "hydro", value: 24 }, { label: "CCGT-CCS", value: 14 }, { label: "wind-offshore-new", value: 100 }, { label: "solar-new", value: 52 }, { label: "Canadian-hydro", value: 23 }] },
+                { name: "HX", segments: [{ label: "nuclear", value: 30 }, { label: "hydro", value: 22 }, { label: "CCGT-CCS", value: 12 }, { label: "wind-offshore-new", value: 94 }, { label: "solar-new", value: 46 }, { label: "Canadian-hydro", value: 22 }] },
+              ] },
+            ],
+          },
+        },
+        {
+          subplotLabel: "(D) Annual system cost ($B) — 80% vs 95% target",
+          xLabel: "scenario", yLabel: "annual system cost ($ billion)",
+          chartKind: "bar",
+          computeJs: "",
+          digitized: {
+            kind: "stackedBar",
+            source: "Fig. 5D — annual cost stacked by component, 80% and 95% emissions targets",
+            badge: "traced from Fig. 5D",
+            unit: " $B",
+            colors: COST_COLORS,
+            subPanels: [
+              { name: "80%", groups: [
+                { name: "RF", segments: [{ label: "Power gen + storage fix", value: 10.5 }, { label: "Gas fixed cost", value: 0.5 }, { label: "NG Import", value: 2 }, { label: "LCF Import", value: 6 }] },
+                { name: "ME", segments: [{ label: "Power gen + storage fix", value: 9.8 }, { label: "Gas fixed cost", value: 0.5 }, { label: "NG Import", value: 2.2 }, { label: "LCF Import", value: 4 }] },
+                { name: "MX", segments: [{ label: "Power gen + storage fix", value: 9.3 }, { label: "Gas fixed cost", value: 0.5 }, { label: "NG Import", value: 1.4 }, { label: "LCF Import", value: 4 }] },
+                { name: "HE", segments: [{ label: "Power gen + storage fix", value: 11.8 }, { label: "Gas fixed cost", value: 0.5 }, { label: "NG Import", value: 1.4 }, { label: "LCF Import", value: 2.5 }] },
+                { name: "HX", segments: [{ label: "Power gen + storage fix", value: 10.5 }, { label: "Gas fixed cost", value: 0.5 }, { label: "NG Import", value: 1 }, { label: "LCF Import", value: 2 }] },
+              ] },
+              { name: "95%", groups: [
+                { name: "RF", segments: [{ label: "Power gen + storage fix", value: 10.5 }, { label: "Gas fixed cost", value: 0.5 }, { label: "NG Import", value: 2 }, { label: "LCF Import", value: 14.5 }] },
+                { name: "ME", segments: [{ label: "Power gen + storage fix", value: 10.2 }, { label: "Gas fixed cost", value: 0.5 }, { label: "NG Import", value: 1.3 }, { label: "LCF Import", value: 12 }] },
+                { name: "MX", segments: [{ label: "Power gen + storage fix", value: 10.5 }, { label: "Gas fixed cost", value: 0.5 }, { label: "NG Import", value: 1 }, { label: "LCF Import", value: 10 }] },
+                { name: "HE", segments: [{ label: "Power gen + storage fix", value: 12.7 }, { label: "Gas fixed cost", value: 0.5 }, { label: "NG Import", value: 1.3 }, { label: "LCF Import", value: 6.7 }] },
+                { name: "HX", segments: [{ label: "Power gen + storage fix", value: 11.3 }, { label: "Gas fixed cost", value: 0.5 }, { label: "NG Import", value: 1 }, { label: "LCF Import", value: 6 }] },
+              ] },
+            ],
+          },
         },
       ],
     },

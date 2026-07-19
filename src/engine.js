@@ -275,7 +275,7 @@ export function buildPanelRows(baseRun, actRun) {
  *  Kept in sync with DigitizedPanels.jsx (which imports this list's superset
  *  logic via its own SPECIAL_DIGITIZED_KINDS export). */
 const SPECIAL_KINDS = new Set([
-  "radar", "box", "heatmap", "violin", "groupedBar", "stackedBarH", "scatter", "radialBar",
+  "radar", "box", "heatmap", "violin", "groupedBar", "stackedBar", "stackedBarH", "scatter", "radialBar",
 ]);
 
 /** Minimal shape check per special kind so a malformed digitized panel from
@@ -286,10 +286,14 @@ export function specialDigitizedValid(d) {
     case "radar":
       return (d.axes?.length >= 3) && (d.series?.length >= 1) &&
         d.series.every((s) => s.values?.length === d.axes.length);
-    case "box": return d.categories?.length >= 1 && d.categories.every((c) => c.box);
+    case "box": return d.categories?.length >= 1 && d.categories.every((c) => c.box || c.boxes?.length >= 1 || c.points?.length >= 1);
     case "heatmap": return Array.isArray(d.grid) && d.grid.length >= 1 && Array.isArray(d.grid[0]);
-    case "violin": return d.categories?.length >= 1 && d.categories.every((c) => c.dist?.length > 2);
+    case "violin": return d.categories?.length >= 1 && d.categories.every((c) => c.dist?.length > 2 || c.violins?.some((v) => v.dist?.length > 2));
     case "groupedBar": return d.groups?.length >= 1 && d.groups.every((g) => g.bars?.length >= 1);
+    case "stackedBar": {
+      const panels = d.subPanels?.length ? d.subPanels.map((s) => s.groups) : [d.groups];
+      return panels.some((gs) => gs?.length >= 1 && gs.every((g) => g.segments?.length >= 1));
+    }
     case "stackedBarH": return d.rows?.length >= 1 && d.rows.every((r) => r.segments?.length >= 1);
     case "scatter": return d.series?.length >= 1 && d.series.some((s) => s.points?.length >= 3);
     case "radialBar":
