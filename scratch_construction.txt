@@ -1,0 +1,664 @@
+PAGES 24
+
+===== PAGE 1 =====
+AUTOMATION IN CONSTRUCTION
+Available online at www.sciencedirect.com
+Automation in Construction
+Journal homepage: www.elsevier.com/locate/autcon
+* Corresponding author. E-mail address: m.noghabaee@gmail.com
+Automated Compatibility Checking of Prefabricated Components Using
+3D As-built Models and BIM
+Mojtaba Noghabaei*, Yajie Liu, Kevin Han
+Department of Civil, Construction, and Environmental Engineering, North Carolina State University, North Carolina, USA
+A R T I C L E I N F O
+Keywords:
+Point Cloud
+Reality Capture
+Computer Vision
+Visual Data
+Laser Scan
+A B S T R A C T
+There have been recent efforts to use reality capture technologies to perform remote
+quality control in construction. However, there is a lack of research efforts in
+detecting construction incompatibilities in modular construction using reality
+capture technologies. The construction incompatibilities in modular construction
+often cause reworks and delays in the project schedule. To address this issue, this
+paper presents a general compatibility analysis method that propose scanning the
+modules in manufacturing plant and construction site, and check module-to-module
+compatibility remotely, prior to the shipment and installation. This study provides
+three sample module-to-module compatibility scenarios to validate the proposed
+compatibility analysis. The case study results show that the compatibility analysis
+method was able to identify the compatibility issues with high accuracy. Lastly, the
+compatibility analysis method was validated in terms of accuracy and time
+performance in six scenarios that was defined on the modules.
+1 Introduction1
+The architecture, engineering, and construction (AEC) industry is among the largest industries in the U.S.,2
+spending over $1.3 trillion in 2019 [1,2]. In response to rising construction demand and a severe shortage of3
+skilled labor in the workforce [3,4], developers and contractors worldwide are now revisiting the concept of4
+offsite construction, integrating new technologies and manufacturing approaches, such as robotics and reality5
+© 2022 published by Elsevier. This manuscript is made available under the Elsevier user license
+https://www.elsevier.com/open-access/userlicense/1.0/
+Version of Record: https://www.sciencedirect.com/science/article/pii/S0926580522004368
+Manuscript_c91a0802d4ac77f30e5668215ccfc24e
+
+===== PAGE 2 =====
+AUTOMATION IN CONSTRUCTION 00 (2020) 000–000 2
+capture [5,6]. Moving major parts of construction into large manufacturing plants introduced new opportunities,6
+such as global construction, allowing, parts of a module or building components are produced from different7
+countries where labor and material are cheaper and then shipped to the construction site. By employing modular8
+construction the required on-site labor was decreased by 70%, which shows that modular construction can be9
+one way to deal with labor shortage that is affecting the construction industry in the U.S. [3,4]. While speed and10
+cost were the primary drivers behind Marriott's and many other companies' use of offsite construction, this11
+approach provides other benefits. For instance, constructing modules under controlled environments allows12
+quality to be vastly improved because manufacturing is not affected by weather conditions. Unlike construction13
+sites that is constantly changing, there is no change in the environment and the manufacturing facilities covers14
+multiple construction projects without changing their locations, allowing consistency in quality. Also,15
+prefabrication can significantly reduce waste in the construction process, limiting the overall environmental16
+impact of construction [7,8].17
+Despite these benefits, offsite manufacturing often introduces significant challenges that need to be18
+addressed. One of the challenges in modular construction is module mismatch, which often causes delays for the19
+whole project [9,10]. Modules often need to be modified on-site to fix the incompatibilities, which increase20
+rework and introduce new challenges. If modules are not repairable on-site, remanufacturing and shipping will21
+lead to even greater delays and cost overruns. To avoid rework and remanufacturing, researchers suggested22
+using laser scanners and BIM for quality assessment [11]. The researchers suggested registering the as-built23
+point clouds of the modules to the BIM and manually or automatically detect geometric defects [11]. Using this24
+approach, geometric defects can be identified at the manufacturing facility before shipment. Researchers have25
+applied this concept to various types of modules, such as piping spools [12], precast concrete modules [13,14],26
+and industrial modules [11].27
+The main limitation of the current methods in detecting the geometric defects is that the modules are28
+investigated individually. However, the defects often occur in module-to-module incompatibilities, especially29
+when there is a discrepancy or error in the design model versus the as-built. For example, a piping module may30
+not be compatible with its connecting modules due to changing site conditions even if each module meets the31
+required geometric standards. To address this limitation, this paper presents a compatibility checking32
+
+===== PAGE 3 =====
+AUTOMATION IN CONSTRUCTION 00 (2020) 000–000 3
+framework. In this framework, modules in the manufacturing facilities and the main structure on the project site33
+are scanned. The presented semi-automated compatibility assessment method detects module-to-module34
+incompatibilities prior to the shipment from the manufacturing sites to the project site.35
+Previous research efforts are only focused on the quality assessment of a single module or component36
+based on the corresponding BIM model of the same module or component. Meaning that, even if a module37
+passes quality requirement compared to its design model, there still is a risk of incompatibility with other38
+connecting parts on the jobsite due to constant changing nature of construction [15–17]. The development of39
+compatibility checking system between as-built modules is challenging since checking the compatibility among40
+3D scanned models with different geometry, meshing, and occlusion is inherently dynamic and can vary widely41
+[18]. Also, BIM and scanned models have a large number of vertices and faces, which may be challenging for42
+near real-time applications. Moreover, researchers suggested a need for generalized quality assessment methods43
+that can be applied on various types of modules [19]. Lastly, researchers identified that the noise and occlusions44
+are two factors that can adversely affect the accuracy of the proposed quality assessments methods [20]. The45
+presented method in the following section attempts to address these gaps in knowledge.46
+The main contributions of this study are 1) a compatibility assessment method that checks compatibility47
+between two modules and quantifies the gap between them, ensuring quality of fabricated components before48
+they are shipped and assembled and 2) a generalized method that work with different types and shapes of49
+modular/fabricated components. This compatibility method was tested and validated using three types of offsite50
+manufactured modules with varying shapes.51
+2 Background52
+Over the past few years, reality capturing technologies have received significant popularity in the AEC industry,53
+namely construction progress and performance monitoring [21–23], assembly training [15], construction54
+quantity takeoff [24], safety [25], and inspection [23,26]. However, there are still numerous research questions55
+to be investigated.56
+Module misplacement has always been a challenge in construction. Research studies wanted to avoid this57
+by employing new technologies that can automatically detect the misplacement [27]. Researchers proposed58
+
+===== PAGE 4 =====
+AUTOMATION IN CONSTRUCTION 00 (2020) 000–000 4
+using point clouds to detect module position mismatch based on scan-to-BIM registrations in pipe spools [28],59
+however this method works only on uncluttered point clouds [29]. Beside point clouds, researchers suggested60
+using video surveillance to detect the position of precast concrete modules [30]. Also, researchers proposed a61
+technique that can accurately estimate rebar positions on reinforced precast concrete bridge deck panels [19].62
+Researchers presents an algorithm for automated discrepancy quantification of construction components63
+[29,31]. The common limitation of all of these studies was that their system only works for a single module64
+under a certain condition and the proposed method could not be used on wide variety of modules [29,31].65
+In addition to the modules position, module dimension is another important factor. Researchers proposed66
+automated systems that uses scan-to-BIM registration to perform dimensional quality assessment of precast67
+concrete elements [32,33]. Similar methods performed quality assessments on the concrete steel embedded68
+plates [34]. Researchers expanded the methods to measure rebar sizes [14] and module dimensions [35].69
+Ultimately, researchers focused on detected module defects such as warping in precast concrete modules [33]70
+and deflection of the bridges for maintenance [36]. They suggested using octree and voxelization to measure the71
+bridge deflections [36]. However, their suggested method is only applicable to the bridge maintenance and72
+could not be used on various construction elements [36]. Also, the researchers developed methods to73
+automatically detect the squareness of shear keys in a precast concrete module [13].74
+Their main limitation was that their method was only applicable on small size modules. Lastly, researchers75
+suggested geometric quality inspection technique to detect defects for prefabricated MEP modules [11] and a76
+framework for surface quality assessment of precast concrete elements using edge extraction algorithms [32,33].77
+3 Method78
+Fig. 1 illustrates the overall steps of the developed compatibility checking method. The laser scanning data from79
+two modules that need to be assembled together is collected using a laser scanner. An example for such modules80
+can be two mechanical, electrical and plumbing (MEP) modules which need to be matched accurately. After81
+data collection, the modules will be registered to the BIM model. This operation is performed semi-82
+automatically by method similar to [37]. After registering each module to the corresponding BIM element, the83
+noise of each point cloud needs to be quantified and removed to make sure the collected point cloud passes the84
+
+===== PAGE 5 =====
+AUTOMATION IN CONSTRUCTION 00 (2020) 000–000 5
+requirement for compatibility checking. Lastly, a compatibility analysis has been done on both modules to make85
+sure the modules pass the compatibility requirements. Also, during the compatibility analysis, the incompatible86
+parts of each module will be highlighted to the user.87
+88 
+Fig. 1. Method overview and steps89
+Fig. 2 shows the overall workflow and provide more detail for each step that was mentioned in Fig. 1. The red90
+boxes show the compatibility checking method, the main contributions of this paper. The output of this system91
+is going to show whether the two modules are going to be compatible (i.e., fit, joint, attached as designed) based92
+on the quality threshold selected by the user.93
+94 
+Fig. 2. Flowchart of the compatibility analysis95
+96
+3.1 Data collection97
+This section describes the process of data collection. As-built modeling needs to be performed at two different98
+
+===== PAGE 6 =====
+AUTOMATION IN CONSTRUCTION 00 (2020) 000–000 6
+places – 1) where a module of interest is manufactured and 2) where this module is shipped to and assembled.99
+To generate the 3D as-built models of the module and its connecting part (i.e., building component), a reliable100
+reality capture technology should be used. For instance, for larger module and building components, a terrestrial101
+laser scanner can be used. For smaller modules and/or models with very stringent quality requirements, a102
+metrology-grade laser scanner should be used. The 3D CAD/BIM models of two objects are also needed.103
+3.2 Data registration104
+The registration process can use any existing registration method (i.e., automated [38], semi-automated [39,40],105
+or manual). For this study, a semi-automated registration was performed similar to [39,40]. Six corresponding106
+points (features or markers) were selected from both BIM and the point cloud to register the point cloud to the107
+BIM. Through this registration, the two modules’ point clouds are appropriately positioned for a compatibility108
+check. This step is necessary since checking the module-to-module compatibility is not possible without placing109
+the point clouds to their installation location. The corresponding points were used to solve the least square110
+registration problem of absolute orientation for seven degrees of freedom [41], which returns a transformation111
+matrix and a registration error. The transformation matrix is used to perform a 3D linear transformation [42,43].112
+In case of a high registration error, the registration has to be iterated until the accuracy of the registration113
+reaches below the user requirement/threshold. Also, other methods can be used for registration including114
+automated registration using fiduciary markers and surveying coordinates. In this research, we only focus on the115
+module-to-module interaction, and we assume that the elements already passed the dimensional qualities with116
+respect to their BIM models. Several past studies suggested methods to compare BIM and Scan models [15,44].117
+3.3 Data preprocessing118
+In addition to registration, noise is also another essential factor that can affect the compatibility checking119
+process. Excessive noise can severely affect compatibility checking. Fig. 3 shows a sample point cloud that was120
+affected by Gaussian noise with different levels of standard deviation. The point clouds in Fig. 3 has been121
+generated synthetically to shows that high standard deviation can adversely affect the compatibility, meaning122
+that the noise cancellation must be applied. The standard deviation should be kept low in accordance with user123
+quality requirement to make compatibility checking feasible.124
+
+===== PAGE 7 =====
+AUTOMATION IN CONSTRUCTION 00 (2020) 000–000 7
+125 
+Fig. 3. Generated point clouds with different levels of Gaussian noise for a sample pipe126
+Fig. 4 illustrates the process to quantify noise based on point cloud-to-BIM registration. After they are127
+registered into the same coordinate system, the minimum distance between each point in the point cloud to the128
+BIM is calculated. These minimum distances form a probability distribution which presents the distribution of129
+noise in the point cloud as illustrated in Fig. 4.130
+131 
+Fig. 4. Extraction of noise distribution based on scanned point cloud to BIM registration.132
+The noise quantification method operates based on the following mathematical definitions, operations,133
+and steps that compare BIM and scan models. A point cloud  is defined as a number of points that consists of134
+(, , … ,  . Each point  is created from three values for a 3D coordinate (i.e., x, y, z) and is the total number135
+of points in point cloud  . Similarly, a CAD/BIM model consists of triangulated planar surfaces/meshes that136
+consists of vertices. Each face is created by connecting three vertices (,  , ). Therefore, a mesh is defined as137
+  , . Noise is defined as the distance between each point ( in the point cloud   and the BIM (mesh ).138
+First, noise mean and standard deviation is computed and the point cloud went through a noise removal process.139
+To remove any potential noise in the collected point clouds, the Statistical Outlier Removal (SOR) method140
+[45,46] was applied. After the noise removal process, noise mean and standard deviation was calculated another141
+
+===== PAGE 8 =====
+AUTOMATION IN CONSTRUCTION 00 (2020) 000–000 8
+time to ensure that the noise level is below the selected threshold by the user.142
+In this study, we only mark the parts that are missing in the scanned model by comparing it to its143
+corresponding BIM model as suggested in this section. The missing parts in the scanned model could be a result144
+of either occlusion or the missing a part in the module. In either scenario, we are not going to make any decision145
+about the missing section of the module and the algorithm is not going to make any decision based on that146
+section. In addition, please note that the main assumption of this research is that the module is built according to147
+its BIM model and any incompatibility between BIM and scan is detected prior to the compatibility checking148
+process. Several studies discussed methods that are capable of comparing scan to BIM and those methods were149
+discussed in the background section. Also, to ensure that the compatibility analysis is robust to false negatives,150
+the top-grade laser scanners have to be used and the data has been inspected carefully.151
+3.4 Compatibility analysis152
+Compatibility of the two modules is checked at each cross section (the interval of the cross sections can be153
+determined by the users). Cross section planes are going to be in all directions (i.e., x, y, z) and with selected154
+offset, where a section plane and offset are selected by the users as illustrated in the Fig. 5. In other words, offset155
+is the amount that the point cloud is clipped. The cross section of a point cloud  is defined as follows:156
+  =  , where  − !! <  <  + !! (Eq 1)157
+, where v is a point in point cloud, section is the coordinate of section plane, and offset is coordinate of offset158
+planes as illustrated in Fig. 5.159
+Ultimately, the module-to-module distance was checked for each cross section. If the minimum distance160
+between two modules in each cross section passed the upper and lower thresholds, the modules are compatible.161
+Otherwise, the modules are marked as incompatible. The upper bound threshold is the maximum tolerable gap,162
+and the minimum threshold is the minimum tolerable gap. The lower value for the thresholds corresponds to163
+tighter joint where higher values of the thresholds correspond to having more gap between the elements. The164
+proposed compatibility assessment uses the minimum distance (MD) between two modules. The module-to-165
+module minimum distance (MD) between the two point clouds,   and  , is defined as follows:166
+$ = min()
+ 
+− 
+
+) ∶  ∈ ,1: / , 0 ∈ ,1: /1 (Eq 2)167
+, where 
+ 
+is a point in point cloud   and 
+ 
+is a point in point cloud . Also,  and  are the number of168
+
+===== PAGE 9 =====
+AUTOMATION IN CONSTRUCTION 00 (2020) 000–000 9
+points in   and  respectively.169
+170 
+Fig. 5. Visualizing the features selected for compatibility analysis.171
+172
+4 Experimental setup and results173
+This section summarizes the experimental setup and results. To validate the generalized method, three modules174
+with different shapes were chosen. The first module is a piping system. This system was selected as the175
+compatibility of the piping system is a challenge for construction industry. The distance between the pipes needs176
+to pass inspection based on the construction codes. During the inspection process, the gap between two pipes is177
+measured and based on codes and pipe diameter cannot exceed a certain threshold. The second module is a178
+precast concrete module. The rebars in such modules are often misplaced and require reworks to be fixed. The179
+third module is a window system. Incompatibility in window systems can cause waste of energy and rework180
+depending on the amount of gap. Fig. 6 presents these three compatibility tasks.181
+182 
+Fig. 6. Sample case studies for compatibility analysis183
+184
+Two objects per module were selected and scanned. The CAD models of these objects were also185
+acquired. Fig. 7 shows the pictures, scanned models, and BIM models of the six objects. These objects were186
+
+===== PAGE 10 =====
+AUTOMATION IN CONSTRUCTION 00 (2020) 000–000 10
+selected in a way that they can represent challenges (symmetricity, self-occlusion while scanning, etc.) for the187
+compatibility checking method. The result of the experiment was generated using an Intel Core i7-6700K with188
+64 GB of RAM and an Nvidia GTX 1080 as the graphic card.189
+190
+191 
+Fig. 7. Scan vs. BIM/CAD model of the used objects192
+4.1 Data collection193
+Faro S70 laser scanner was used to scan A1, A2, C1, and C2. The objects were placed on a table, and the data194
+was collected using four setups around the table, as illustrated in Fig. 8. Using the FARO software called,195
+Scene, the data from four setups were accurately registered, and the objects' point cloud was extracted. To make196
+3D scanned models of the small objects (B1 and B2), the authors used the Artec Leo laser scanners [47]. Artec197
+Leo is a hand-held scanner that can achieve an accuracy of up to 0.1 mm whereas Faro S70 can reach to up to198
+0.3 mm. The pipe was placed on the rotary table while 3D hand-held scanner stays fixed to generate a 3D199
+scanned model.200
+201
+
+===== PAGE 11 =====
+AUTOMATION IN CONSTRUCTION 00 (2020) 000–000 11
+202 
+Fig. 8. Scanning setup with Faro laser scanner203
+For each setup, the resolution was set at 1/5, meaning the scan size was chosen as (8192 by 3413 Pt).204
+Therefore, the number of collected points in each setup was 28.0 million points. With this setting, the point-to-205
+point distance will be 7.7 millimeters at a 10-meter distance. Also, the quality was selected at 6x, meaning that206
+each point was sample six times to make sure that the point cloud is accurate and reliable. Lastly, the point207
+clouds are cropped, and the objects' point clouds are separated from the surroundings. However, the removal of208
+surrounding scene (or extraction of object points) can be easily automated after registration is completed [40].209
+Table 1 depicts the number of points in the point cloud (point count) collected from each element and the210
+number of vertices (vertex count) for their corresponding BIM models.211
+Table 1. Point count and face count of the point clouds in scan and BIM212
+Point cloud
+A1 A2 B1 B2 C1 C2
+Face count BIM 2,532 124 384 448 1,176 1,180
+Point count Scan 254,156 93,835 1,000,026 999,873 193,687 48,114
+213
+4.2 Data registration214
+To register the collected point cloud to the BIM model, six markers were selected from both BIM and point215
+cloud. Using these points, the BIM model and the point cloud were registered as described in Section 3.2. Data216
+registration using Cloud Compare [43]. Table 2 shows the error for each marker in the six collected models in217
+this section. The registration process was iteratively done to make sure that the registration accuracy was kept218
+under the selected threshold for the compatibility checking. The results in Table 2 show an accuracy of 1-6 mm219
+for registration of point clouds to the corresponding BIM elements, verifying the manufacturer claim of220
+millimeter accuracy of point clouds.221
+Table 2. Registration error for each marker set on each model in millimeter.222
+
+===== PAGE 12 =====
+AUTOMATION IN CONSTRUCTION 00 (2020) 000–000 12
+Objects Markers
+M1 M2 M3 M4 M5 M6
+A1 3.1 2.3 1.1 1.8 2.6 3.4
+A2 2.2 2.9 3.9 3.4 1.6 1.2
+B1 1.8 3.2 5.3 3.2 1.3 1.7
+B2 2.6 1.3 1.6 4.1 1.0 0.6
+C1 1.6 2.7 4.0 2.5 0.8 4.9
+C2 1.4 2.3 4.9 1.8 5.6 2.5
+223
+4.3 Data preprocessing224
+This section presents the results of noise quantification and cancellation. Unity 3D was used as the main225
+tool for implementing the algorithms in this section and compatibility analysis section. Table 3 shows the results226
+of noise cancellation for each point clouds. Noise cancellation step ensures that the point cloud noise is minimal,227
+and the point clouds are ready for compatibility analysis. Fig. 9 shows the result of noise removal process on228
+object C1 in Fig. 7.229
+Table 3. Model error specifications after artifact removal (before noise removal)230
+Objects
+A1 A2 B1 B2 C1 C2
+Mean (mm) 12 (58) 18 (76) 8 (16) 6 (22) 15 (34) 14 (31)
+Sigma 31 (46) 27 (32) 22 (37) 17 (29) 17 (44) 11 (57)
+231
+232 
+Fig. 9. Sample demonstration of noise removal on object C1 in Fig. 7233
+234
+4.4 Compatibility analysis235
+The last part of the method is compatibility analysis. The first step of compatibility is to generate a cross section236
+for each module. The cross-section generation was introduced in the method section. The two main parameters237
+in generating the point cloud cross section are the position and direction of the cross-section plane as well as the238
+
+===== PAGE 13 =====
+AUTOMATION IN CONSTRUCTION 00 (2020) 000–000 13
+offset which is selected by the user. Fig. 10 shows a sample cross section plane and offset for C1.239
+240 
+Fig. 10. Point cloud cross section for C1241
+The Fig. 11 shows the extracted cross sections of objects C1 and C2 in x, y, z direction. The offset is242
+selected as 20 mm. The cross sections will be used to measure minimum distance between modules and generate243
+occlusion maps that is detailed below.244
+245 
+Fig. 11. Compatibility cross section for objects C1 and C2246
+Similarly for each compatibility scenario, cross sections can be generated in x, y, and z directions. Fig.247
+12 shows cross sections of the modules in each compatibility scenarios. In each scenario, one module cross248
+section was colored in red while the other module was in blue.249
+
+===== PAGE 14 =====
+AUTOMATION IN CONSTRUCTION 00 (2020) 000–000 14
+250 
+Fig. 12. Cross section of each coupling system in each direction251
+Fig. 13 shows the occlusion map of the C1 in y direction. The occlusion map identifies and visualizes252
+the parts of the model that were not scanned (i.e., due to self-occlusion or site conditions). Therefore, the system253
+does not detect any incompatibilities in the occluded areas and the user will know the areas that are not checked.254
+This is an inherent limitation of visual sensors that rely on clear line-of-sight (i.e., terrestrial laser scanner).255
+256 
+Fig. 13. 2D occlusion map for object C1 in y direction257
+Table 4 shows the results of the compatibility analysis and shows the value of each feature in each258
+compatibility scenario (A, B, and C). The results of the compatibility analysis can be approved or rejected based259
+on a user selected threshold. Lastly, the time performance of the compatibility analysis is reported to assess the260
+computational complexity of the proposed algorithms. The time performance in scenario B was higher than the261
+other two scenarios due to the large number of points in the point cloud. The reason why it had significantly262
+more number of points (as illustrated in Table 1) in this object is that the modules in scenario B was scanned263
+
+===== PAGE 15 =====
+AUTOMATION IN CONSTRUCTION 00 (2020) 000–000 15
+using a high precision hand-held laser scanner as opposed to the terrestrial laser scanner for the other two264
+scenarios.265
+Table 4. Compatibility feature values for each element set and time performance.266
+Object set
+A B C
+MD (mm) 4 8 6
+MD calculation time (s) 0.76 7.39 0.58
+Cross section calculation time (s) 0.243 5.12 0.193
+Total computation time (s) 1.003 12.51 0.773
+Ultimately, the objects were manipulated in six various scenarios (i.e., scaling one module in one267
+direction or introducing twist in one module) to test its performance against different as-built deviations. The268
+compatibility analysis was performed on all these scenarios. Table 5 shows when the compatibility analysis269
+algorithm accurately detected the incompatibilities with various thresholds and through different compatibility270
+scenarios. In this table, different ranges have been selected (e.g., 5-10, 10-15, and 15-20). If MD was in any of271
+the selected ranges, the system is marked as compatible for that range. Also, Table 5 summarizes the type of272
+manipulation for each scenario (SC1 to 7), compatibility of the two parts, and a figure showing a cross section273
+per scenario. The compatibility scenarios were manually inspected, and the compatibility decisions were274
+accurate. To ensure that the MD is accounted for both modules error, errors from both modules has been added275
+to the MD. Since the error in each module is a normal distribution, therefore, the summation of errors and MD276
+will be a normal distribution which is called MDdist. Eq 3 shows the formula to calculate MDdist.277
+$234 = $ + 567289: ;, < + 567289: ;, < = $ + 5 =; + ;, ><
+ 
++ <
+
+? (Eq 3)278
+The area under MDdist distribution will be the probability of MD being in the selected range. This279
+probability could be used as a metric to report if the modules are compatible in each range. The assumption for280
+compatibility analysis is that the probability (confidence level above 50% confidence level will be marked as281
+compatible. The confidence level has been reported for each of the six scenarios in Table 6. Lastly, the strength282
+and the limitations of the compatibility analysis was discussed in the Discussion and future works section.283
+284
+285
+
+===== PAGE 16 =====
+AUTOMATION IN CONSTRUCTION 00 (2020) 000–000 16
+286
+Table 5. Scenarios that compatibility analysis was tested on.287
+Scenarios
+SC1 SC2 SC3 SC4 SC5 SC6
+A A B B C C
+Threshold
+s (mm)
+A1 scaled down
+1 cm in x and y
+directions
+A1 rotated 5
+degrees in z
+direction
+B2 rotated 5
+degrees in x
+direction
+B2 scaled
+down 1 cm in x
+direction
+C2 scaled up 5
+cm in y
+direction
+C2 scaled
+down 5cm in
+y direction
+5 – 10 Incompatible Incompatible Compatible Incompatible Compatible Compatible
+10 – 15 Compatible Incompatible Incompatible Incompatible Incompatible Incompatible
+15 - 20 Incompatible Incompatible Incompatible Compatible Incompatible Incompatible
+Illustratio
+n
+288
+Table 6. Confidence level for each threshold based on the defined scenarios in Table 5289
+Scenarios
+Thresholds (mm) SC1 SC2 SC3 SC4 SC5 SC6
+5 – 10 16% 44% 52% 1% 53% 53%
+10 – 15 51% 41% 24% 17% 24% 24%
+15 - 20 29% 7% 2% 51% 2% 2%
+290
+5 Discussion and future works291
+The proposed compatibility checking method can be used in several domains as follows. The first domain can292
+be permitting operations. For example, in the case of concrete pipe installation, the gap between modules should293
+not exceed a certain threshold based on local codes. The current methods for performing such operations can be294
+done only after the modules (e.g., pipes) have been shipped and installed in place. Such procedure can often295
+cause rework in cases where the required threshold is not met. The second domain is where the modules does296
+not fit in place which can cause delays and rework to the project. For example, if the rebars do not fit in the297
+holes in precast concrete modules, the compatibility analysis can easily detect that.298
+One of the strengths of this method is that any scanning device/technology that meets the user's quality299
+requirement can be used. On the other hand, the main limitation of the proposed system is that the data300
+
+===== PAGE 17 =====
+AUTOMATION IN CONSTRUCTION 00 (2020) 000–000 17
+collection process (i.e., use of terrestrial scanners) is often time consuming. In future there is a need for devices301
+that can scan components at a much faster rate. Also, noise can adversely affect the accuracy of the proposed302
+method. Therefore, there is a need for research efforts that can minimize the amount of noise in the point cloud303
+especially for metallic objects (or any with reflective surfaces) as metal is one of the commonly used materials304
+in the construction. Furthermore, the processing time of the compatibility analysis is directly correlated with the305
+number of points in the modules. Therefore, there is a need for methods that can sample point clouds effectively306
+and reduce the processing time especially for the point clouds that are generated with high precision hand-held307
+laser scanners. Lastly, the proposed compatibility checking system presented high performance on the308
+experimented modules, however, the compatibility checking system needs309
+Fig. 14 shows an example of how this research fits in practice in complex construction systems and310
+shows how the process of bringing elements virtually to the facility (could also be a construction site) and311
+visually inspect and check for compatibility issues before shipping a prefabricated element can be beneficial.312
+During construction, prefabricated components that arrive on a job site will not have compatibility issues after313
+going through this process. Similarly, during operation and maintenance, any replacement parts/components314
+(e.g., old steam generator in a power plant) that will arrive at the facility will not have any compatibility issues.315
+Lastly, this framework can be beneficial for change orders as any changes in site condition can be scanned and316
+compatibility with a new component/design can be assessed quickly. A user can simply proof check the new317
+component even without having access to BIM model or drawings.318
+319 
+Fig. 14. Sample of complex mechanical systems320
+The compatibility algorithm has several limitations that need to be addressed. Firstly, having high level of noise321
+in the scanned model point cloud could potentially fail the proposed compatibility algorithm. For example, this322
+
+===== PAGE 18 =====
+AUTOMATION IN CONSTRUCTION 00 (2020) 000–000 18
+algorithm could not be used for point clouds that are generated using photogrammetry. Also, the objects that are323
+transparent or metallic might introduce extensive amount of noise in the scanned model and cause the algorithm324
+to fail. Moreover, several steps involve manual processes, such as registration, selection of cross-section plane,325
+and offset for compatibility. These manual steps could be automated by integrating automated registration326
+methods similar to [15,44] and methods to select the compatibility plane and offset using learning-based method327
+that imitate human agent.328
+6 Conclusion329
+Over the past few years, reality capture technologies have received significant popularity in the AEC industry,330
+namely construction progress monitoring [21], assembly training [15], construction quantity takeoff [24], safety331
+[25,48], and inspection [23]. However, there are still numerous research questions to be investigated, such as332
+efficient and general compatibility checking of offsite components. To address this issue and improve the333
+compatibility checking process, this paper presents a generalized method for compatibility checking of334
+fabricated components. The proposed method is a powerful tool in detecting geometric defects and335
+incompatibilities between modules in modular construction. This compatibility system is robust to occlusions,336
+noise, and can be applied on various types of point clouds that are captured using different approaches and337
+devices. The system was tested and validated in three different scenarios and demonstrated the effectiveness and338
+robustness of the proposed method for compatibility analysis on the as-built elements and verified the339
+compatibility of the as-built models.340
+Acknowledgments341
+This work was partially funded under the Versatile Test Reactor Program of the US Department of Energy342
+(DOE) by Battelle Energy Alliance, LLC (BEA), the Management and Operating Contractor of Idaho National343
+Laboratory (INL) under Contract Number DE-AC07-05ID14517 with DOE and DOE's ARPE-E Program under344
+Award Number DE-AR0001155. The United States Government has a non-exclusive, paid-up, irrevocable,345
+worldwide license to publish and reproduce the published form of this work and allow others to do so, for346
+United States Government purposes. Any opinions, findings, conclusions and/or recommendations expressed in347
+this paper are those of the authors and do not reflect the views of the entities above.348
+
+===== PAGE 19 =====
+AUTOMATION IN CONSTRUCTION 00 (2020) 000–000 19
+References349
+[1] United States Census Bureau, CONSTRUCTION SPENDING, 2020,350
+https://www.census.gov/construction/c30/pdf/release.pdf, Accessed date: January 20, 2020.351
+[2] M. Noghabaei, A. Heydarian, V. Balali, K. Han, Trend analysis on adoption of virtual and augmented352
+reality in the architecture, engineering, and construction industry, Data. 5 (2020).353
+https://doi.org/10.3390/data5010026.354
+[3] H. Karimi, T.R.B. Taylor, G.B. Dadi, P.M. Goodrum, C. Srinivasan, Impact of Skilled Labor355
+Availability on Construction Project Cost Performance, Journal of Construction Engineering and356
+Management. 144 (2018) pp.04018057. https://doi.org/10.1061/(ASCE)CO.1943-7862.0001512.357
+[4] S. Kim, S. Chang, D. Castro-Lacouture, Dynamic Modeling for Analyzing Impacts of Skilled Labor358
+Shortage on Construction Project Management, Journal of Management in Engineering. 36 (2020)359
+pp.04019035. https://doi.org/10.1061/(ASCE)ME.1943-5479.0000720.360
+[5] H. Li, C. Zhang, S. Song, S. Demirkesen, R. Chang, Improving tolerance control on modular361
+construction project with 3d laser scanning and bim: A case study of removable floodwall project,362
+Applied Sciences. 10 (2020) pp.1–21. https://doi.org/10.3390/app10238680.363
+[6] Y. Yang, M. Pan, W. Pan, ‘Co-evolution through interaction’ of innovative building technologies: The364
+case of modular integrated construction and robotics, Automation in Construction. 107 (2019)365
+pp.102932. https://doi.org/10.1016/j.autcon.2019.102932.366
+[7] W. Lu, H. Yuan, Investigating waste reduction potential in the upstream processes of offshore367
+prefabrication construction, Renewable and Sustainable Energy Reviews. 28 (2013) pp.804–811.368
+https://doi.org/10.1016/J.RSER.2013.08.048.369
+[8] Z. Li, G.Q. Shen, M. Alshawi, Measuring the impact of prefabrication on construction waste reduction:370
+An empirical study in China, Resources, Conservation and Recycling. 91 (2014) pp.27–39.371
+https://doi.org/10.1016/J.RESCONREC.2014.07.013.372
+[9] Y. Shahtaheri, C. Rausch, J. West, C. Haas, M. Nahangi, Managing risk in modular construction using373
+dimensional and geometric tolerance strategies, Automation in Construction. 83 (2017) pp.303–315.374
+https://doi.org/10.1016/j.autcon.2017.03.011.375
+
+===== PAGE 20 =====
+AUTOMATION IN CONSTRUCTION 00 (2020) 000–000 20
+[10] H. Hyun, H. Kim, H.S. Lee, M. Park, J. Lee, Integrated design process for modular construction projects376
+to reduce rework, Sustainability. 12 (2020) pp.530. https://doi.org/10.3390/su12020530.377
+[11] J. Guo, Q. Wang, J.H. Park, Geometric quality inspection of prefabricated MEP modules with 3D laser378
+scanning, Automation in Construction. 111 (2020) pp.103053.379
+https://doi.org/10.1016/j.autcon.2019.103053.380
+[12] M. Safa, A. Shahi, M. Nahangi, C. Haas, H. Noori, Automating measurement process to improve quality381
+management for piping fabrication, Structures. 3 (2015) pp.71–80.382
+https://doi.org/10.1016/j.istruc.2015.03.003.383
+[13] Q. Wang, M.K. Kim, J.C.P. Cheng, H. Sohn, Automated quality assessment of precast concrete elements384
+with geometry irregularities using terrestrial laser scanning, Automation in Construction. 68 (2016)385
+pp.170–182. https://doi.org/10.1016/j.autcon.2016.03.014.386
+[14] M.K. Kim, J.P.P. Thedja, Q. Wang, Automated dimensional quality assessment for formwork and rebar387
+of reinforced concrete components using 3D point cloud data, Automation in Construction. 112 (2020)388
+pp.103077. https://doi.org/10.1016/j.autcon.2020.103077.389
+[15] M. Noghabaei, K. Han, Object manipulation in immersive virtual environments: Hand Motion tracking390
+technology and snap-to-fit function, Automation in Construction. 124 (2021).391
+https://doi.org/10.1016/j.autcon.2021.103594.392
+[16] X. Zhou, J. Liu, G. Cheng, D. Li, Y.F. Chen, Automated locating of replaceable coupling steel beam393
+using terrestrial laser scanning, Automation in Construction. 122 (2021) pp.103468.394
+https://doi.org/10.1016/j.autcon.2020.103468.395
+[17] M. Noghabaei, K. Asadi, K. Han, Virtual Manipulation in an Immersive Virtual Environment:396
+Simulation of Virtual Assembly, Computing in Civil Engineering: Visualization, Information Modeling,397
+and Simulation. (2019) pp.95–102. https://doi.org/10.1061/9780784482421.013.398
+[18] D. Li, J. Liu, L. Feng, Y. Zhou, H. Qi, Y.F. Chen, Automatic modeling of prefabricated components with399
+laser‐scanned data for virtual trial assembly, Computer-Aided Civil and Infrastructure Engineering.400
+(2020) pp.mice.12627. https://doi.org/10.1111/mice.12627.401
+[19] Q. Wang, J.C.P. Cheng, H. Sohn, Automated Estimation of Reinforced Precast Concrete Rebar Positions402
+
+===== PAGE 21 =====
+AUTOMATION IN CONSTRUCTION 00 (2020) 000–000 21
+Using Colored Laser Scan Data, Computer-Aided Civil and Infrastructure Engineering. 32 (2017)403
+pp.787–802. https://doi.org/10.1111/mice.12293.404
+[20] Y. Tan, S. Li, Q. Wang, Automated geometric quality inspection of prefabricated housing units using405
+BIM and LiDAR, Remote Sensing. 12 (2020) pp.2492. https://doi.org/10.3390/RS12152492.406
+[21] K. Asadi, H. Ramshankar, M. Noghabaee, K. Han, Real-time Image Localization and Registration with407
+BIM Using Perspective Alignment for Indoor Monitoring of Construction, Journal of Computing in Civil408
+Engineering. (2019). https://doi.org/10.1061/(ASCE)CP.1943-5487.0000847.409
+[22] M. Golparvar-Fard, J. Bohn, J. Teizer, S. Savarese, F. Peña-Mora, Evaluation of image-based modeling410
+and laser scanning accuracy for emerging automated performance monitoring techniques, Automation in411
+Construction. 20 (2011) pp.1143–1155. https://doi.org/10.1016/J.AUTCON.2011.04.016.412
+[23] C.H.P. Nguyen, Y. Choi, Comparison of point cloud data and 3D CAD data for on-site dimensional413
+inspection of industrial plant piping systems, Automation in Construction. 91 (2018) pp.44–52.414
+https://doi.org/10.1016/j.autcon.2018.03.008.415
+[24] M. Kamari, Y. Ham, Vision-based volumetric measurements via deep learning-based point cloud416
+segmentation for material management in jobsites, Automation in Construction. 121 (2021) pp.103430.417
+https://doi.org/10.1016/j.autcon.2020.103430.418
+[25] I. Jeelani, K. Asadi, H. Ramshankar, K. Han, A. Albert, Real-time vision-based worker localization &419
+hazard detection for construction, Automation in Construction. 121 (2021) pp.103448.420
+https://doi.org/10.1016/j.autcon.2020.103448.421
+[26] M. Farhadmanesh, C. Cross, A.H. Mashhadi, A. Rashidi, J. Wempen, Highway Asset and Pavement422
+Condition Management using Mobile Photogrammetry, Transportation Research Record: Journal of the423
+Transportation Research Board. (2021) pp.036119812110018.424
+https://doi.org/10.1177/03611981211001855.425
+[27] M. Nahangi, J. Yeung, C.T. Haas, S. Walbridge, J. West, Automated assembly discrepancy feedback426
+using 3D imaging and forward kinematics, Automation in Construction. 56 (2015) pp.36–46.427
+https://doi.org/10.1016/j.autcon.2015.04.005.428
+[28] M. Nahangi, C.T. Haas, Automated 3D compliance checking in pipe spool fabrication, Advanced429
+
+===== PAGE 22 =====
+AUTOMATION IN CONSTRUCTION 00 (2020) 000–000 22
+Engineering Informatics. 28 (2014) pp.360–369. https://doi.org/10.1016/j.aei.2014.04.001.430
+[29] T. Czerniawski, M. Nahangi, C. Haas, S. Walbridge, Pipe spool recognition in cluttered point clouds431
+using a curvature-based shape descriptor, Automation in Construction. 71 (2016) pp.346–358.432
+https://doi.org/10.1016/j.autcon.2016.08.011.433
+[30] Z. Wang, Q. Zhang, B. Yang, T. Wu, K. Lei, B. Zhang, T. Fang, Vision-Based Framework for434
+Automatic Progress Monitoring of Precast Walls by Using Surveillance Videos during the Construction435
+Phase, Journal of Computing in Civil Engineering. 35 (2021) pp.04020056.436
+https://doi.org/10.1061/(asce)cp.1943-5487.0000933.437
+[31] M. Nahangi, C.T. Haas, Skeleton-based discrepancy feedback for automated realignment of industrial438
+assemblies, Automation in Construction. 61 (2016) pp.147–161.439
+https://doi.org/10.1016/J.AUTCON.2015.10.014.440
+[32] M.K. Kim, H. Sohn, C.C. Chang, Automated dimensional quality assessment of precast concrete panels441
+using terrestrial laser scanning, Automation in Construction. 45 (2014) pp.163–177.442
+https://doi.org/10.1016/j.autcon.2014.05.015.443
+[33] M.K. Kim, J.C.P. Cheng, H. Sohn, C.C. Chang, A framework for dimensional and surface quality444
+assessment of precast concrete elements using BIM and 3D laser scanning, Automation in Construction.445
+49 (2015) pp.225–238. https://doi.org/10.1016/j.autcon.2014.07.010.446
+[34] H. Alzraiee, R. Sprotte, A. Leal Ruiz, Quality Control for Concrete Steel Embed Plates using LiDAR447
+and Point Cloud Mapping, Proceedings of the 37th International Symposium on Automation and448
+Robotics in Construction (ISARC). (2020). https://doi.org/https://doi.org/10.22260/ISARC2020/0101.449
+[35] M.S.A. Enshassi, S. Walbridge, J.S. West, C.T. Haas, Dynamic and Proactive Risk-Based Methodology450
+for Managing Excessive Geometric Variability Issues in Modular Construction Projects Using Bayesian451
+Theory, Journal of Construction Engineering and Management. 146 (2020) pp.04019096.452
+https://doi.org/10.1061/(asce)co.1943-7862.0001747.453
+[36] G. Cha, S. Park, T. Oh, A Terrestrial LiDAR-Based Detection of Shape Deformation for Maintenance of454
+Bridge Structures, Journal of Construction Engineering and Management. 145 (2019) pp.04019075.455
+https://doi.org/10.1061/(asce)co.1943-7862.0001701.456
+
+===== PAGE 23 =====
+AUTOMATION IN CONSTRUCTION 00 (2020) 000–000 23
+[37] E.B. Anil, P. Tang, B. Akinci, D. Huber, Deviation analysis method for the assessment of the quality of457
+the as-is Building Information Models generated from point cloud data, Automation in Construction. 35458
+(2013) pp.507–516. https://doi.org/10.1016/J.AUTCON.2013.06.003.459
+[38] M. Rumpler, S. Daftry, A. Tscharf, R. Prettenthaler, C. Hoppe, G. Mayer, H. Bischof, Automated end-to-460
+end workflow for precise and geo-accurate reconstructions using fiducial markers, (2014).461
+https://doi.org/DOI:10.5194/isprsannals-II-3-135-2014.462
+[39] K.K. Han, M. Golparvar-Fard, Appearance-based material classification for monitoring of operation-463
+level construction progress using 4D BIM and site photologs, Automation in Construction. 53 (2015)464
+pp.44–57. https://doi.org/10.1016/J.AUTCON.2015.02.007.465
+[40] K. Han, J. Degol, M. Golparvar-Fard, Geometry- and Appearance-Based Reasoning of Construction466
+Progress Monitoring, Journal of Construction Engineering and Management. 144 (2018) pp.04017110.467
+https://doi.org/10.1061/(ASCE)CO.1943-7862.0001428.468
+[41] B.K.P. Horn, Closed-form solution of absolute orientation using unit quaternions, Journal of the Optical469
+Society of America A. 4 (1987) pp.629–642. https://doi.org/https://doi.org/10.1364/JOSAA.4.000629.470
+[42] D. Aiger, N.J. Mitra, D. Cohen-Or, 4-points congruent sets for robust pairwise surface registration,471
+SIGGRAPH’08: International Conference on Computer Graphics and Interactive Techniques, ACM472
+SIGGRAPH 2008 Papers 2008. 27 (2008) pp.1. https://doi.org/10.1145/1399504.1360684.473
+[43] D. Girardeau-Montaut, Cloud Compare Open Source Project, 2011,474
+https://www.cloudcompare.org/main.html, Accessed date: May 29, 2022.475
+[44] C. Kim, M. Kim, J. Martínez-Sánchez, N.A. Sheik, G. Deruyter, P. Veelaert, Plane-Based Robust476
+Registration of a Building Scan with Its BIM, Remote Sensing 2022, Vol. 14, Page 1979. 14 (2022)477
+pp.1979. https://doi.org/10.3390/RS14091979.478
+[45] C. Compare, SOR filter - CloudCompareWiki, 2021,479
+https://www.cloudcompare.org/doc/wiki/index.php?title=SOR_filter, Accessed date: May 2, 2021.480
+[46] H. Balta, J. Velagic, W. Bosschaerts, G. De Cubber, B. Siciliano, Fast Statistical Outlier Removal Based481
+Method for Large 3D Point Clouds of Outdoor Environments, IFAC-PapersOnLine. 51 (2018) pp.348–482
+353. https://doi.org/10.1016/j.ifacol.2018.11.566.483
+
+===== PAGE 24 =====
+AUTOMATION IN CONSTRUCTION 00 (2020) 000–000 24
+[47] Artec Leo 3D Scanner - The first scanner to offer automatic onboard processing, 2020,484
+https://sourcegraphics.com/3d/scanners/artec/leo/, Accessed date: March 2, 2020.485
+[48] M. Noghabaei, K. Han, A. Albert, Feasibility Study to Identify Brain Activity and Eye-Tracking486
+Features for Assessing Hazard Recognition Using Consumer-Grade Wearables in an Immersive Virtual487
+Environment, Journal of Construction Engineering and Management. 147 (2021) pp.04021104.488
+https://doi.org/10.1061/(ASCE)CO.1943-7862.0002130.489
+490
+491

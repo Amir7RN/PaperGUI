@@ -24,6 +24,7 @@ import { SAMPLE_SPEC_3 } from "./samplePaper3.js";
 import { SAMPLE_SPEC_4 } from "./samplePaper4.js";
 import { SAMPLE_SPEC_5 } from "./samplePaper5.js";
 import { SAMPLE_SPEC_6 } from "./samplePaper6.js";
+import { SAMPLE_SPEC_7 } from "./samplePaper7.js";
 import { analyzePaper, MODEL_TIERS, getModelTier, setModelTier } from "./api.js";
 import { fileToBase64, renderPdfRegions } from "./pdf.js";
 import {
@@ -589,6 +590,18 @@ function Landing({
                 A device-physics theory paper with a LIVE reduced model: LED voltage, spacer
                 index, EQE and spacer length on sliders, chasing the paper's digitized
                 power &amp; efficiency curves.
+              </span>
+            </button>
+            <button
+              onClick={() => onSample(SAMPLE_SPEC_7)}
+              disabled={busy}
+              className="group flex flex-col items-start gap-1 rounded-2xl border border-slate-200/80 bg-white/90 p-4 text-left shadow-sm backdrop-blur transition hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-xl disabled:opacity-50"
+            >
+              <span className="text-sm font-semibold text-slate-800">Prefab compatibility checking with 3D scans &amp; BIM (Automation in Construction)</span>
+              <span className="text-xs leading-relaxed text-slate-500">
+                Catch module-to-module mismatches before shipment: cross-section minimum
+                distance and a live Table-6 confidence rebuilt from Eq. 3, plus the paper's
+                own registration, noise and runtime tables.
               </span>
             </button>
           </div>
