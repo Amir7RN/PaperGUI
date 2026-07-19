@@ -127,6 +127,42 @@ const blockSchema = {
   },
 };
 
+/** Traceability stamp shown ON a plot/equation: which figure/equation/section
+ *  of the paper it comes from. Ungrounded plots in the Background & Model
+ *  sections were THE thing paper authors rejected, so this is now first-class. */
+const provenanceSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    figure: { type: "string", description: "The paper's figure this derives from, e.g. 'FIG. 2' or 'Fig. 4(d)'. Empty if none." },
+    equation: { type: "string", description: "The paper's equation this derives from, e.g. 'Eq. (3)' or 'Eqs. (1)–(2)'. Empty if none." },
+    section: { type: "string", description: "The paper section, e.g. 'Sec. II.A' or 'Introduction'. Empty if none." },
+  },
+  description: "Where in the paper this element comes from. At least one field must be non-empty.",
+};
+
+/** A reference to a REAL figure region in the PDF (same page+bbox mechanism as
+ *  result figures). The client crops it and fills `image` — so a Background
+ *  concept or a Model equation can show the paper's OWN figure beside the live
+ *  plot, which is what makes these sections read as faithful, not invented. */
+const figureRefSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["page", "bbox", "label", "caption"],
+  properties: {
+    page: { type: "integer", description: "1-indexed PDF page where the figure appears" },
+    bbox: {
+      type: "object",
+      additionalProperties: false,
+      required: ["x", "y", "w", "h"],
+      properties: { x: { type: "number" }, y: { type: "number" }, w: { type: "number" }, h: { type: "number" } },
+      description: "Fractional bounding box (0-1, top-left origin) of the figure/panel on its page.",
+    },
+    label: { type: "string", description: "Short label, e.g. 'FIG. 2(a) — power vs LED bias'" },
+    caption: { type: "string", description: "1-2 sentences tying this real figure to the concept/equation and to the live plot beside it." },
+  },
+};
+
 const demoSchema = {
   type: "object",
   additionalProperties: false,
@@ -148,6 +184,7 @@ const demoSchema = {
       type: "string",
       description: "OPTIONAL but strongly encouraged for demos with sliders: body of function(params, result, helpers) => string — ONE plain-language sentence, computed from the CURRENT slider values (and optionally the computed result.series), stating what the reader is seeing and tying it to the paper's own numbers (e.g. 'At Γ=0.4 the repeating error falls 90% in 5 cycles — the paper's per-joint law does this at every joint'). This line is what turns a slider toy into a lesson. Include concrete computed numbers.",
     },
+    provenance: provenanceSchema,
   },
 };
 
@@ -233,9 +270,11 @@ const modelSchema = {
             },
             description: "Term-by-term glossary — the reader hovers each symbol instead of guessing",
           },
+          provenance: provenanceSchema,
+          figure: figureRefSchema,
         },
       },
-      description: "The 1-4 GOVERNING equations the method rests on, each with a term glossary. Papers with no explicit equations (pure surveys): give the field's canonical relation the paper reasons with.",
+      description: "The 1-4 GOVERNING equations the method rests on, each with a term glossary. Papers with no explicit equations (pure surveys): give the field's canonical relation the paper reasons with. Where an equation directly produces a paper figure, attach that figure (page+bbox) so the reader sees the real result the math yields.",
     },
     assumptions: {
       type: "array",
@@ -248,7 +287,83 @@ const modelSchema = {
       type: "string",
       description: "2-4 sentences: how the authors checked their method — cross-validation against prior results, control experiments, convergence tests, error budgets. Empty string ONLY if the paper truly reports none.",
     },
+    takeaways: {
+      type: "array",
+      maxItems: 4,
+      items: { type: "string" },
+      description: "OPTIONAL 2-4 one-line 'if you remember nothing else' points about the methodology — the learn layer beside the equations.",
+    },
+    glossary: {
+      type: "array",
+      maxItems: 6,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["sym", "meaning"],
+        properties: { sym: { type: "string" }, meaning: { type: "string" } },
+      },
+      description: "OPTIONAL cross-equation symbol glossary for the whole model section.",
+    },
+    material: {
+      type: "array",
+      maxItems: 4,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["label", "url"],
+        properties: { label: { type: "string" }, url: { type: "string" } },
+      },
+      description: "OPTIONAL links to useful external material (the paper's DOI, a canonical reference/textbook) — only real, well-known URLs; never invent a link.",
+    },
   },
+};
+
+/** The narrated 'explainer video' script for sections 4 (foundations) & 5
+ *  (model). Scenes are read aloud (OpenAI TTS, client-side) over the paper's
+ *  own figures/equations — a self-contained tutorial with no external service. */
+const explainerSectionSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["scenes"],
+  properties: {
+    voice: { type: "string", enum: ["alloy", "echo", "fable", "onyx", "nova", "shimmer"], description: "TTS voice; default 'onyx'." },
+    scenes: {
+      type: "array",
+      minItems: 3,
+      maxItems: 7,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["caption", "narration", "visual"],
+        properties: {
+          caption: { type: "string", description: "Short on-screen title for the scene, e.g. 'The LED as a photon pump'." },
+          narration: { type: "string", description: "2-3 sentences READ ALOUD. Spoken style, plain language, spell tricky symbols phonetically (e.g. 'exp of q V over k T'). <= 460 chars." },
+          visual: {
+            type: "object",
+            additionalProperties: false,
+            required: ["type"],
+            properties: {
+              type: { type: "string", enum: ["intro", "figure", "demo", "equation", "validation"], description: "What fills the stage: a title card (intro/validation), the paper's real figure, a live foundation demo, or a governing equation." },
+              foundationIdx: { type: "integer", description: "For type 'demo' or 'figure' in the foundations explainer: index into foundations[]." },
+              equationIdx: { type: "integer", description: "For type 'equation': index into model.equations[]." },
+              image: { type: "string", description: "Leave empty — the client fills figure images from the referenced foundation/equation." },
+              label: { type: "string", description: "For type 'figure': the figure label to show." },
+            },
+          },
+        },
+      },
+    },
+  },
+};
+
+const explainerSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    foundations: explainerSectionSchema,
+    model: explainerSectionSchema,
+  },
+  description: "OPTIONAL narrated walkthroughs for the Background (foundations) and Model sections. If omitted, the client synthesizes one from the section content.",
 };
 
 export const SPEC_SCHEMA = {
@@ -257,6 +372,7 @@ export const SPEC_SCHEMA = {
   required: ["meta", "archetype", "story", "mindmap", "conclusion", "references", "conceptFigures", "foundations", "model", "protocol", "blocks", "explorables"],
   properties: {
     model: modelSchema,
+    explainer: explainerSchema,
     archetype: {
       type: "object",
       additionalProperties: false,
@@ -409,9 +525,17 @@ export const SPEC_SCHEMA = {
           equation: { type: "string", description: "The concept's key equation in plain unicode math, or empty string if none" },
           whyItMatters: { type: "string", description: "1-2 sentences: what this paper builds on top of this concept" },
           demo: demoSchema,
+          provenance: provenanceSchema,
+          figure: figureRefSchema,
+          takeaways: {
+            type: "array",
+            maxItems: 4,
+            items: { type: "string" },
+            description: "OPTIONAL 2-3 one-line takeaways for this concept — the learn layer beside the demo.",
+          },
         },
       },
-      description: "The 2-4 core ideas the paper BORROWS from prior work — the 'wheels' it doesn't reinvent but the reader must understand (e.g. the base dynamics model, the classic control/learning principle, the standard optimization formulation).",
+      description: "The 2-4 core ideas the paper BORROWS from prior work — the 'wheels' it doesn't reinvent but the reader must understand (e.g. the base dynamics model, the classic control/learning principle, the standard optimization formulation). Whenever the paper HAS a figure illustrating a concept, attach it (page+bbox) as `figure` so the live demo sits next to the paper's own picture — the fix for authors finding these plots invented.",
     },
     resultFigures: {
       type: "array",
@@ -597,6 +721,7 @@ export const PHASE_SCHEMAS = {
       conceptFigures: P.conceptFigures,
       foundations: P.foundations,
       model: P.model,
+      explainer: P.explainer,
     },
   },
   method: {
@@ -619,13 +744,24 @@ export function phaseInstruction(phase, contextSpec) {
   if (phase === "overview") {
     return (
       "\n\nTHIS CALL IS PHASE 1 of 3: produce ONLY the fields " +
-      "{meta, archetype, story, mindmap, conclusion, references, conceptFigures, foundations, model}. " +
+      "{meta, archetype, story, mindmap, conclusion, references, conceptFigures, foundations, model, explainer}. " +
       "Classify the archetype honestly — it decides whether the method is simulated live or " +
       "explored through the paper's own equations and reported numbers. For `model`, read the " +
       "METHODS/experimental/computational sections closely — extract the real toolchain, the " +
       "governing equations with term glossaries, the assumptions and the validation, exactly as " +
-      "the paper states them. The method pipeline (protocol/blocks/explorables) and the result " +
-      "figures are produced in later calls — keep them in mind for coherence, but do NOT emit them now."
+      "the paper states them. " +
+      "GROUNDING (this is what fixes the Background & Model sections authors have rejected as " +
+      "'invented / can't tell what they show'): for EVERY foundation concept that the paper " +
+      "illustrates with a figure, attach that figure via `figure` (page + fractional bbox, same as " +
+      "result figures) and give the demo a `provenance` naming the figure/equation/section. For each " +
+      "governing equation, set `provenance`, and attach the paper figure it produces via `figure` " +
+      "when one exists. A live plot with no visible link to the paper's own figure is the exact " +
+      "failure we are eliminating. " +
+      "EXPLAINER: also emit `explainer.foundations` and `explainer.model` — a 3-7 scene narrated " +
+      "walkthrough of each section, spoken style (this is read aloud by text-to-speech), each scene " +
+      "pointing at a real figure, a live demo, or a governing equation. The method pipeline " +
+      "(protocol/blocks/explorables) and the result figures are produced in later calls — keep them " +
+      "in mind for coherence, but do NOT emit them now."
     );
   }
   if (phase === "method") {

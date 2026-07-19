@@ -21,9 +21,11 @@ import {
   ChevronRight, TriangleAlert, CircleCheck, CircleAlert, ArrowLeft, Image as ImageIcon, LogOut,
   Landmark, Maximize2, Lightbulb, LineChart as LineChartIcon, LayoutTemplate, Move,
   Sparkles, BookMarked, Play, Pause, Puzzle, Rocket, Network, ChevronLeft, FileCode2, Crosshair,
-  Shuffle, Wand2, Trophy, Bot,
+  Shuffle, Wand2, Trophy, Bot, ListChecks, GraduationCap, Images, Link2,
 } from "lucide-react";
 import SectionChat from "./SectionChat.jsx";
+import ExplainerVideo from "./ExplainerVideo.jsx";
+import { buildExplainer } from "./narrate.js";
 import LayoutEditor from "./LayoutEditor.jsx";
 import DigitizerEditor from "./DigitizerEditor.jsx";
 import { DigitizedPanel, isSpecialDigitized, PALETTE } from "./DigitizedPanels.jsx";
@@ -1855,61 +1857,212 @@ function DemoFrames({ demo }) {
 
 /* ---------------- foundations lab window ---------------- */
 
-function FoundationsLab({ foundations }) {
+/* ---- grounding helpers: make sections 4 & 5 visibly BE the paper ----
+ * The single reason authors rejected these sections was "I can't tell what
+ * this shows / it looks invented". The fix is to always show, next to any live
+ * plot, the paper's OWN figure it derives from, plus an explicit provenance
+ * chip naming the figure/equation/section. */
+
+/** "From FIG. 2 · Eq. 3" — the traceability stamp, glowing so it reads as the
+ * anchor to the real paper, not decoration. */
+function ProvenanceChip({ provenance, className = "" }) {
+  const p = provenance;
+  if (!p) return null;
+  const parts = [p.figure, p.equation, p.section].filter(Boolean);
+  if (!parts.length) return null;
+  return (
+    <span className={`pp-provenance inline-flex items-center gap-1 rounded-full border border-indigo-300/70 bg-indigo-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-indigo-700 ${className}`}
+      title="Where this comes from in the paper">
+      <Link2 size={10} /> From {parts.join(" · ")}
+    </span>
+  );
+}
+
+/** The paper's real cropped figure, with a caption. Clicking opens the lightbox. */
+function PaperFigure({ figure, onOpen, className = "" }) {
+  if (!figure?.image) return null;
+  return (
+    <figure className={`overflow-hidden rounded-lg border border-slate-200 bg-white ${className}`}>
+      <div className="flex items-center justify-between gap-2 border-b border-slate-100 bg-slate-50/80 px-2 py-1">
+        <span className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-slate-500">
+          <Images size={11} /> {figure.label || "The paper's own figure"}
+        </span>
+        {onOpen && (
+          <button onClick={() => onOpen({ image: figure.image, title: figure.caption || figure.label })}
+            className="text-slate-400 hover:text-indigo-600" title="Enlarge">
+            <Maximize2 size={12} />
+          </button>
+        )}
+      </div>
+      <img src={figure.image} alt={figure.caption || figure.label || "paper figure"}
+        className="block max-h-[280px] w-full cursor-zoom-in object-contain"
+        onClick={() => onOpen?.({ image: figure.image, title: figure.caption || figure.label })} loading="lazy" />
+      {figure.caption && (
+        <figcaption className="border-t border-slate-100 px-2 py-1 text-[10.5px] leading-snug text-slate-500">
+          {figure.caption}
+        </figcaption>
+      )}
+    </figure>
+  );
+}
+
+/** Symbol glossary + key takeaways: the "learn" layer that turns a wall of
+ * sliders into a lesson. Terms come from the section's own content. */
+function LearnStrip({ terms, takeaways, material }) {
+  const hasTerms = terms?.length, hasTake = takeaways?.length, hasMat = material?.length;
+  if (!hasTerms && !hasTake && !hasMat) return null;
+  return (
+    <div className="mt-3 grid gap-3 md:grid-cols-2">
+      {hasTake ? (
+        <div className="rounded-lg border border-emerald-100 bg-emerald-50/50 p-3">
+          <div className="mb-1.5 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-emerald-700">
+            <ListChecks size={12} /> Key takeaways
+          </div>
+          <ul className="space-y-1">
+            {takeaways.map((t, i) => (
+              <li key={i} className="flex items-start gap-2 text-[12px] leading-snug text-emerald-900">
+                <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-emerald-500" />{t}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      {hasTerms ? (
+        <div className="rounded-lg border border-slate-200 bg-white p-3">
+          <div className="mb-1.5 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+            <GraduationCap size={12} /> Symbol glossary
+          </div>
+          <dl className="space-y-1">
+            {terms.map((t, i) => (
+              <div key={i} className="flex items-start gap-2 text-[12px] leading-snug">
+                <dt className="shrink-0 font-bold text-slate-800" style={{ fontFamily: "Georgia, serif", fontStyle: "italic" }}>{t.sym}</dt>
+                <dd className="text-slate-600">{t.meaning}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+      ) : null}
+      {hasMat ? (
+        <div className="rounded-lg border border-slate-200 bg-white p-3 md:col-span-2">
+          <div className="mb-1.5 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+            <BookOpen size={12} /> Useful material
+          </div>
+          <ul className="flex flex-wrap gap-2">
+            {material.map((m, i) => (
+              <li key={i}>
+                <a href={m.url} target="_blank" rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-medium text-slate-600 hover:border-indigo-300 hover:text-indigo-700">
+                  <Link2 size={11} /> {m.label}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/** Wraps sections 4 & 5 in the premium "lab" identity (animated gradient frame
+ * + glass surface). Scoped to these two sections only. */
+function LabShell({ children }) {
+  return <div className="pp-lab"><div className="pp-lab__inner p-3 sm:p-4">{children}</div></div>;
+}
+
+function FoundationsLab({ foundations, explainer, onOpenFig }) {
   const [pageIdx, setPageIdx] = useState(0);
   const f = foundations[Math.min(pageIdx, foundations.length - 1)];
   if (!f) return null;
 
+  // The explainer's visual stage renders THIS section's real figures + live demos.
+  const renderVisual = (visual) => {
+    if (!visual) return <IntroCard title="The background" />;
+    if (visual.type === "figure" && visual.image) {
+      return <PaperFigure figure={{ image: visual.image, label: visual.label }} onOpen={onOpenFig} className="mx-auto max-w-2xl" />;
+    }
+    if (visual.type === "demo" && foundations[visual.foundationIdx]?.demo) {
+      const d = foundations[visual.foundationIdx].demo;
+      return d.kind === "frames" ? <DemoFrames demo={d} /> : <DemoChart demo={d} />;
+    }
+    const fi = foundations[visual.foundationIdx];
+    return <IntroCard title={fi?.title || "The background this paper builds on"} sub={fi?.source} />;
+  };
+
   return (
-    <LabWindow
-      title="Foundations Lab — learn the background by playing"
-      accent="bg-amber-500"
-      pages={foundations.map((x, i) => ({ id: String(i), label: x.title, sub: x.source.split(",")[0] }))}
-      activeId={String(pageIdx)}
-      onSelect={(id) => setPageIdx(+id)}
-    >
-      <div className="grid gap-4 xl:grid-cols-5">
-        <div className="min-w-0 xl:col-span-2">
-          <h3 className="text-sm font-bold text-slate-900">{f.title}</h3>
-          <p className="text-[11px] italic text-slate-400">{f.source}</p>
-          <p className="mt-2 leading-relaxed text-slate-700" style={{ fontSize: "calc(var(--found-text, 13px) * var(--box-font-scale, 1))" }}>
-            {f.concept}
-          </p>
-          {f.equation ? (
-            <details className="mt-2 rounded-lg border border-slate-200 bg-slate-50/60 px-3 py-2">
-              <summary className="cursor-pointer select-none text-[11px] font-semibold text-slate-500 hover:text-amber-600">
-                Show the math
-              </summary>
-              <div className="mt-2"><Eq>{f.equation}</Eq></div>
-            </details>
-          ) : null}
-          <div className="mt-3 flex items-start gap-2 rounded-lg bg-amber-50/70 px-3 py-2">
-            <Lightbulb size={13} className="mt-0.5 shrink-0 text-amber-600" />
-            <p className="text-[12px] leading-relaxed text-amber-900">
-              <span className="font-semibold">What this paper adds: </span>{f.whyItMatters}
+    <LabShell>
+      {explainer?.scenes?.length ? (
+        <div className="mb-4">
+          <ExplainerVideo explainer={explainer} renderVisual={renderVisual} accent="#d97706" />
+        </div>
+      ) : null}
+      <LabWindow
+        title="Foundations Lab — learn the background by playing"
+        accent="bg-amber-500"
+        pages={foundations.map((x, i) => ({ id: String(i), label: x.title, sub: (x.source || "").split(",")[0] }))}
+        activeId={String(pageIdx)}
+        onSelect={(id) => setPageIdx(+id)}
+      >
+        <div className="grid gap-4 xl:grid-cols-5">
+          <div className="min-w-0 xl:col-span-2">
+            <h3 className="text-sm font-bold text-slate-900">{f.title}</h3>
+            <p className="text-[11px] italic text-slate-400">{f.source}</p>
+            <p className="mt-2 leading-relaxed text-slate-700" style={{ fontSize: "calc(var(--found-text, 13px) * var(--box-font-scale, 1))" }}>
+              {f.concept}
             </p>
-          </div>
-          {f.svg && (
-            <div className="mt-3 rounded-lg border border-slate-100 bg-white p-2"
-              dangerouslySetInnerHTML={{ __html: f.svg }} />
-          )}
-        </div>
-        <div className="min-w-0 xl:col-span-3">
-          {f.demo ? (
-            <>
-              <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-                Try it — {f.demo.caption}
-              </div>
-              {f.demo.kind === "frames" ? <DemoFrames demo={f.demo} /> : <DemoChart demo={f.demo} />}
-            </>
-          ) : (
-            <div className="flex min-h-[180px] items-center justify-center rounded-lg border border-dashed border-slate-200 text-[11px] text-slate-400">
-              No interactive demo for this concept
+            {f.equation ? (
+              <details className="mt-2 rounded-lg border border-slate-200 bg-slate-50/60 px-3 py-2">
+                <summary className="cursor-pointer select-none text-[11px] font-semibold text-slate-500 hover:text-amber-600">
+                  Show the math
+                </summary>
+                <div className="mt-2"><Eq>{f.equation}</Eq></div>
+              </details>
+            ) : null}
+            <div className="mt-3 flex items-start gap-2 rounded-lg bg-amber-50/70 px-3 py-2">
+              <Lightbulb size={13} className="mt-0.5 shrink-0 text-amber-600" />
+              <p className="text-[12px] leading-relaxed text-amber-900">
+                <span className="font-semibold">What this paper adds: </span>{f.whyItMatters}
+              </p>
             </div>
-          )}
+            {/* The paper's OWN figure for this concept — the anchor that stops
+                the demo reading as invented. */}
+            {f.figure?.image ? <PaperFigure figure={f.figure} onOpen={onOpenFig} className="mt-3" /> : null}
+            {f.svg && (
+              <div className="mt-3 rounded-lg border border-slate-100 bg-white p-2"
+                dangerouslySetInnerHTML={{ __html: f.svg }} />
+            )}
+          </div>
+          <div className="min-w-0 xl:col-span-3">
+            {f.demo ? (
+              <>
+                <div className="mb-1.5 flex flex-wrap items-center gap-2">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                    Try it — {f.demo.caption}
+                  </span>
+                  <ProvenanceChip provenance={f.demo.provenance || f.provenance} />
+                </div>
+                {f.demo.kind === "frames" ? <DemoFrames demo={f.demo} /> : <DemoChart demo={f.demo} />}
+              </>
+            ) : (
+              <div className="flex min-h-[180px] items-center justify-center rounded-lg border border-dashed border-slate-200 text-[11px] text-slate-400">
+                No interactive demo for this concept
+              </div>
+            )}
+          </div>
         </div>
-      </div>
-    </LabWindow>
+        <LearnStrip terms={f.glossary} takeaways={f.takeaways} material={f.material} />
+      </LabWindow>
+    </LabShell>
+  );
+}
+
+/** Simple title/intro card used on the explainer stage for non-visual scenes. */
+function IntroCard({ title, sub }) {
+  return (
+    <div className="flex h-full min-h-[160px] flex-col items-center justify-center gap-2 rounded-lg bg-gradient-to-br from-slate-800 to-slate-900 p-4 text-center">
+      <GraduationCap size={28} className="text-indigo-300" />
+      <div className="text-base font-bold text-white">{title}</div>
+      {sub && <div className="text-[11px] text-slate-400">{sub}</div>}
+    </div>
   );
 }
 
@@ -2389,14 +2542,36 @@ const APPROACH_META = {
   hybrid:     { label: "Experiment + simulation", Icon: Waves, tone: "bg-violet-50 text-violet-700 border-violet-200" },
 };
 
-function TheModel({ model }) {
+function TheModel({ model, explainer, onOpenFig }) {
   const [openEq, setOpenEq] = useState(0);
   if (!model) return null;
   const meta = APPROACH_META[model.approach] || APPROACH_META.simulation;
   const AIcon = meta.Icon;
   const eq = model.equations?.[Math.min(openEq, (model.equations?.length || 1) - 1)];
 
+  // The explainer stage for the Model section shows the real governing equations
+  // (and any figure an equation produces), never an invented plot.
+  const renderVisual = (visual) => {
+    if (visual?.type === "equation" && model.equations?.[visual.equationIdx]) {
+      const e = model.equations[visual.equationIdx];
+      return (
+        <div className="mx-auto max-w-2xl">
+          <div className="pp-eq rounded-xl p-4"><Eq>{e.eq}</Eq></div>
+          {e.figure?.image ? <PaperFigure figure={e.figure} onOpen={onOpenFig} className="mt-2" /> : null}
+        </div>
+      );
+    }
+    if (visual?.type === "validation") return <IntroCard title="How it was checked" sub={model.approach} />;
+    return <IntroCard title="What the paper actually did" sub={meta.label} />;
+  };
+
   return (
+   <LabShell>
+    {explainer?.scenes?.length ? (
+      <div className="mb-4">
+        <ExplainerVideo explainer={explainer} renderVisual={renderVisual} accent="#2563eb" />
+      </div>
+    ) : null}
     <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-2 bg-slate-800 px-4 py-2.5">
         <span className="text-[13px] font-bold text-white">
@@ -2473,25 +2648,33 @@ function TheModel({ model }) {
                 ))}
               </div>
               {eq && (
-                <div className="rounded-xl border border-slate-200 bg-white p-3">
-                  <Eq>{eq.eq}</Eq>
-                  {eq.source ? (
-                    <p className="mt-1 text-[10.5px] italic text-slate-400">{eq.source}</p>
-                  ) : null}
-                  <p className="mt-2 text-[12px] leading-relaxed text-slate-700">{eq.plain}</p>
-                  {eq.terms?.length ? (
-                    <table className="mt-2 w-full border-t border-slate-100 text-[11px]">
-                      <tbody>
-                        {eq.terms.map((t, i) => (
-                          <tr key={i} className="border-b border-slate-50">
-                            <td className="w-24 py-1 pr-3 align-top font-semibold text-slate-800"
-                              style={{ fontFamily: "Georgia, serif", fontStyle: "italic" }}>{t.sym}</td>
-                            <td className="py-1 leading-snug text-slate-600">{t.meaning}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  ) : null}
+                <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+                  <div className="pp-eq px-3 py-3"><Eq>{eq.eq}</Eq></div>
+                  <div className="p-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {eq.source ? (
+                        <p className="text-[10.5px] italic text-slate-400">{eq.source}</p>
+                      ) : null}
+                      <ProvenanceChip provenance={eq.provenance} />
+                    </div>
+                    <p className="mt-2 text-[12px] leading-relaxed text-slate-700">{eq.plain}</p>
+                    {eq.terms?.length ? (
+                      <table className="mt-2 w-full border-t border-slate-100 text-[11px]">
+                        <tbody>
+                          {eq.terms.map((t, i) => (
+                            <tr key={i} className="border-b border-slate-50">
+                              <td className="w-24 py-1 pr-3 align-top font-semibold text-slate-800"
+                                style={{ fontFamily: "Georgia, serif", fontStyle: "italic" }}>{t.sym}</td>
+                              <td className="py-1 leading-snug text-slate-600">{t.meaning}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    ) : null}
+                    {/* the real figure this equation produces — closes the loop
+                        from "here's the math" to "here's it in the paper" */}
+                    {eq.figure?.image ? <PaperFigure figure={eq.figure} onOpen={onOpenFig} className="mt-3" /> : null}
+                  </div>
                 </div>
               )}
             </>
@@ -2502,7 +2685,11 @@ function TheModel({ model }) {
           )}
         </div>
       </div>
+      <div className="px-4 pb-4">
+        <LearnStrip terms={model.glossary} takeaways={model.takeaways} material={model.material} />
+      </div>
     </div>
+   </LabShell>
   );
 }
 
@@ -2928,12 +3115,12 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
     {
       id: "foundations", boxId: "sec-foundations", boxLabel: "Background", navLabel: "Background", ariaLabel: "Foundations from prior work",
       show: !!spec.foundations?.length && sec("foundations").on, tone: "amber", icon: Landmark,
-      content: <FoundationsLab foundations={spec.foundations} />,
+      content: <FoundationsLab foundations={spec.foundations} explainer={buildExplainer(spec, "foundations")} onOpenFig={setLightbox} />,
     },
     {
       id: "model", boxId: "sec-model", boxLabel: "The model", navLabel: "Model", ariaLabel: "The paper's methodology, tools and governing equations",
       show: !!spec.model && sec("model").on, tone: "blue", icon: Sigma,
-      content: <TheModel model={spec.model} />,
+      content: <TheModel model={spec.model} explainer={buildExplainer(spec, "model")} onOpenFig={setLightbox} />,
     },
     {
       id: "method", boxId: "sec-method", boxLabel: "Method lab", navLabel: "Method", ariaLabel: "The paper's contribution",
