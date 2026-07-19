@@ -22,6 +22,8 @@
  * and a soft shimmer on the governing equations. Scoped entirely under
  * `.pp-lab` so sections 1,2,3,7 are untouched. */
 @keyframes pp-lab-pan { 0% { background-position: 0% 50%; } 100% { background-position: 200% 50%; } }
+@keyframes pp-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-7px); } }
+@keyframes pp-ring { 0% { transform: scale(.82); opacity: .25; } 50% { opacity: .7; } 100% { transform: scale(1.15); opacity: 0; } }
 @keyframes pp-eq-shimmer { 0% { background-position: -140% 0; } 100% { background-position: 240% 0; } }
 @keyframes pp-glow { 0%,100% { opacity: .55; } 50% { opacity: 1; } }
 
@@ -61,7 +63,10 @@
   animation: pp-glow 3.2s ease-in-out infinite;
 }
 
+.pp-float { animation: pp-float 5s ease-in-out infinite; }
+.pp-ring  { animation: pp-ring 3.4s ease-out infinite; }
+
 @media (prefers-reduced-motion: reduce) {
   .pp-lab { animation: none; }
-  .pp-eq::after, .pp-provenance { animation: none; }
+  .pp-eq::after, .pp-provenance, .pp-float, .pp-ring { animation: none; }
 }
