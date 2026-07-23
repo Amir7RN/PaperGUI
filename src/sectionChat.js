@@ -133,12 +133,25 @@ export function buildSectionContext(spec, sectionId) {
   return [head, ...L].filter(Boolean).join("\n").slice(0, 15000);
 }
 
+/** The active-recall checkpoints (MCQs) the analyzer produced for one section.
+ *  Returns [] for sections that carry none. */
+export function checkpointsForSection(spec, sectionId) {
+  const all = Array.isArray(spec?.checkpoints) ? spec.checkpoints : [];
+  return all.filter((c) =>
+    c && c.section === sectionId &&
+    typeof c.question === "string" &&
+    Array.isArray(c.options) && c.options.length >= 2 &&
+    Number.isInteger(c.answerIdx) && c.answerIdx >= 0 && c.answerIdx < c.options.length
+  );
+}
+
 /**
  * Ask the assistant. `messages` = [{role:"user"|"assistant", content}], last
- * one the new user question. Returns the reply text. Throws Error with a
- * user-readable message on failure.
+ * one the new user question. `mode`: "qa" (default), "tutor" (Socratic), or
+ * "grade" (assess an explain-it-back summary). Returns the reply text. Throws
+ * Error with a user-readable message on failure.
  */
-export async function askSectionAssistant({ paperTitle, sectionTitle, context, messages }) {
+export async function askSectionAssistant({ paperTitle, sectionTitle, context, messages, mode = "qa" }) {
   if (!functionsUrl) {
     throw new Error("Chat is not configured for this deployment.");
   }
@@ -156,7 +169,7 @@ export async function askSectionAssistant({ paperTitle, sectionTitle, context, m
       Authorization: `Bearer ${token}`,
       apikey: supabaseAnonKey,
     },
-    body: JSON.stringify({ paperTitle, sectionTitle, context, messages }),
+    body: JSON.stringify({ paperTitle, sectionTitle, context, messages, mode }),
   });
 
   let data = null;

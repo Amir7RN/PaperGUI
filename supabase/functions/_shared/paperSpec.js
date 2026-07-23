@@ -667,6 +667,18 @@ export const SPEC_SCHEMA = {
                   type: "string",
                   description: "REQUIRED when reproduce is false: one plain sentence the reader sees, e.g. 'This is a Kaplan–Meier survival curve — shown as the paper's own figure; the interactive version isn't available yet.' or 'The axis values are too small to read reliably, so this is shown as the original.' Empty string when reproduce is true.",
                 },
+                predict: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["prompt", "options", "answerIdx", "insight"],
+                  properties: {
+                    prompt: { type: "string", description: "A single prediction question the reader answers BEFORE the chart is revealed — a retrieval-practice hook. Make it about a RELATIONSHIP or a WHAT-IF they must reason about, not something readable straight off the static figure: e.g. 'If you doubled the controller gain Kₚ, what happens to the overshoot?' or 'Which arm has better 2-year survival, and why?' Tie it to this subplot's real behaviour." },
+                    options: { type: "array", minItems: 2, maxItems: 4, items: { type: "string" }, description: "2-4 short answer choices, exactly one correct. Distractors must be plausible common misconceptions, not obviously wrong." },
+                    answerIdx: { type: "integer", description: "0-based index of the correct option." },
+                    insight: { type: "string", description: "1-2 sentences shown AFTER the reader answers: why the correct answer is right, tied to the paper's own numbers/mechanism. This is the teaching moment." },
+                  },
+                  description: "OPTIONAL predict-then-reveal quiz for this reproduced panel (skip it for reproduce:false panels). Add it to the 1-3 most instructive quantitative panels — the ones where guessing first, then seeing the curve/behaviour, teaches the paper's key relationship. Do NOT add it to every panel; pick the ones worth a pause.",
+                },
                 chartKind: {
                   type: "string",
                   enum: ["line", "bar", "scatter"],
@@ -773,6 +785,26 @@ export const SPEC_SCHEMA = {
       items: explorableSchema,
       description: "2-4 interactive explorers for papers WITHOUT a simulation pipeline (empirical/statistical/theoretical/survey): the paper's key equations on sliders, and its key reported datasets as interactive charts. For papers WITH a pipeline this may be empty or hold 1-2 bonus explorers.",
     },
+    checkpoints: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["section", "question", "options", "answerIdx", "why"],
+        properties: {
+          section: {
+            type: "string",
+            enum: ["story", "foundations", "model", "method", "results"],
+            description: "Which part of the walkthrough this question tests — so it appears as a checkpoint beside that section.",
+          },
+          question: { type: "string", description: "One active-recall question the reader answers to check they actually understood — favour 'why', 'what would happen if', and 'which claim does figure X support' over rote definitions. Specific to THIS paper." },
+          options: { type: "array", minItems: 2, maxItems: 4, items: { type: "string" }, description: "2-4 short answer choices, exactly one correct; distractors are plausible misconceptions." },
+          answerIdx: { type: "integer", description: "0-based index of the correct option." },
+          why: { type: "string", description: "One sentence explaining the correct answer, tied to the paper's own content — the feedback the reader learns from." },
+        },
+      },
+      description: "6-10 active-recall checkpoint questions spread across the key sections (at least one each for story, model and results; add foundations/method where they carry weight). These turn a passive read into retrieval practice — the single strongest thing that makes a paper STICK. Every question and its distractors must be answerable from this paper's own content, never generic trivia.",
+    },
     protocol: {
       type: "object",
       additionalProperties: false,
@@ -825,8 +857,8 @@ export const PHASE_SCHEMAS = {
   results: {
     type: "object",
     additionalProperties: false,
-    required: ["resultFigures"],
-    properties: { resultFigures: P.resultFigures },
+    required: ["resultFigures", "checkpoints"],
+    properties: { resultFigures: P.resultFigures, checkpoints: P.checkpoints },
   },
 };
 
@@ -945,9 +977,11 @@ export function phaseInstruction(phase, contextSpec) {
   }
   const hasPipeline = !!contextSpec?.blocks?.length;
   return (
-    "\n\nTHIS CALL IS PHASE 3 of 3: produce ONLY the field {resultFigures} per the rules above. " +
+    "\n\nTHIS CALL IS PHASE 3 of 3: produce the fields {resultFigures, checkpoints} per the rules above. " +
     "Every figure needs page + bbox, 3-6 hotspot markers, and a guided-tour explanation. " +
     "For EVERY panel, first classify figureFamily + confidence, then make the reproduce decision (honest-degrade) before writing any chart. " +
+    "On the 1-3 most instructive reproduced panels, add a `predict` quiz (predict-then-reveal). " +
+    "Then produce `checkpoints`: 6-10 active-recall MCQs across the paper's key sections (this is what turns the read into learning that sticks). " +
     fieldLexiconBlock(contextSpec?.field) + " " +
     (hasPipeline
       ? "The pipeline was already produced in the previous call and is given below — 'simulated' panels' " +
@@ -1124,6 +1158,10 @@ OTHER FIELDS
 - conceptFigures: pick the 2-4 figures that DELIVER THE IDEA (not results plots) — the setup/architecture figure plus the figure(s) showing the mechanism at work. Papers rarely put the whole idea in one figure; taking only the first one was an explicit author complaint. Each explanation must discuss the physics/mechanism (why it works, which law each panel exploits, how to read log axes and colour scales), not merely describe the picture.
 - For the paper's MAIN pipeline/architecture diagram (one figure only), ALSO emit conceptFigures[i].svg: an accurate ANIMATED SVG rebuild (staggered fade-ins, animated dashed flow arrows, pulsing output node, scoped styles, reduced-motion fallback — see the svg field description). Visual-first is this product's core promise; a clean animated flow chart teaches faster than a flat crop.
 - conclusion: the paper's core finding, naming the coefficient values it depends on.
+
+RULES FOR THE LEARNING LAYER (predict + checkpoints — this is what makes the page a CLASSROOM, not a slideshow; a reader learns far more by predicting and being tested than by reading):
+- predict (on 1-3 of the most instructive reproduced result panels): a single prediction the reader commits to BEFORE the chart is revealed. Make it about a RELATIONSHIP or a WHAT-IF they must reason about — "double this gain, what happens to overshoot?", "which curve wins at long time, and why?" — NOT something they can just read off the static figure. Distractors are real misconceptions. The insight (shown after) explains WHY using the paper's own numbers. Do not gate every panel — pick the ones a good teacher would pause on.
+- checkpoints (6-10, spread across sections): retrieval-practice MCQs. Favour "why", "what would happen if", and "which figure supports which claim" over rote definitions. At least one each for story, model and results. Every question AND its distractors must be answerable from THIS paper — never generic trivia. The 'why' is the feedback the reader learns from; make it teach, not just confirm.
 
 FINAL CHECK before you answer — the trust test:
 1. Would a reader who opens the real PDF afterwards find that everything you claimed matches it? If any statement, story beat, mindmap node, hotspot note or explanation might not survive that comparison, fix or cut it.

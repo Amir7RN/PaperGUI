@@ -1175,6 +1175,50 @@ function OriginalOnlyPanel({ panel }) {
   );
 }
 
+/** Predict-then-reveal (retrieval practice): when a panel carries a `predict`
+ *  quiz, the chart is blurred behind a one-question overlay. The reader must
+ *  commit to an answer BEFORE the real result reveals — then sees why. Guessing
+ *  first, then seeing, is the strongest way to make a figure stick, and it uses
+ *  the paper's own data as the answer key. No predict object ⇒ renders straight
+ *  through, so it never affects panels (or bundled samples) without one. */
+function PredictGate({ predict, children }) {
+  const [chosen, setChosen] = useState(null);
+  if (!predict?.prompt || !Array.isArray(predict.options) || predict.options.length < 2) return children;
+  const answered = chosen !== null;
+  const correct = answered && chosen === predict.answerIdx;
+  return (
+    <div>
+      <div className="relative">
+        <div className={answered ? "" : "pointer-events-none select-none blur-[6px] opacity-60"} aria-hidden={!answered}>
+          {children}
+        </div>
+        {!answered && (
+          <div className="absolute inset-0 flex flex-col justify-center gap-2 rounded-lg border border-indigo-200 bg-white/95 p-3">
+            <div className="text-[10px] font-bold uppercase tracking-wider text-indigo-600">Predict first</div>
+            <p className="text-[12px] font-semibold leading-snug text-slate-800">{predict.prompt}</p>
+            <div className="flex flex-col gap-1.5">
+              {predict.options.map((o, i) => (
+                <button key={i} onClick={() => setChosen(i)}
+                  className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-left text-[11.5px] text-slate-700 hover:border-indigo-400 hover:text-indigo-700">
+                  {String.fromCharCode(65 + i)}. {o}
+                </button>
+              ))}
+            </div>
+            <p className="text-[9.5px] text-slate-400">Commit to an answer — then the real result reveals.</p>
+          </div>
+        )}
+      </div>
+      {answered && (
+        <div className={`mt-1.5 rounded-lg px-2.5 py-1.5 text-[11px] leading-relaxed ${correct ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-800"}`}>
+          <strong>{correct ? "You predicted right. " : "Good guess — not quite. "}</strong>
+          {predict.insight}
+          {!correct && <span className="text-slate-500"> (answer: {String.fromCharCode(65 + predict.answerIdx)})</span>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** One subplot. Hover values are NOT drawn on the plot (a floating box hides
  *  the curves) — they're forwarded to a dedicated readout box via onHover. */
 function PanelChart({ panel, baseRun, actRun, height = 170, onHover, activeSuffix = "", baselineSuffix = "paper's value" }) {
@@ -2595,16 +2639,18 @@ function ResultsLab({ spec, pipelineCompiled, helpers, baseOutputs, actOutputs, 
                 <div className={`grid gap-3 ${(fig.panels?.length || 0) > 1 ? "md:grid-cols-2" : ""}`}>
                   {(fig.panels || []).map((panel, pi) => (
                     <div key={pi}>
-                      {panel.reproduce === false ? (
-                        <OriginalOnlyPanel panel={panel} />
-                      ) : isSpecialDigitized(panel) ? (
-                        <DigitizedPanel panel={panel} height={panelH} />
-                      ) : (
-                        <PanelChart panel={panel} baseRun={runs[pi]?.base} actRun={runs[pi]?.act}
-                          height={panelH} onHover={setHover}
-                          activeSuffix={runs[pi]?.digitized ? "traced" : ""}
-                          baselineSuffix={runs[pi]?.digitized ? "live model" : "paper's value"} />
-                      )}
+                      <PredictGate predict={panel.reproduce === false ? null : panel.predict}>
+                        {panel.reproduce === false ? (
+                          <OriginalOnlyPanel panel={panel} />
+                        ) : isSpecialDigitized(panel) ? (
+                          <DigitizedPanel panel={panel} height={panelH} />
+                        ) : (
+                          <PanelChart panel={panel} baseRun={runs[pi]?.base} actRun={runs[pi]?.act}
+                            height={panelH} onHover={setHover}
+                            activeSuffix={runs[pi]?.digitized ? "traced" : ""}
+                            baselineSuffix={runs[pi]?.digitized ? "live model" : "paper's value"} />
+                        )}
+                      </PredictGate>
                     </div>
                   ))}
                 </div>
