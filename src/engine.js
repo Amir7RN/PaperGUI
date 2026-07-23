@@ -310,6 +310,12 @@ export function validateResultFigures(spec, pipelineCompiled, helpers, baseParam
   return (spec.resultFigures || []).map((fig, fi) => {
     const goodPanels = (fig.panels || []).filter((panel, pi) => {
       const id = `${fi}:${pi}`;
+      // Honest-degrade panel (REQ1): the analyzer classified this subplot as a
+      // family it can't reproduce faithfully (or was unsure), so it carries no
+      // chart — just a labelled "shown as the paper's original" note beside the
+      // real cropped figure. Always keep it: it's the correct, trustworthy
+      // outcome, not a broken reproduction.
+      if (panel.reproduce === false) return true;
       // Special digitized kinds (radar/heatmap/groupedBar/…) carry the paper's
       // real values in their own shape — keep them if structurally valid.
       if (SPECIAL_KINDS.has(panel.digitized?.kind)) return specialDigitizedValid(panel.digitized);
@@ -439,11 +445,66 @@ export function auditResultFiguresQuality(spec, compiled, helpers, defaults) {
     (fig.panels || []).forEach((panel, pi) => {
       const id = `${fi}:${pi}`;
       const where = `${fig.figureLabel || `figure ${fi + 1}`} panel "${panel.subplotLabel || pi + 1}"`;
+      if (panel.reproduce === false) return; // honest-degrade: no code to run
       if (figCompiled.errors[id]) { problems.push(`${where} does not compile: ${figCompiled.errors[id]}`); return; }
       const r = runResultPanel(figCompiled.fns[id], base.outputs, defaults, fh);
       if (r.error) { problems.push(`${where} fails at runtime: ${r.error}`); return; }
       const flat = r.series.every((s) => signalSpan(s.data) < 1e-9);
       if (flat) problems.push(`${where} plots as FLAT/CONSTANT lines (every series is constant) — not a real reproduction of the paper's curves`);
+    });
+  });
+  return problems;
+}
+
+/** Chart families the renderer can reproduce faithfully. Anything else must be
+ *  honest-degraded (reproduce:false). Kept in sync with paperSpec.js. */
+const RENDERABLE_FAMILIES = new Set([
+  "line", "bar", "groupedBar", "scatter", "box", "violin", "heatmap",
+  "stackedBar", "stackedBarH", "radar", "radialBar",
+]);
+
+/**
+ * Fidelity gate (REQ3): the in-house reviewer that runs BEFORE the reader sees
+ * anything — the automated stand-in for the paper author's eyeball check. It
+ * verifies the analyzer's OWN classification is self-consistent and honest:
+ *  - a panel it reproduced must belong to a renderable family (no survival
+ *    curve smuggled in as a line, no forest plot as bars),
+ *  - a 'low' confidence subplot must be degraded, not reproduced,
+ *  - a reproduced panel must actually carry a chart (code or digitized data),
+ *  - an honest-degrade panel must explain itself (degradeReason),
+ *  - reproduced quantitative axes must name a unit.
+ * Problems are fed back for one automatic regeneration, same as the code audit.
+ */
+export function auditFigureFidelity(spec) {
+  const problems = [];
+  (spec.resultFigures || []).forEach((fig, fi) => {
+    (fig.panels || []).forEach((panel, pi) => {
+      const where = `${fig.figureLabel || `figure ${fi + 1}`} panel "${panel.subplotLabel || pi + 1}"`;
+      const fam = panel.figureFamily;
+      const hasChart = !!panel.computeJs || !!panel.digitized;
+
+      if (panel.reproduce === false) {
+        if (!panel.degradeReason || !String(panel.degradeReason).trim()) {
+          problems.push(`${where} is shown as the original (reproduce:false) but has no degradeReason — add one plain sentence telling the reader why (e.g. its figure type isn't reproducible yet).`);
+        }
+        return;
+      }
+
+      // reproduce is true (or unset → treated as a reproduction attempt)
+      if (fam && !RENDERABLE_FAMILIES.has(fam)) {
+        problems.push(`${where} is classified figureFamily "${fam}", which this platform cannot render faithfully, yet reproduce is not false — set reproduce:false with a degradeReason and show the paper's original figure instead of forcing it into another chart type.`);
+        return;
+      }
+      if (panel.confidence === "low") {
+        problems.push(`${where} has confidence "low" but is being reproduced — low-confidence subplots must be honest-degraded (reproduce:false), not drawn as a possibly-wrong chart.`);
+      }
+      if (!hasChart) {
+        problems.push(`${where} has reproduce:true but carries neither computeJs nor a digitized object — either give it a real honest chart or set reproduce:false with a degradeReason.`);
+      }
+      const unitless = (lab) => lab && !/[()%\/]|log|per |dimensionless|count|index|iteration|epoch|sample/i.test(lab);
+      if (hasChart && (unitless(panel.xLabel) || unitless(panel.yLabel))) {
+        problems.push(`${where} has an axis label without a unit ("${unitless(panel.xLabel) ? panel.xLabel : panel.yLabel}") — every reproduced axis must name its quantity AND unit exactly as the paper's axis reads.`);
+      }
     });
   });
   return problems;

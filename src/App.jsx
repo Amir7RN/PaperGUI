@@ -31,7 +31,7 @@ import { analyzePaper, MODEL_TIERS, getModelTier, setModelTier } from "./api.js"
 import { fileToBase64, renderPdfRegions } from "./pdf.js";
 import {
   compileSpec, buildHelpers, defaultsFromSpec, runSpec, validateResultFigures,
-  auditPipeline, auditResultFiguresQuality, auditFoundations, auditExplorables,
+  auditPipeline, auditResultFiguresQuality, auditFigureFidelity, auditFoundations, auditExplorables,
 } from "./engine.js";
 import { authEnabled, onAuthChange, signOut, getBalance, saveAnalysis } from "./supabase.js";
 
@@ -806,8 +806,15 @@ export default function App() {
         results: (s) => {
           try {
             const h = buildHelpers(s.protocol);
-            return asNote(auditResultFiguresQuality(s, compileSpec(s), h, defaultsFromSpec(s)));
-          } catch { return null; }
+            return asNote([
+              ...auditFigureFidelity(s),
+              ...auditResultFiguresQuality(s, compileSpec(s), h, defaultsFromSpec(s)),
+            ]);
+          } catch {
+            // pipeline-less papers can throw in buildHelpers/compile — the
+            // fidelity gate still runs (it needs no pipeline).
+            try { return asNote(auditFigureFidelity(s)); } catch { return null; }
+          }
         },
       };
 

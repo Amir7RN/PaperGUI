@@ -1136,6 +1136,45 @@ function ResultFigureTooltip({ active, payload, label, xLabel, legend }) {
   );
 }
 
+/** Pretty names for the classified figure families (REQ1 honest-degrade). */
+const FAMILY_LABEL = {
+  kaplanMeier: "Kaplan–Meier survival curve", forest: "forest plot", pie: "pie / donut chart",
+  stackedArea: "stacked-area chart", volcano: "volcano plot", manhattan: "Manhattan plot",
+  roc: "ROC curve", ecdf: "ECDF plot", qq: "Q–Q plot", contour: "contour / field map",
+  quiver: "vector-field plot", sankey: "Sankey diagram", choropleth: "thematic map",
+  network: "network diagram", tree: "phylogenetic tree", dendrogram: "dendrogram",
+  sem: "path / SEM diagram", ternary: "ternary plot", slope: "slope chart",
+  waterfall: "waterfall chart", blandAltman: "Bland–Altman plot", funnel: "funnel plot",
+  bode: "Bode plot", polar: "polar plot", surface3d: "3-D surface plot",
+  image: "micrograph / image", schematic: "schematic diagram", other: "specialist figure",
+};
+
+/** Honest-degrade panel (REQ1): the analyzer classified this subplot as a
+ *  figure family it can't reproduce faithfully (or was unsure), so instead of
+ *  a possibly-wrong chart the reader gets a clear note pointing to the real
+ *  cropped figure beside it. A faithful original beats a fabricated chart. */
+function OriginalOnlyPanel({ panel }) {
+  const fam = FAMILY_LABEL[panel.figureFamily] || "figure";
+  return (
+    <div className="flex h-full min-h-[150px] flex-col justify-center rounded-lg border border-dashed border-amber-300/70 bg-amber-50/50 p-4">
+      <div className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold text-slate-700">
+        {panel.subplotLabel}
+        <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-700">
+          shown as original
+        </span>
+      </div>
+      <p className="text-[12px] leading-relaxed text-slate-600">
+        {panel.degradeReason ||
+          `This is a ${fam} — shown as the paper's own figure on the left, not a reproduction.`}
+      </p>
+      <p className="mt-2 text-[10.5px] leading-relaxed text-slate-400">
+        Read it directly from the real figure above/left, with the guided-tour markers. We only
+        build an interactive version when we can reproduce it faithfully — never a look-alike.
+      </p>
+    </div>
+  );
+}
+
 /** One subplot. Hover values are NOT drawn on the plot (a floating box hides
  *  the curves) — they're forwarded to a dedicated readout box via onHover. */
 function PanelChart({ panel, baseRun, actRun, height = 170, onHover, activeSuffix = "", baselineSuffix = "paper's value" }) {
@@ -2556,7 +2595,9 @@ function ResultsLab({ spec, pipelineCompiled, helpers, baseOutputs, actOutputs, 
                 <div className={`grid gap-3 ${(fig.panels?.length || 0) > 1 ? "md:grid-cols-2" : ""}`}>
                   {(fig.panels || []).map((panel, pi) => (
                     <div key={pi}>
-                      {isSpecialDigitized(panel) ? (
+                      {panel.reproduce === false ? (
+                        <OriginalOnlyPanel panel={panel} />
+                      ) : isSpecialDigitized(panel) ? (
                         <DigitizedPanel panel={panel} height={panelH} />
                       ) : (
                         <PanelChart panel={panel} baseRun={runs[pi]?.base} actRun={runs[pi]?.act}

@@ -182,7 +182,7 @@ export async function analyzePaper(pdfBase64, onProgress, tier = getModelTier(),
     } else {
       const contextSpec =
         phase.id === "results"
-          ? { protocol: spec.protocol, blocks: spec.blocks, archetype: spec.archetype }
+          ? { protocol: spec.protocol, blocks: spec.blocks, archetype: spec.archetype, field: spec.meta?.field }
           : phase.id === "method"
             ? { archetype: spec.archetype }
             : null;

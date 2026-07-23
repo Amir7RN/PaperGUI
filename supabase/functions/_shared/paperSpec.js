@@ -459,12 +459,23 @@ export const SPEC_SCHEMA = {
     meta: {
       type: "object",
       additionalProperties: false,
-      required: ["title", "authors", "venue", "abstract"],
+      required: ["title", "authors", "venue", "abstract", "field"],
       properties: {
         title:    { type: "string" },
         authors:  { type: "string" },
         venue:    { type: "string", description: "Journal/conference + year if identifiable, else empty string" },
         abstract: { type: "string", description: "The paper's abstract, condensed to <= 120 words" },
+        field: {
+          type: "string",
+          enum: [
+            "medicine-clinical", "biology-life-sciences", "genomics-omics",
+            "epidemiology-public-health", "neuroscience", "psychology-behavioral",
+            "economics-finance", "policy-social-science", "physics", "chemistry-materials",
+            "engineering-control-signals", "engineering-mechanical-fluids", "electrical-engineering",
+            "computer-science-ML", "earth-climate", "mathematics-statistics", "other",
+          ],
+          description: "The paper's primary discipline — decides which figure families to expect and how to read them (a clinician reads censoring on a survival curve; a geneticist reads the FDR line on a volcano plot). Pick the closest.",
+        },
       },
     },
     conclusion: {
@@ -627,9 +638,35 @@ export const SPEC_SCHEMA = {
             items: {
               type: "object",
               additionalProperties: false,
-              required: ["subplotLabel", "chartKind", "dataSource", "xLabel", "yLabel", "computeJs"],
+              required: ["subplotLabel", "figureFamily", "confidence", "reproduce", "chartKind", "dataSource", "xLabel", "yLabel", "computeJs"],
               properties: {
                 subplotLabel: { type: "string", description: "The subplot's own label/title, e.g. '(a) CoM lateral position' — match the paper" },
+                figureFamily: {
+                  type: "string",
+                  enum: [
+                    "line", "bar", "groupedBar", "scatter", "box", "violin", "heatmap",
+                    "stackedBar", "stackedBarH", "radar", "radialBar",
+                    "kaplanMeier", "forest", "pie", "stackedArea", "volcano", "manhattan",
+                    "roc", "ecdf", "qq", "contour", "quiver", "sankey", "choropleth",
+                    "network", "tree", "dendrogram", "sem", "ternary", "slope", "waterfall",
+                    "blandAltman", "funnel", "bode", "polar", "surface3d",
+                    "image", "schematic", "other",
+                  ],
+                  description: "STEP 1 — classify this subplot's chart family by LOOKING AT IT, from this exact list. The first 11 (line…radialBar) are the families this platform renders faithfully. Everything after is either NOT YET renderable (kaplanMeier, forest, pie, stackedArea, volcano, manhattan, roc, ecdf, qq, contour, quiver, sankey, choropleth, network, tree, dendrogram, sem, ternary, slope, waterfall, blandAltman, funnel, bode, polar, surface3d) or must never be reproduced (image = micrograph/gel/photo/MRI, schematic = diagram). Classify HONESTLY — a box is 'box', never 'bar'. This drives whether the subplot is reproduced or shown as the original only.",
+                },
+                confidence: {
+                  type: "string",
+                  enum: ["high", "medium", "low"],
+                  description: "How sure you are of BOTH the family classification AND that you can reproduce this subplot faithfully (right chart family, every series, honest values). 'low' whenever the figure is small/ambiguous, the axes are unreadable, or you'd be guessing values.",
+                },
+                reproduce: {
+                  type: "boolean",
+                  description: "STEP 2 — the honest-degrade decision. Set TRUE only when figureFamily is one of the 11 renderable families AND confidence is high/medium AND you have an honest data source (simulated or the paper's own reported numbers). Set FALSE for any not-yet-renderable or image/schematic family, for confidence 'low', or when no honest values exist. When FALSE you emit NO chart — the reader still sees the real cropped figure with its hotspots and guided tour, and you set degradeReason. NEVER draw a wrong-family chart to avoid a FALSE: a faithful original beats a fabricated reproduction, always.",
+                },
+                degradeReason: {
+                  type: "string",
+                  description: "REQUIRED when reproduce is false: one plain sentence the reader sees, e.g. 'This is a Kaplan–Meier survival curve — shown as the paper's own figure; the interactive version isn't available yet.' or 'The axis values are too small to read reliably, so this is shown as the original.' Empty string when reproduce is true.",
+                },
                 chartKind: {
                   type: "string",
                   enum: ["line", "bar", "scatter"],
@@ -745,6 +782,75 @@ export const PHASE_SCHEMAS = {
   },
 };
 
+/* ---------------- per-field figure lexicon (REQ2 domain routing) ----------
+ * Reading a figure like a domain expert means knowing which figures a field
+ * leans on and how each is judged trustworthy IN THAT FIELD. Keyed by meta.field.
+ * `signature` = the figures a reviewer from this field expects; `crop` = the
+ * ones that today have no faithful renderer (classify them honestly and set
+ * reproduce:false) or must never be reproduced. Injected in the results phase. */
+export const FIELD_LEXICON = {
+  "medicine-clinical": {
+    signature: "Kaplan–Meier survival curves (step + censor ticks + risk table), forest plots (per-arm/subgroup estimate ± CI + pooled diamond), ROC curves, bar ± SE, box plots.",
+    crop: "kaplanMeier, forest, roc are NOT yet renderable — classify them exactly and set reproduce:false (show the real figure). A clinician checks censoring, numbers-at-risk and CI coverage; do not fake these.",
+  },
+  "epidemiology-public-health": {
+    signature: "Forest plots, Kaplan–Meier, choropleth maps, funnel plots, incidence/prevalence lines, bar ± CI.",
+    crop: "forest, choropleth, funnel, kaplanMeier are not yet renderable — reproduce:false. Reproduce only plain incidence lines and bars from the paper's own numbers.",
+  },
+  "genomics-omics": {
+    signature: "Volcano plots (log2FC vs −log10 p with FDR lines + labelled hits), Manhattan plots, clustered heatmaps (with dendrogram), PCA/UMAP scatter, box/violin of expression.",
+    crop: "volcano and manhattan are partially expressible only as plain scatter and lose their threshold lines/coloring — prefer reproduce:false unless you can honestly place the significance lines; a bare heatmap loses its dendrogram (note it). PCA/UMAP scatter, box, violin reproduce well.",
+  },
+  "psychology-behavioral": {
+    signature: "Bar ± SE, interaction line plots (one line per group), regression scatter with CI band, path/SEM diagrams, raincloud (box+violin+jitter).",
+    crop: "sem/path diagrams are not renderable — reproduce:false. Interaction lines, bars, scatter reproduce well; a regression CI band flattens to a line (note it).",
+  },
+  "economics-finance": {
+    signature: "Stacked-area/time series, line charts, slope charts, waterfall, choropleth, bar.",
+    crop: "stackedArea (temporal stacks), slope, waterfall, choropleth are not yet renderable — reproduce:false. Plain time-series lines and bars reproduce well from the paper's reported numbers.",
+  },
+  "policy-social-science": {
+    signature: "Choropleth maps, Sankey flows, stacked-area, diverging/Likert bars, line trends.",
+    crop: "choropleth, sankey, stackedArea are not yet renderable — reproduce:false. Diverging/Likert bars flatten toward stackedBarH (note the centring loss); plain lines/bars reproduce well.",
+  },
+  "engineering-mechanical-fluids": {
+    signature: "Contour/filled-contour fields, quiver/streamline vector fields, 3-D surfaces, stress–strain and time-response lines, log-log plots.",
+    crop: "contour, quiver, surface3d are not yet renderable — reproduce:false (show the real field plot). Line/log-log responses reproduce well; calibrate to the paper's ranges.",
+  },
+  "electrical-engineering": {
+    signature: "Bode (magnitude+phase, log-freq), Nyquist, spectra, eye diagrams, time responses.",
+    crop: "bode (paired log panels) and Nyquist are not cleanly renderable yet — reproduce:false unless it is a single magnitude curve you can plot as a log-axis line. Spectra and time responses reproduce well.",
+  },
+  "physics": {
+    signature: "Line/log-log plots, spectra, contour/field maps, heatmaps, scatter with fits.",
+    crop: "contour fields and 3-D surfaces are not yet renderable — reproduce:false. Lines, log-log, spectra, heatmaps reproduce well.",
+  },
+  "chemistry-materials": {
+    signature: "Spectra (peaks), ternary composition plots, line/scatter with fits, heatmaps.",
+    crop: "ternary is not yet renderable — reproduce:false. Spectra and line/scatter reproduce well.",
+  },
+  "biology-life-sciences": {
+    signature: "Bar ± SE, box/violin, dose–response lines, phylogenetic trees, micrographs/gels.",
+    crop: "phylogenetic trees are not yet renderable (reproduce:false); micrographs/gels are image family — never reproduce, show the crop. Bars, box, violin, dose–response lines reproduce well.",
+  },
+  "computer-science-ML": {
+    signature: "Training/convergence lines, ROC/PR curves, confusion-matrix heatmaps, ablation bars, embedding scatter.",
+    crop: "roc/PR lose their diagonal + AUC framing (reproduce as line only if honest). Convergence lines, heatmaps, bars, scatter reproduce well.",
+  },
+};
+
+/** Build the field-guidance block for the results phase, if we know the field. */
+export function fieldLexiconBlock(field) {
+  const lex = FIELD_LEXICON[field];
+  if (!lex) return "";
+  return (
+    "\n\nDOMAIN LENS — this paper's field is \"" + field + "\". Read its figures the way a reviewer from this field would.\n" +
+    "- Signature figures to expect: " + lex.signature + "\n" +
+    "- Renderability in this field: " + lex.crop + "\n" +
+    "Classify each subplot's figureFamily against this, and when a signature figure is not renderable set reproduce:false with a degradeReason rather than forcing it into the wrong chart family."
+  );
+}
+
 /** Per-phase instruction appended to the prompt. `contextSpec` is the
  *  {protocol, blocks} slice from the method phase, required by results. */
 export function phaseInstruction(phase, contextSpec) {
@@ -793,6 +899,8 @@ export function phaseInstruction(phase, contextSpec) {
   return (
     "\n\nTHIS CALL IS PHASE 3 of 3: produce ONLY the field {resultFigures} per the rules above. " +
     "Every figure needs page + bbox, 3-6 hotspot markers, and a guided-tour explanation. " +
+    "For EVERY panel, first classify figureFamily + confidence, then make the reproduce decision (honest-degrade) before writing any chart. " +
+    fieldLexiconBlock(contextSpec?.field) + " " +
     (hasPipeline
       ? "The pipeline was already produced in the previous call and is given below — 'simulated' panels' " +
         "computeJs receive ITS block outputs (by block key) and ITS slider params, and helpers.simulate " +
@@ -822,6 +930,14 @@ Readers can open the real PDF; one fabricated plot destroys trust in everything 
 2. REPORTED — plot the paper's own published numbers (its tables, its stated values, points read off its plots). Always honest, because the data IS the paper's.
 3. EQUATION — plot the paper's own equations/models with their coefficients on sliders. Even theory papers have equations.
 Fabricating dynamics the paper never had is the ONLY forbidden move. Everything else stays hands-on.
+
+THE HONEST-DEGRADE RULE (this is how one shot stays trustworthy across EVERY field):
+This platform renders 11 chart families faithfully: line, bar, groupedBar, scatter, box, violin, heatmap, stackedBar, stackedBarH, radar, radialBar. Many scientific figures are NOT in that set — Kaplan–Meier survival curves, forest plots, pie/donut, stacked-area, volcano, Manhattan, ROC, ECDF/QQ, contour fields, quiver, Sankey, choropleth maps, networks, phylogenetic trees, SEM/path diagrams, ternary, waterfall, Bode, 3-D surfaces — and some figures (micrographs, gels, MRI/CT, photos, schematics) must NEVER be turned into a chart.
+For EVERY subplot you: (1) set figureFamily by looking at it; (2) set confidence; (3) make the reproduce decision. Reproduce TRUE only when the family is one of the 11 renderable ones AND confidence is high/medium AND an honest data source exists. Otherwise reproduce FALSE with a one-line degradeReason — you emit NO chart, and the reader still sees the real cropped figure with its hotspots and guided tour (which is already trustworthy and complete).
+Drawing a wrong-family chart — a survival curve as a line, a forest plot as bars, a contour as a heatmap — to avoid a FALSE is the single worst failure and an automatic rejection. A faithful ORIGINAL always beats a fabricated reproduction. Honest-degrade is a first-class, correct outcome, never a shortfall.
+
+FEWER FIGURES, FLAWLESS (REQ: first-shot trust is won by 3 perfect figures and lost by 6 shaky ones):
+Prefer reproducing FEWER subplots perfectly over reproducing all of them poorly. A confidently classified original-only panel (reproduce:false) beats a strained reproduction every time. When unsure, degrade — never pad the dashboard with charts you're not sure of.
 
 STEP 0 — CLASSIFY THE PAPER (archetype):
 Decide which source powers the method layer:
@@ -890,7 +1006,7 @@ DIGITIZE HINT (per figure — the seed for tracing the REAL curve into accurate 
 PANELS — EVERY SUBPLOT STAYS INTERACTIVE VIA THE RIGHT SOURCE:
 - dataSource 'simulated' when the pipeline honestly regenerates the subplot (via outputs / helpers.simulate): time responses of the simulated controller, convergence of the simulated learning rule. These reshape live with the sliders.
 - dataSource 'reported' for everything the pipeline cannot produce: experimental histograms, benchmark comparisons, human-subject statistics, ablation tables. Return the PAPER'S OWN numbers — read them from its tables and its plots' axes — as literal arrays. Still interactive (hover for exact values, series toggles), and accurate BY CONSTRUCTION because the numbers are the paper's.
-- CLASSIFY EACH SUBPLOT'S CHART TYPE BEFORE YOU WRITE IT — this is a MANDATORY first step, and getting it wrong is the single most-rejected failure of this system. Look at the subplot image and name its family from this exact list, then route it:
+- CLASSIFY EACH SUBPLOT, THEN DECIDE REPRODUCE — this is the MANDATORY first step. Look at the subplot image, set figureFamily + confidence, then set reproduce (see THE HONEST-DEGRADE RULE above). If reproduce is FALSE, set degradeReason, set chartKind to "line" and computeJs to the empty string with no digitized object, and move on — do NOT fabricate a chart. Only when reproduce is TRUE do you route it below:
     * curve(s) over a continuous x (time / iteration / frequency / a swept number) → chartKind "line", computeJs.
     * simple bars, one value per category, side by side → chartKind "bar", computeJs (categories + one value per category per series).
     * a point cloud (PCA/t-SNE/correlation) → digitized.kind "scatter".
@@ -962,7 +1078,8 @@ OTHER FIELDS
 
 FINAL CHECK before you answer — the trust test:
 1. Would a reader who opens the real PDF afterwards find that everything you claimed matches it? If any statement, story beat, mindmap node, hotspot note or explanation might not survive that comparison, fix or cut it.
-2. For every panel: does it render in the ORIGINAL subplot's chart FAMILY? Walk each subplot — a box stays a box, a violin stays a violin, a vertical stacked bar stays a vertical stack, a horizontal one stays horizontal, a heatmap stays a heatmap (via the digitized object with the matching kind), and a plain curve/bar stays line/bar. Did you emit ONE panel per subplot (all of A,B,C,D…), every series/box/violin/segment present, in the paper's colours and order? Is dataSource honest — simulated only when the pipeline truly generates it, reported values truly the paper's own?
+2. For every panel: did you classify figureFamily honestly and make the right reproduce decision? Any not-yet-renderable family (kaplanMeier, forest, pie, stackedArea, volcano, manhattan, contour, sankey, choropleth, tree, sem, …) or any image/schematic MUST be reproduce:false with a degradeReason — NOT forced into a bar/line/heatmap. For the panels you DO reproduce: does each render in the ORIGINAL subplot's chart FAMILY? A box stays a box, a violin a violin, a vertical stacked bar a vertical stack, a heatmap a heatmap, a plain curve/bar line/bar. One panel per reproduced subplot, every series/box/violin/segment present, in the paper's colours and order. Is dataSource honest — simulated only when the pipeline truly generates it, reported values truly the paper's own?
+6. Would you rather ship this than a wrong chart? For every reproduce:true panel, if a domain reviewer might not recognise it as the same figure family with the same series, set reproduce:false instead. Fewer, flawless, honest — a real original always beats a shaky reproduction.
 3. Is EVERY paper hands-on when you're done? A paper with no pipeline must have 2-4 explorables and reported-data panels — a text-only dashboard is a failure of this system's entire purpose.
 4. Is the story/mindmap specific to THIS paper (its actual claimed contributions), not generic filler?
 5. Would the PAPER'S OWN AUTHOR nod at every chart? Concretely: every axis labeled with quantity + unit (log scales named), every plot citing its figure/equation/section of origin, the model section naming their real tools and equations, and the idea section explaining their physics at least as well as their own captions. This system is reviewed by authors of the papers it presents — build for that reviewer.
