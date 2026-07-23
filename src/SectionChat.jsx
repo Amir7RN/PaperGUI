@@ -14,8 +14,9 @@
  */
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Bot, Send, X, Sparkles, LogIn, GraduationCap, ListChecks, MessageCircle, Check, RotateCcw } from "lucide-react";
+import { Bot, Send, X, Sparkles, LogIn, GraduationCap, ListChecks, MessageCircle, Check, Mic, Volume2, VolumeX, Square } from "lucide-react";
 import { buildSectionContext, askSectionAssistant, checkpointsForSection } from "./sectionChat.js";
+import { useVoiceInput, useVoiceOutput } from "./useVoice.js";
 
 const STARTERS = {
   story: ["Explain this paper like I'm new to the field", "What exactly was impossible before this paper?"],
@@ -41,7 +42,7 @@ const LENSES = [
 const MODES = [
   { id: "ask", label: "Ask", icon: MessageCircle, sub: "answers about this section" },
   { id: "tutor", label: "Tutor", icon: GraduationCap, sub: "a Socratic tutor quizzes you" },
-  { id: "quiz", label: "Quiz", icon: ListChecks, sub: "test yourself · explain it back" },
+  { id: "quiz", label: "Quiz", icon: ListChecks, sub: "test yourself — tap to answer" },
 ];
 
 export default function SectionChat({ spec, open, onClose }) {
@@ -58,6 +59,15 @@ export default function SectionChat({ spec, open, onClose }) {
   const threadKey = `${sectionId}:${mode}`;
   const messages = threads[threadKey] || [];
   const apiMode = mode === "tutor" ? "tutor" : "qa";
+
+  // Free, browser-native voice (Web Speech API) — dictation in, spoken replies
+  // out. sendRef lets the mic's onFinal reach the latest send() closure.
+  const sendRef = useRef(null);
+  const [voiceOn, setVoiceOn] = useState(false);
+  const tts = useVoiceOutput();
+  const mic = useVoiceInput({ onFinal: (t) => sendRef.current?.(t) });
+  // While dictating, mirror the live transcript into the input box.
+  useEffect(() => { if (mic.listening) setInput(mic.transcript); }, [mic.transcript, mic.listening]);
 
   const context = useMemo(
     () => (sectionId ? buildSectionContext(spec, sectionId) : ""),
@@ -106,12 +116,17 @@ export default function SectionChat({ spec, open, onClose }) {
         mode: apiMode,
       });
       setThreads((t) => ({ ...t, [threadKey]: [...next, { role: "assistant", content: reply }] }));
+      if (voiceOn && tts.supported) tts.speak(reply);
     } catch (e) {
       setError({ message: e.message, code: e.code });
     } finally {
       setBusy(false);
     }
   };
+  sendRef.current = send;
+
+  // Stop any voice when the dock closes or the section/mode changes.
+  useEffect(() => { tts.cancel(); mic.stop(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [sectionId, open, mode]);
 
   const retryLast = () => {
     const cur = threads[threadKey] || [];
@@ -181,7 +196,7 @@ export default function SectionChat({ spec, open, onClose }) {
       </div>
 
       {mode === "quiz" ? (
-        <QuizPane spec={spec} open={open} context={context} checkpoints={checkpoints} />
+        <QuizPane open={open} checkpoints={checkpoints} />
       ) : (
         <>
           {/* messages */}
@@ -258,6 +273,16 @@ export default function SectionChat({ spec, open, onClose }) {
           {/* input */}
           <form onSubmit={(e) => { e.preventDefault(); send(); }}
             className={`flex items-end gap-2 bg-white px-3 py-2.5 ${mode === "ask" ? "" : "border-t border-slate-100"}`}>
+            {mic.supported && (
+              <button type="button" onClick={() => (mic.listening ? mic.stop() : mic.start())}
+                aria-label={mic.listening ? "Stop dictation" : "Speak your question"}
+                title={mic.listening ? "Stop dictation" : "Speak your question"}
+                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border transition ${
+                  mic.listening ? "animate-pulse border-rose-300 bg-rose-50 text-rose-600" : "border-slate-200 bg-white text-slate-500 hover:border-indigo-300 hover:text-indigo-600"
+                }`}>
+                {mic.listening ? <Square size={13} /> : <Mic size={15} />}
+              </button>
+            )}
             <textarea
               ref={inputRef}
               value={input}
@@ -265,16 +290,26 @@ export default function SectionChat({ spec, open, onClose }) {
               onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
               rows={1}
               maxLength={1500}
-              placeholder={mode === "tutor" ? "Answer the tutor, or ask to explain…" : `Ask about ${open.title.toLowerCase()}…`}
+              placeholder={mic.listening ? "Listening…" : mode === "tutor" ? "Answer the tutor, or ask to explain…" : `Ask about ${open.title.toLowerCase()}…`}
               className="max-h-24 flex-1 resize-none rounded-xl border border-slate-200 px-3 py-2 text-[12.5px] leading-snug text-slate-800 outline-none focus:border-indigo-400"
             />
+            {tts.supported && (
+              <button type="button" onClick={() => { const n = !voiceOn; setVoiceOn(n); if (!n) tts.cancel(); }}
+                aria-label={voiceOn ? "Mute spoken replies" : "Hear replies aloud"}
+                title={voiceOn ? "Spoken replies on — click to mute" : "Read replies aloud (free browser voice)"}
+                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border transition ${
+                  voiceOn ? "border-indigo-300 bg-indigo-50 text-indigo-600" : "border-slate-200 bg-white text-slate-400 hover:border-indigo-300 hover:text-indigo-600"
+                }`}>
+                {voiceOn ? <Volume2 size={15} /> : <VolumeX size={15} />}
+              </button>
+            )}
             <button type="submit" disabled={busy || !input.trim()} aria-label="Send"
               className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-40">
               <Send size={15} />
             </button>
           </form>
           <p className="bg-white px-3 pb-2 text-center text-[9.5px] text-slate-400">
-            Free while in beta · grounded in this page's analysis, not the raw PDF — verify against the paper.
+            Free while in beta · {mic.supported ? "🎙 speak or type · " : ""}grounded in this page's analysis — verify against the paper.
           </p>
         </>
       )}
@@ -282,71 +317,49 @@ export default function SectionChat({ spec, open, onClose }) {
   );
 }
 
-/* ---------------- Quiz pane: checkpoints + explain-it-back ---------------- */
+/* ---------------- Quiz pane: tap-to-answer multiple choice ---------------- */
 
-function QuizPane({ spec, open, context, checkpoints }) {
+function QuizPane({ open, checkpoints }) {
   const [picks, setPicks] = useState({});   // qIdx -> chosen option idx
-  const [summary, setSummary] = useState("");
-  const [grade, setGrade] = useState(null);
-  const [grading, setGrading] = useState(false);
-  const [gradeErr, setGradeErr] = useState(null);
-
-  // reset when the section changes
   const sectionId = open?.sectionId;
-  useEffect(() => { setPicks({}); setSummary(""); setGrade(null); setGradeErr(null); }, [sectionId]);
+  useEffect(() => { setPicks({}); }, [sectionId]);
 
   const answered = Object.keys(picks).length;
   const correct = checkpoints.reduce((n, c, i) => n + (picks[i] === c.answerIdx ? 1 : 0), 0);
-
-  const gradeSummary = async () => {
-    const text = summary.trim();
-    if (!text || grading) return;
-    setGrading(true); setGradeErr(null); setGrade(null);
-    try {
-      const reply = await askSectionAssistant({
-        paperTitle: spec.meta?.title,
-        sectionTitle: open.title,
-        context,
-        messages: [{ role: "user", content: text }],
-        mode: "grade",
-      });
-      setGrade(reply);
-    } catch (e) {
-      setGradeErr({ message: e.message, code: e.code });
-    } finally {
-      setGrading(false);
-    }
-  };
+  const allDone = answered === checkpoints.length && checkpoints.length > 0;
 
   return (
     <div className="flex-1 space-y-3 overflow-y-auto bg-slate-50/60 px-3 py-3">
       {checkpoints.length > 0 ? (
         <>
           <div className="flex items-center justify-between px-0.5">
-            <span className="text-[11px] font-bold uppercase tracking-wide text-indigo-700">Checkpoints</span>
-            {answered > 0 && (
-              <span className="text-[11px] font-semibold text-slate-500">
-                {correct}/{checkpoints.length} correct
-              </span>
-            )}
+            <span className="text-[11px] font-bold uppercase tracking-wide text-indigo-700">Tap the right answer</span>
+            <span className="flex items-center gap-2 text-[11px] font-semibold text-slate-500">
+              {answered > 0 && <>{correct}/{checkpoints.length} correct</>}
+              {allDone && (
+                <button onClick={() => setPicks({})} className="rounded-full border border-slate-200 px-2 py-0.5 text-[10px] text-slate-500 hover:border-indigo-300 hover:text-indigo-600">
+                  retake
+                </button>
+              )}
+            </span>
           </div>
           {checkpoints.map((c, qi) => {
             const chosen = picks[qi];
             const done = chosen !== undefined;
             return (
               <div key={qi} className="rounded-xl border border-slate-200 bg-white p-3">
-                <p className="mb-2 text-[12.5px] font-semibold leading-snug text-slate-800">{c.question}</p>
+                <p className="mb-2 text-[12.5px] font-semibold leading-snug text-slate-800">{qi + 1}. {c.question}</p>
                 <div className="flex flex-col gap-1.5">
                   {c.options.map((opt, oi) => {
                     const isAnswer = oi === c.answerIdx;
                     const isChosen = oi === chosen;
-                    let cls = "border-slate-200 bg-white text-slate-700 hover:border-indigo-300";
+                    let cls = "border-slate-200 bg-white text-slate-700 hover:border-indigo-300 hover:bg-indigo-50/40";
                     if (done && isAnswer) cls = "border-emerald-300 bg-emerald-50 text-emerald-800";
                     else if (done && isChosen) cls = "border-rose-300 bg-rose-50 text-rose-800";
                     else if (done) cls = "border-slate-200 bg-white text-slate-400";
                     return (
                       <button key={oi} disabled={done} onClick={() => setPicks((p) => ({ ...p, [qi]: oi }))}
-                        className={`flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-left text-[11.5px] transition ${cls}`}>
+                        className={`flex items-center gap-2 rounded-lg border px-2.5 py-2 text-left text-[11.5px] transition ${cls}`}>
                         <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border text-[9px] font-bold ${
                           done && isAnswer ? "border-emerald-500 bg-emerald-500 text-white"
                           : done && isChosen ? "border-rose-500 bg-rose-500 text-white" : "border-slate-300 text-slate-400"
@@ -370,56 +383,14 @@ function QuizPane({ spec, open, context, checkpoints }) {
           })}
         </>
       ) : (
-        <div className="rounded-xl border border-slate-200 bg-white p-3 text-[11.5px] leading-relaxed text-slate-500">
-          No ready-made checkpoints for this section. Use <strong>Explain it back</strong> below, or the
-          <strong> Tutor</strong> tab to be quizzed live.
+        <div className="rounded-xl border border-slate-200 bg-white p-4 text-center text-[12px] leading-relaxed text-slate-500">
+          <ListChecks size={20} className="mx-auto mb-2 text-indigo-300" />
+          No ready-made questions for this section. Switch to the <strong className="text-indigo-600">Tutor</strong> tab
+          to be quizzed live — by text or voice.
         </div>
       )}
-
-      {/* explain it back */}
-      <div className="rounded-xl border border-indigo-100 bg-white p-3">
-        <div className="mb-1.5 flex items-center gap-1.5 text-[11px] font-bold text-indigo-700">
-          <GraduationCap size={12} /> Explain it back
-        </div>
-        <p className="mb-2 text-[11px] leading-relaxed text-slate-600">
-          Summarize “{open.title}” in your own words. I'll grade it against the paper and show what you
-          missed — the fastest way to find the gaps in your understanding.
-        </p>
-        <textarea
-          value={summary}
-          onChange={(e) => setSummary(e.target.value)}
-          rows={3}
-          maxLength={1400}
-          placeholder="In my own words, this section says…"
-          className="w-full resize-none rounded-lg border border-slate-200 px-2.5 py-2 text-[12px] leading-snug text-slate-800 outline-none focus:border-indigo-400"
-        />
-        <div className="mt-2 flex items-center gap-2">
-          <button onClick={gradeSummary} disabled={grading || !summary.trim()}
-            className="flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-indigo-700 disabled:opacity-40">
-            {grading ? "Grading…" : "Grade my summary"}
-          </button>
-          {grade && (
-            <button onClick={() => { setGrade(null); setSummary(""); }}
-              className="flex items-center gap-1 text-[11px] font-medium text-slate-500 hover:text-slate-700">
-              <RotateCcw size={11} /> again
-            </button>
-          )}
-        </div>
-        {gradeErr && (
-          <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] text-amber-800">
-            {gradeErr.code === "auth"
-              ? <span className="flex items-center gap-1.5"><LogIn size={11} /> {gradeErr.message}</span>
-              : gradeErr.message}
-          </p>
-        )}
-        {grade && (
-          <div className="mt-2 whitespace-pre-wrap rounded-lg border border-emerald-100 bg-emerald-50/60 px-2.5 py-2 text-[12px] leading-relaxed text-slate-700">
-            {grade}
-          </div>
-        )}
-      </div>
       <p className="pb-1 text-center text-[9.5px] text-slate-400">
-        Free while in beta · grounded in this page's analysis — verify against the paper.
+        Free while in beta · questions from this page's analysis — verify against the paper.
       </p>
     </div>
   );

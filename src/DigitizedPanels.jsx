@@ -42,15 +42,14 @@ const fmt = (v, d = 2) => (v === undefined || v === null || Number.isNaN(+v) ? "
 function PanelShell({ panel, children, footer }) {
   return (
     <div className="rounded-lg border border-slate-100 bg-white p-2">
-      <div className="mb-1 flex items-baseline justify-between px-1">
-        <span className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-700">
+      <div className="mb-1.5 flex items-center gap-2 px-1">
+        <span className="min-w-0 flex-1 truncate text-[12px] font-semibold text-slate-700" title={panel.subplotLabel}>
           {panel.subplotLabel}
-          <span className="rounded-full bg-blue-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-blue-700"
-            title={panel.digitized?.source || "traced off the real figure"}>
-            {panel.digitized?.badge || "traced from figure"}
-          </span>
         </span>
-        {panel.xLabel && <span className="text-[10px] text-slate-400">{panel.xLabel}{panel.yLabel ? ` · ${panel.yLabel}` : ""}</span>}
+        <span className="shrink-0 rounded-full bg-blue-50 px-1.5 py-0.5 text-[8.5px] font-bold uppercase tracking-wide text-blue-600"
+          title={panel.digitized?.source ? `Traced from ${panel.digitized.source}` : "Traced off the real figure"}>
+          traced
+        </span>
       </div>
       {children}
       {footer}

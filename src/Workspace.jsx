@@ -260,10 +260,10 @@ function SectionHeader({ num, tone, icon: IconCmp, title, sub, onAsk }) {
       {onAsk && (
         <button
           onClick={onAsk}
-          title="Chat with an AI assistant about this section"
+          title="Ask questions, get Socratically tutored, quiz yourself, or talk by voice — all about this section"
           className="mt-0.5 flex shrink-0 items-center gap-1.5 rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-[11px] font-semibold text-indigo-700 shadow-sm transition hover:border-indigo-400 hover:bg-indigo-100"
         >
-          <Bot size={13} /> Ask AI
+          <GraduationCap size={13} /> Tutor &amp; quiz
         </button>
       )}
     </div>
@@ -3396,10 +3396,86 @@ function SelectionExplain({ onAsk }) {
         window.getSelection()?.removeAllRanges();
       }}
       style={{ position: "fixed", left: chip.x, top: chip.y, transform: "translate(-50%, -100%)", zIndex: 60 }}
-      className="flex items-center gap-1.5 rounded-full bg-indigo-600 px-3 py-1.5 text-[11px] font-semibold text-white shadow-lg hover:bg-indigo-700"
+      className="pp-rise flex items-center gap-1.5 rounded-full bg-indigo-600 px-3.5 py-2 text-[12px] font-semibold text-white shadow-xl ring-2 ring-white hover:bg-indigo-700"
     >
-      <Sparkles size={12} /> Explain this
+      <Sparkles size={13} /> Explain the selected text
     </button>
+  );
+}
+
+/* ---------------- left guide rail (orientation + jump-to) ----------------
+ * Fills the blank left margin on wide screens with a persistent map of the
+ * page: what this walkthrough IS, the few gestures that unlock it, and a
+ * vertical table of contents that tracks where you are. So a reader opening an
+ * analyzed paper immediately knows what they're looking at and where to go. */
+const GUIDE_TIPS = [
+  { icon: SlidersHorizontal, text: "Drag any slider — the figures recompute live." },
+  { icon: Sparkles, text: "Select any text → “Explain the selected text”." },
+  { icon: GraduationCap, text: "Tutor & quiz on every section — type or talk." },
+  { icon: Layers, text: "Flip the flashcards to make it stick." },
+];
+
+function LeftGuide({ sections, sec }) {
+  const [activeId, setActiveId] = useState(sections[0]?.id);
+  useEffect(() => {
+    const targets = sections.map((s) => document.querySelector(`[data-box="${s.boxId}"]`)).filter(Boolean);
+    if (!targets.length) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        const vis = entries.filter((e) => e.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
+        if (vis[0]) {
+          const id = sections.find((s) => document.querySelector(`[data-box="${s.boxId}"]`) === vis[0].target)?.id;
+          if (id) setActiveId(id);
+        }
+      },
+      { rootMargin: "-15% 0px -70% 0px", threshold: 0 }
+    );
+    targets.forEach((t) => io.observe(t));
+    return () => io.disconnect();
+  }, [sections]);
+
+  const jump = (boxId) => document.querySelector(`[data-box="${boxId}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+
+  return (
+    <aside className="hidden xl:block w-[230px] shrink-0">
+      <div className="sticky top-16 flex flex-col gap-3">
+        <div className="rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm">
+          <div className="mb-1 text-[10px] font-bold uppercase tracking-wider text-blue-600">Your guide</div>
+          <p className="mb-2.5 text-[11.5px] leading-relaxed text-slate-500">
+            This is the paper rebuilt as a hands-on walkthrough — read top to bottom, or jump around.
+          </p>
+          <ul className="flex flex-col gap-2">
+            {GUIDE_TIPS.map((t, i) => {
+              const Icon = t.icon;
+              return (
+                <li key={i} className="flex items-start gap-2 text-[11px] leading-snug text-slate-600">
+                  <Icon size={13} className="mt-0.5 shrink-0 text-indigo-500" /> {t.text}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+
+        <nav className="rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
+          <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">On this page</div>
+          {sections.map((s, i) => {
+            const t = SECTION_TONES[s.tone];
+            const on = activeId === s.id;
+            const Icon = s.icon;
+            return (
+              <button key={s.id} onClick={() => jump(s.boxId)}
+                className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[12px] transition ${
+                  on ? "bg-slate-100 font-semibold text-slate-800" : "text-slate-500 hover:bg-slate-50 hover:text-slate-700"
+                }`}>
+                <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded text-[9px] font-bold text-white ${t.badge}`}>{i + 1}</span>
+                <Icon size={13} className={on ? t.text : "text-slate-400"} />
+                <span className="truncate">{s.navLabel}</span>
+              </button>
+            );
+          })}
+        </nav>
+      </div>
+    </aside>
   );
 }
 
@@ -3688,35 +3764,51 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
         className={free ? "relative w-full p-0" : "mx-auto pt-4"}
         style={free
           ? { height: canvasHeight, maxWidth: "none" }
-          : { maxWidth: "var(--content-max, 1280px)", paddingLeft: "var(--page-pad, 24px)", paddingRight: "var(--page-pad, 24px)" }}
+          : { maxWidth: "var(--content-max, 1320px)", paddingLeft: "var(--page-pad, 24px)", paddingRight: "var(--page-pad, 24px)" }}
       >
-        <DesignBox id="conclusion" label="Conclusion" mode={free ? "free" : "flow"} rect={layout.boxes.conclusion} onRect={setBox} register={registerBox}>
-          <TakeawayBox
-            conclusion={spec.conclusion}
-            modifiedCount={modifiedCount}
-            onReset={() => { setParams(defaults); setPinnedT(null); }}
-          />
-          {active.error && (
-            <div className="mt-3 rounded-xl border-2 border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800">
-              <strong>Pipeline error:</strong> {active.error}
-            </div>
-          )}
-        </DesignBox>
+        {(() => {
+          const boxes = (
+            <>
+              <DesignBox id="conclusion" label="Conclusion" mode={free ? "free" : "flow"} rect={layout.boxes.conclusion} onRect={setBox} register={registerBox}>
+                <TakeawayBox
+                  conclusion={spec.conclusion}
+                  modifiedCount={modifiedCount}
+                  onReset={() => { setParams(defaults); setPinnedT(null); }}
+                />
+                {active.error && (
+                  <div className="mt-3 rounded-xl border-2 border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800">
+                    <strong>Pipeline error:</strong> {active.error}
+                  </div>
+                )}
+              </DesignBox>
 
-        {/* sections come from the `sections` list built above — a hidden or
-            empty one just disappears from the array, so numbering never
-            leaves a gap and the nav bar always matches what's on screen. */}
-        {sections.map((s, i) => (
-          <DesignBox key={s.id} id={s.boxId} label={s.boxLabel} mode={free ? "free" : "flow"} rect={layout.boxes[s.boxId]} onRect={setBox} register={registerBox}>
-            <section aria-label={s.ariaLabel} data-section-id={s.id} data-section-title={sec(s.id).title}>
-              <SectionHeader
-                num={i + 1} tone={s.tone} icon={s.icon} title={sec(s.id).title} sub={sec(s.id).sub}
-                onAsk={() => setChatSection({ sectionId: s.id, title: sec(s.id).title })}
-              />
-              {s.content}
-            </section>
-          </DesignBox>
-        ))}
+              {/* sections come from the `sections` list built above — a hidden or
+                  empty one just disappears from the array, so numbering never
+                  leaves a gap and the nav bar always matches what's on screen. */}
+              {sections.map((s, i) => (
+                <DesignBox key={s.id} id={s.boxId} label={s.boxLabel} mode={free ? "free" : "flow"} rect={layout.boxes[s.boxId]} onRect={setBox} register={registerBox}>
+                  <section aria-label={s.ariaLabel} data-section-id={s.id} data-section-title={sec(s.id).title}>
+                    <SectionHeader
+                      num={i + 1} tone={s.tone} icon={s.icon} title={sec(s.id).title} sub={sec(s.id).sub}
+                      onAsk={() => setChatSection({ sectionId: s.id, title: sec(s.id).title })}
+                    />
+                    {s.content}
+                  </section>
+                </DesignBox>
+              ))}
+            </>
+          );
+          // Free-layout mode: DesignBoxes must sit DIRECTLY under the canvas
+          // (their absolute positioning is relative to it) — no wrapper. Flow
+          // mode: add the left guide rail beside the content on wide screens.
+          if (free) return boxes;
+          return (
+            <div className="flex items-start gap-6">
+              <LeftGuide sections={sections} sec={sec} />
+              <div className="min-w-0 flex-1">{boxes}</div>
+            </div>
+          );
+        })()}
       </main>
 
       <SelectionExplain onAsk={setChatSection} />
