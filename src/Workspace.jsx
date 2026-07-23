@@ -22,6 +22,7 @@ import {
   Landmark, Maximize2, Lightbulb, LineChart as LineChartIcon, LayoutTemplate, Move,
   Sparkles, BookMarked, Play, Pause, Puzzle, Rocket, Network, ChevronLeft, FileCode2, Crosshair,
   Shuffle, Wand2, Trophy, Bot, ListChecks, GraduationCap, Images, Link2,
+  ShieldCheck, Layers, RotateCw, Check as CheckIcon,
 } from "lucide-react";
 import SectionChat from "./SectionChat.jsx";
 import ExplainerVideo from "./ExplainerVideo.jsx";
@@ -3238,6 +3239,170 @@ function ReverseLab({ spec, pipelineCompiled, helpers, actOutputs, defaults, par
   );
 }
 
+/* ---------------- claims vs evidence (trust layer) ----------------
+ * Every headline claim tagged by how directly the paper's OWN evidence backs
+ * it — the honest "what's shown vs asserted?" a researcher asks first. */
+const CLAIM_STYLE = {
+  direct:   { label: "Shown",    cls: "border-emerald-200 bg-emerald-50 text-emerald-800", dot: "bg-emerald-500", icon: ShieldCheck,
+    tip: "Directly demonstrated by a figure or table in this paper" },
+  indirect: { label: "Inferred", cls: "border-amber-200 bg-amber-50 text-amber-800",       dot: "bg-amber-500",   icon: CircleAlert,
+    tip: "Supported, but via inference, aggregation or a proxy" },
+  asserted: { label: "Asserted", cls: "border-slate-200 bg-slate-50 text-slate-600",       dot: "bg-slate-400",   icon: TriangleAlert,
+    tip: "Stated without direct in-paper evidence (cited work or framing)" },
+};
+
+function ClaimsEvidence({ claims }) {
+  const items = (claims || []).filter((c) => c && c.claim);
+  if (!items.length) return null;
+  const counts = items.reduce((m, c) => ({ ...m, [c.strength]: (m[c.strength] || 0) + 1 }), {});
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-4">
+      <div className="mb-3 flex flex-wrap items-center gap-2 text-[11px]">
+        {["direct", "indirect", "asserted"].map((k) => counts[k] ? (
+          <span key={k} className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 font-semibold ${CLAIM_STYLE[k].cls}`}>
+            <span className={`h-1.5 w-1.5 rounded-full ${CLAIM_STYLE[k].dot}`} /> {counts[k]} {CLAIM_STYLE[k].label.toLowerCase()}
+          </span>
+        ) : null)}
+        <span className="text-slate-400">how directly the paper's own evidence backs each claim</span>
+      </div>
+      <ul className="flex flex-col gap-2">
+        {items.map((c, i) => {
+          const st = CLAIM_STYLE[c.strength] || CLAIM_STYLE.asserted;
+          const Icon = st.icon;
+          return (
+            <li key={i} className="flex items-start gap-3 rounded-xl border border-slate-100 bg-slate-50/40 p-3">
+              <span className={`mt-0.5 flex shrink-0 items-center gap-1 rounded-lg border px-2 py-1 text-[10px] font-bold uppercase tracking-wide ${st.cls}`} title={st.tip}>
+                <Icon size={12} /> {st.label}
+              </span>
+              <div className="min-w-0">
+                <p className="text-[13px] font-medium leading-snug text-slate-800">{c.claim}</p>
+                <p className="mt-0.5 text-[11.5px] text-slate-500">
+                  {c.support && c.support !== "none" && c.evidence
+                    ? <span className="font-semibold text-slate-600">{c.evidence}</span>
+                    : <span className="italic">no direct in-paper evidence</span>}
+                  {c.note ? <> — {c.note}</> : null}
+                </p>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+/* ---------------- flashcards (durable memory) ----------------
+ * Flip-card deck of the paper's must-remember facts; "known" marks persist per
+ * paper in localStorage so a one-shot read becomes something you revisit. */
+function Flashcards({ cards, paperKey }) {
+  const deck = (cards || []).filter((c) => c && c.front && c.back);
+  const storeKey = `pp-flashcards-known:${paperKey}`;
+  const [known, setKnown] = useState(() => {
+    try { return new Set(JSON.parse(localStorage.getItem(storeKey) || "[]")); } catch { return new Set(); }
+  });
+  const [idx, setIdx] = useState(0);
+  const [flipped, setFlipped] = useState(false);
+  if (!deck.length) return null;
+
+  const persist = (set) => { try { localStorage.setItem(storeKey, JSON.stringify([...set])); } catch { /* quota */ } };
+  const go = (d) => { setIdx((i) => (i + d + deck.length) % deck.length); setFlipped(false); };
+  const toggleKnown = () => {
+    setKnown((prev) => {
+      const next = new Set(prev);
+      next.has(idx) ? next.delete(idx) : next.add(idx);
+      persist(next);
+      return next;
+    });
+  };
+  const card = deck[idx];
+  const isKnown = known.has(idx);
+
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-4">
+      <div className="mb-2 flex items-center justify-between text-[11px] text-slate-500">
+        <span>Card {idx + 1} of {deck.length}{card.tag ? <> · <span className="font-semibold text-indigo-600">{card.tag}</span></> : null}</span>
+        <span className="font-semibold text-emerald-600">{known.size}/{deck.length} known</span>
+      </div>
+      <button
+        onClick={() => setFlipped((f) => !f)}
+        className="flex min-h-[132px] w-full flex-col items-center justify-center gap-2 rounded-xl border border-indigo-100 bg-indigo-50/40 px-5 py-6 text-center transition hover:border-indigo-300"
+      >
+        <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-400">{flipped ? "Answer" : "Prompt · click to flip"}</span>
+        <span className={`leading-snug text-slate-800 ${flipped ? "text-[13px]" : "text-[14.5px] font-semibold"}`}>
+          {flipped ? card.back : card.front}
+        </span>
+      </button>
+      <div className="mt-3 flex items-center justify-between gap-2">
+        <button onClick={() => go(-1)} className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-[12px] font-medium text-slate-600 hover:border-indigo-300">
+          <ChevronLeft size={14} /> Prev
+        </button>
+        <button onClick={toggleKnown}
+          className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[12px] font-semibold transition ${
+            isKnown ? "border-emerald-300 bg-emerald-50 text-emerald-700" : "border-slate-200 bg-white text-slate-600 hover:border-emerald-300"
+          }`}>
+          <CheckIcon size={14} /> {isKnown ? "Known" : "Mark known"}
+        </button>
+        <button onClick={() => go(1)} className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-[12px] font-medium text-slate-600 hover:border-indigo-300">
+          Next <ChevronRight size={14} />
+        </button>
+      </div>
+      {known.size > 0 && (
+        <button onClick={() => { const empty = new Set(); setKnown(empty); persist(empty); }}
+          className="mt-2 flex items-center gap-1 text-[10.5px] text-slate-400 hover:text-slate-600">
+          <RotateCw size={11} /> reset progress
+        </button>
+      )}
+    </div>
+  );
+}
+
+/* ---------------- ask-anywhere (select text → grounded explain) ----------------
+ * Selecting any text inside a section pops a small "Explain" chip; clicking it
+ * opens the section dock with the selection asked for you — so the reason to
+ * leave for a chatbot (my exact question, right here) lives inside the page. */
+function SelectionExplain({ onAsk }) {
+  const [chip, setChip] = useState(null); // { x, y, text, sectionId, sectionTitle }
+  useEffect(() => {
+    const onUp = () => {
+      // let the selection settle
+      setTimeout(() => {
+        const sel = window.getSelection();
+        const text = sel && String(sel).trim();
+        if (!text || text.length < 4 || text.length > 400) { setChip(null); return; }
+        let node = sel.anchorNode;
+        while (node && node.nodeType !== 1) node = node.parentNode;
+        const host = node && node.closest?.("[data-section-id]");
+        if (!host) { setChip(null); return; }
+        const rect = sel.getRangeAt(0).getBoundingClientRect();
+        setChip({
+          x: rect.left + rect.width / 2, y: rect.top - 8,
+          text, sectionId: host.getAttribute("data-section-id"),
+          sectionTitle: host.getAttribute("data-section-title") || "this section",
+        });
+      }, 10);
+    };
+    const onDown = () => setChip(null);
+    document.addEventListener("mouseup", onUp);
+    document.addEventListener("mousedown", onDown);
+    return () => { document.removeEventListener("mouseup", onUp); document.removeEventListener("mousedown", onDown); };
+  }, []);
+  if (!chip) return null;
+  return (
+    <button
+      onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+      onClick={() => {
+        onAsk({ sectionId: chip.sectionId, title: chip.sectionTitle, initialAsk: `Explain this, in the context of this section: “${chip.text}”` });
+        setChip(null);
+        window.getSelection()?.removeAllRanges();
+      }}
+      style={{ position: "fixed", left: chip.x, top: chip.y, transform: "translate(-50%, -100%)", zIndex: 60 }}
+      className="flex items-center gap-1.5 rounded-full bg-indigo-600 px-3 py-1.5 text-[11px] font-semibold text-white shadow-lg hover:bg-indigo-700"
+    >
+      <Sparkles size={12} /> Explain this
+    </button>
+  );
+}
+
 /* ---------------- main workspace ---------------- */
 
 export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner = false }) {
@@ -3427,6 +3592,16 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
         />
       ),
     },
+    {
+      id: "claims", boxId: "sec-claims", boxLabel: "Claims vs evidence", navLabel: "Claims", ariaLabel: "The paper's claims tagged by evidence",
+      show: !!spec.claims?.length && sec("claims").on, tone: "emerald", icon: ShieldCheck,
+      content: <ClaimsEvidence claims={spec.claims} />,
+    },
+    {
+      id: "flashcards", boxId: "sec-flashcards", boxLabel: "Remember this paper", navLabel: "Recall", ariaLabel: "Flashcards for this paper",
+      show: !!spec.flashcards?.length && sec("flashcards").on, tone: "violet", icon: Layers,
+      content: <Flashcards cards={spec.flashcards} paperKey={spec.meta?.title || "paper"} />,
+    },
   ].filter((s) => s.show);
 
   return (
@@ -3533,7 +3708,7 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
             leaves a gap and the nav bar always matches what's on screen. */}
         {sections.map((s, i) => (
           <DesignBox key={s.id} id={s.boxId} label={s.boxLabel} mode={free ? "free" : "flow"} rect={layout.boxes[s.boxId]} onRect={setBox} register={registerBox}>
-            <section aria-label={s.ariaLabel}>
+            <section aria-label={s.ariaLabel} data-section-id={s.id} data-section-title={sec(s.id).title}>
               <SectionHeader
                 num={i + 1} tone={s.tone} icon={s.icon} title={sec(s.id).title} sub={sec(s.id).sub}
                 onAsk={() => setChatSection({ sectionId: s.id, title: sec(s.id).title })}
@@ -3544,6 +3719,7 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
         ))}
       </main>
 
+      <SelectionExplain onAsk={setChatSection} />
       <SectionChat spec={spec} open={chatSection} onClose={() => setChatSection(null)} />
 
       <InfoModal block={infoBlock} onClose={() => setInfoKey(null)} />

@@ -27,7 +27,16 @@ const STARTERS = {
   explorables: ["What should I try first here?", "What is this explorer showing?"],
   results: ["What's the headline result in this figure?", "What does the log axis mean here?"],
   reverse: ["What does the match % mean?", "Why doesn't auto-fit recover every parameter exactly?"],
+  claims: ["Which claims are only asserted, not shown?", "What evidence backs the main result?"],
+  flashcards: ["What's the one equation to remember?", "Quiz me on the key numbers"],
 };
+
+// Level lens (feature #7): one-tap re-explanations at a different depth, sent
+// as ordinary questions so no server change is needed.
+const LENSES = [
+  { label: "Explain simpler", ask: "Re-explain this whole section as simply as possible, as if to a bright first-year student — no jargon, one everyday analogy." },
+  { label: "Go deeper", ask: "Explain this section at an expert level: the precise mechanism, the assumptions, and the subtlety a specialist would care about." },
+];
 
 const MODES = [
   { id: "ask", label: "Ask", icon: MessageCircle, sub: "answers about this section" },
@@ -78,8 +87,6 @@ export default function SectionChat({ spec, open, onClose }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, mode, sectionId]);
 
-  if (!open) return null;
-
   const send = async (text, opts = {}) => {
     const q = (text ?? input).trim();
     if (!q || busy) return;
@@ -114,6 +121,24 @@ export default function SectionChat({ spec, open, onClose }) {
       send(last.content, last.hidden ? { hidden: true, seed: true } : {});
     }
   };
+
+  // Ask-anywhere (feature #8): the dock was opened from a text selection with a
+  // pre-filled question — switch to Ask and send it once.
+  const askedRef = useRef(null);
+  const [pendingAsk, setPendingAsk] = useState(null);
+  useEffect(() => {
+    if (open?.initialAsk && askedRef.current !== open.initialAsk) {
+      askedRef.current = open.initialAsk;
+      setMode("ask");
+      setPendingAsk(open.initialAsk);
+    }
+  }, [open]);
+  useEffect(() => {
+    if (pendingAsk && mode === "ask" && !busy) { send(pendingAsk); setPendingAsk(null); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingAsk, mode]);
+
+  if (!open) return null;
 
   const visible = messages.filter((m) => !m.hidden);
   const activeMode = MODES.find((m) => m.id === mode);
@@ -218,9 +243,21 @@ export default function SectionChat({ spec, open, onClose }) {
             )}
           </div>
 
+          {/* level lens: one-tap re-explain at a different depth */}
+          {mode === "ask" && (
+            <div className="flex gap-1.5 border-t border-slate-100 bg-white px-3 pt-2">
+              {LENSES.map((l) => (
+                <button key={l.label} onClick={() => send(l.ask)} disabled={busy}
+                  className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10.5px] font-medium text-slate-600 hover:border-indigo-300 hover:text-indigo-700 disabled:opacity-40">
+                  {l.label}
+                </button>
+              ))}
+            </div>
+          )}
+
           {/* input */}
           <form onSubmit={(e) => { e.preventDefault(); send(); }}
-            className="flex items-end gap-2 border-t border-slate-100 bg-white px-3 py-2.5">
+            className={`flex items-end gap-2 bg-white px-3 py-2.5 ${mode === "ask" ? "" : "border-t border-slate-100"}`}>
             <textarea
               ref={inputRef}
               value={input}

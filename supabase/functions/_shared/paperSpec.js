@@ -805,6 +805,40 @@ export const SPEC_SCHEMA = {
       },
       description: "6-10 active-recall checkpoint questions spread across the key sections (at least one each for story, model and results; add foundations/method where they carry weight). These turn a passive read into retrieval practice — the single strongest thing that makes a paper STICK. Every question and its distractors must be answerable from this paper's own content, never generic trivia.",
     },
+    claims: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["claim", "strength", "support", "evidence"],
+        properties: {
+          claim: { type: "string", description: "One of the paper's headline claims/conclusions, in plain language." },
+          strength: {
+            type: "string",
+            enum: ["direct", "indirect", "asserted"],
+            description: "How directly THIS paper's OWN evidence backs the claim. direct = a figure/table in this paper shows it head-on. indirect = supported but via inference, aggregation, or a proxy. asserted = stated without direct in-paper evidence (relies on cited prior work, or is a framing/assumption). Judge honestly — labelling an asserted claim 'direct' is the exact over-claim this feature exists to expose.",
+          },
+          support: { type: "string", enum: ["figure", "table", "text", "none"], description: "The kind of in-paper evidence: a figure, a table, prose/derivation, or none." },
+          evidence: { type: "string", description: "The exact label of the supporting evidence, e.g. 'Fig. 6', 'Table 2', 'Sec. IV.B'. Empty string when support is 'none'." },
+          note: { type: "string", description: "OPTIONAL one line: what in that evidence supports the claim, or (for asserted) where the support actually comes from." },
+        },
+      },
+      description: "5-8 of the paper's key claims, each tagged with how directly the paper's OWN evidence backs it. This is a researcher's first real question — 'which conclusions are actually shown here vs asserted?' — and answering it honestly is a trust feature no summary tool offers. Be rigorous, not generous: mark a claim 'asserted' whenever the paper does not itself demonstrate it.",
+    },
+    flashcards: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["front", "back"],
+        properties: {
+          front: { type: "string", description: "The prompt side — a question, term, symbol or number to recall, e.g. 'What error bound does the controller guarantee?' or 'Symbol Γ means?'" },
+          back: { type: "string", description: "The answer side, concise, straight from the paper (include the exact value/unit where relevant)." },
+          tag: { type: "string", description: "OPTIONAL short category: 'equation', 'result', 'method', 'concept', 'number'." },
+        },
+      },
+      description: "8-14 spaced-repetition flashcards capturing the must-remember facts of this paper — the key equation, the headline number, the central assumption, the one definition that unlocks the rest. What the reader should still know a week later. Every card's answer must come from the paper.",
+    },
     protocol: {
       type: "object",
       additionalProperties: false,
@@ -857,8 +891,8 @@ export const PHASE_SCHEMAS = {
   results: {
     type: "object",
     additionalProperties: false,
-    required: ["resultFigures", "checkpoints"],
-    properties: { resultFigures: P.resultFigures, checkpoints: P.checkpoints },
+    required: ["resultFigures", "checkpoints", "claims", "flashcards"],
+    properties: { resultFigures: P.resultFigures, checkpoints: P.checkpoints, claims: P.claims, flashcards: P.flashcards },
   },
 };
 
@@ -981,7 +1015,7 @@ export function phaseInstruction(phase, contextSpec) {
     "Every figure needs page + bbox, 3-6 hotspot markers, and a guided-tour explanation. " +
     "For EVERY panel, first classify figureFamily + confidence, then make the reproduce decision (honest-degrade) before writing any chart. " +
     "On the 1-3 most instructive reproduced panels, add a `predict` quiz (predict-then-reveal). " +
-    "Then produce `checkpoints`: 6-10 active-recall MCQs across the paper's key sections (this is what turns the read into learning that sticks). " +
+    "Then produce the learning artifacts: `checkpoints` (6-10 active-recall MCQs), `claims` (5-8 headline claims each tagged direct/indirect/asserted with their in-paper evidence), and `flashcards` (8-14 must-remember cards). " +
     fieldLexiconBlock(contextSpec?.field) + " " +
     (hasPipeline
       ? "The pipeline was already produced in the previous call and is given below — 'simulated' panels' " +
@@ -1162,6 +1196,8 @@ OTHER FIELDS
 RULES FOR THE LEARNING LAYER (predict + checkpoints — this is what makes the page a CLASSROOM, not a slideshow; a reader learns far more by predicting and being tested than by reading):
 - predict (on 1-3 of the most instructive reproduced result panels): a single prediction the reader commits to BEFORE the chart is revealed. Make it about a RELATIONSHIP or a WHAT-IF they must reason about — "double this gain, what happens to overshoot?", "which curve wins at long time, and why?" — NOT something they can just read off the static figure. Distractors are real misconceptions. The insight (shown after) explains WHY using the paper's own numbers. Do not gate every panel — pick the ones a good teacher would pause on.
 - checkpoints (6-10, spread across sections): retrieval-practice MCQs. Favour "why", "what would happen if", and "which figure supports which claim" over rote definitions. At least one each for story, model and results. Every question AND its distractors must be answerable from THIS paper — never generic trivia. The 'why' is the feedback the reader learns from; make it teach, not just confirm.
+- claims (5-8): the paper's headline claims, each tagged by how directly the paper's OWN evidence backs it — direct (a figure/table shows it), indirect (inferred/aggregated/proxy), or asserted (stated, relying on cited work or framing, not shown here) — with the exact evidence label. Be a rigorous referee, not a promoter: if the paper does not itself demonstrate a claim, mark it 'asserted'. This is the honest answer to a researcher's first question, "what's actually shown vs claimed?".
+- flashcards (8-14): the must-remember facts — the key equation, the headline number+unit, the central assumption, the unlocking definition. What the reader should still know a week later, each answerable from the paper.
 
 FINAL CHECK before you answer — the trust test:
 1. Would a reader who opens the real PDF afterwards find that everything you claimed matches it? If any statement, story beat, mindmap node, hotspot note or explanation might not survive that comparison, fix or cut it.

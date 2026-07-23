@@ -106,6 +106,18 @@ export function buildSectionContext(spec, sectionId) {
       });
       break;
     }
+    case "claims": {
+      (spec.claims || []).forEach((c) => {
+        push(`CLAIM (${c.strength}${c.evidence ? `, evidence ${c.evidence}` : ", no direct evidence"}): ${c.claim}` +
+          (c.note ? ` — ${c.note}` : ""));
+      });
+      push(`CONCLUSION: ${clip(spec.conclusion, 900)}`);
+      break;
+    }
+    case "flashcards": {
+      (spec.flashcards || []).forEach((f) => push(`Q: ${f.front}\nA: ${f.back}`));
+      break;
+    }
     case "reverse": {
       push(
         "This lab reverse-engineers the paper: curves digitized point-for-point off the published " +

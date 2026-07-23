@@ -42,7 +42,7 @@ const PHASES = [
   { id: "method",   title: "Interactive method layer", from: 34, to: 67,
     keys: ["protocol", "blocks", "explorables"] },
   { id: "results",  title: "Result figures",      from: 67, to: 99,
-    keys: ["resultFigures", "checkpoints"] },
+    keys: ["resultFigures", "checkpoints", "claims", "flashcards"] },
 ];
 
 /* Completed phases are cached for the session (keyed by document), so a
