@@ -893,10 +893,147 @@ function RadialBarPanel({ panel, height = 260 }) {
   );
 }
 
+/* ---------------- Kaplan–Meier survival (custom SVG) ----------------
+ * digitized: {
+ *   kind: "kaplanMeier",
+ *   km: {
+ *     yAsPercent?, pValue?, timeUnit?,
+ *     groups: [{ label, color?, steps: [[t, S], …], censors?: [t], ci?: [[t,lo,hi]], median? }],
+ *     risk?: { times: [t], rows: [{ label, counts: [n] }] },
+ *   }
+ * }
+ * Draws each arm as a step-DOWN staircase (survival never rises), places the
+ * censor ticks on the curve, shades any CI band, and prints the numbers-at-risk
+ * table beneath — the four things a clinician reads on a survival plot. Never a
+ * smooth line. */
+
+function KaplanMeierPanel({ panel, height = 250 }) {
+  const km = panel.digitized?.km || {};
+  const groups = (km.groups || []).filter((g) => Array.isArray(g.steps) && g.steps.length >= 2);
+  const [hover, setHover] = useState(null);
+  if (!groups.length) return <PanelShell panel={panel}><div className="p-4 text-[11px] text-slate-400">No survival data.</div></PanelShell>;
+
+  const pct = !!km.yAsPercent;
+  const yTop = pct ? 100 : 1;
+  const unit = km.timeUnit ? ` ${km.timeUnit}` : "";
+  const labels = groups.map((g) => g.label || "");
+  const colorOf = (g, i) => g.color || HUES[i % HUES.length];
+
+  // x range from steps + censors + risk times
+  let xMax = 0;
+  for (const g of groups) {
+    for (const [t] of g.steps) if (Number.isFinite(t)) xMax = Math.max(xMax, t);
+    for (const t of g.censors || []) if (Number.isFinite(t)) xMax = Math.max(xMax, t);
+  }
+  for (const t of km.risk?.times || []) if (Number.isFinite(t)) xMax = Math.max(xMax, t);
+  xMax = xMax || 1;
+
+  const riskRows = km.risk?.rows?.length ? km.risk.rows : null;
+  const riskTimes = km.risk?.times || [];
+  const riskH = riskRows ? 16 + riskRows.length * 14 : 0;
+
+  const W = 360, H = height + riskH, padL = 44, padR = 12, padT = 10;
+  const padB = 30 + riskH;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const xPix = (t) => padL + plotW * (Math.max(0, Math.min(xMax, t)) / xMax);
+  const yPix = (s) => padT + plotH * (1 - Math.max(0, Math.min(yTop, s)) / yTop);
+  const yTicks = pct ? [0, 25, 50, 75, 100] : [0, 0.25, 0.5, 0.75, 1];
+
+  // step-after staircase: hold previous survival across the interval, then drop
+  const stepPath = (steps) => {
+    const p = [...steps].sort((a, b) => a[0] - b[0]);
+    let d = `M ${xPix(p[0][0]).toFixed(1)} ${yPix(p[0][1]).toFixed(1)}`;
+    for (let i = 1; i < p.length; i++) {
+      d += ` L ${xPix(p[i][0]).toFixed(1)} ${yPix(p[i - 1][1]).toFixed(1)}`;
+      d += ` L ${xPix(p[i][0]).toFixed(1)} ${yPix(p[i][1]).toFixed(1)}`;
+    }
+    return d;
+  };
+  // CI as a step-after ribbon between lower and upper
+  const ribbonPath = (ci) => {
+    const c = [...ci].filter((r) => r.length >= 3).sort((a, b) => a[0] - b[0]);
+    if (c.length < 2) return "";
+    let d = `M ${xPix(c[0][0]).toFixed(1)} ${yPix(c[0][2]).toFixed(1)}`;
+    for (let i = 1; i < c.length; i++) d += ` L ${xPix(c[i][0]).toFixed(1)} ${yPix(c[i - 1][2]).toFixed(1)} L ${xPix(c[i][0]).toFixed(1)} ${yPix(c[i][2]).toFixed(1)}`;
+    for (let i = c.length - 1; i > 0; i--) d += ` L ${xPix(c[i][0]).toFixed(1)} ${yPix(c[i][1]).toFixed(1)} L ${xPix(c[i - 1][0]).toFixed(1)} ${yPix(c[i][1]).toFixed(1)}`;
+    d += ` L ${xPix(c[0][0]).toFixed(1)} ${yPix(c[0][1]).toFixed(1)} Z`;
+    return d;
+  };
+  const survAt = (steps, tc) => {
+    let s = steps[0][1];
+    for (const [t, v] of [...steps].sort((a, b) => a[0] - b[0])) { if (t <= tc) s = v; else break; }
+    return s;
+  };
+
+  return (
+    <PanelShell panel={panel} footer={
+      <>
+        <Readout idle={km.pValue ? km.pValue : "hover a curve — a survival staircase, traced off the figure"} hover={hover &&
+          <><strong>{hover.label || "survival"}</strong>{Number.isFinite(hover.median) ? <> · median {fmt(hover.median, 1)}{unit}</> : null}{km.pValue ? ` · ${km.pValue}` : ""}</>} />
+        <ChipLegend items={groups.map((g, i) => ({ label: g.label || `arm ${i + 1}`, color: colorOf(g, i) }))} />
+      </>}>
+      <div className="overflow-x-auto">
+        <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ minWidth: 300 }}>
+          {yTicks.map((v, i) => { const y = yPix(v); return (
+            <g key={i}>
+              <line x1={padL} y1={y} x2={W - padR} y2={y} stroke={v === (pct ? 50 : 0.5) ? "#cbd5e1" : "#e1e0d9"} strokeWidth="1" strokeDasharray={v === (pct ? 50 : 0.5) ? "3 3" : ""} />
+              <text x={padL - 5} y={y + 3} textAnchor="end" fontSize="9" fill="#94a3b8">{pct ? v : v.toFixed(2)}</text>
+            </g>
+          ); })}
+          {/* x ticks */}
+          {Array.from({ length: 5 }, (_, i) => { const t = (xMax * i) / 4; const x = xPix(t); return (
+            <g key={`x${i}`}>
+              <line x1={x} y1={padT} x2={x} y2={padT + plotH} stroke="#f1f0ec" strokeWidth="1" />
+              <text x={x} y={padT + plotH + 12} textAnchor="middle" fontSize="8.5" fill="#94a3b8">{fmt(t, xMax >= 10 ? 0 : 1)}</text>
+            </g>
+          ); })}
+          {/* CI ribbons first (under the curves) */}
+          {groups.map((g, i) => g.ci?.length >= 2 ? (
+            <path key={`ci${i}`} d={ribbonPath(g.ci)} fill={colorOf(g, i)} fillOpacity="0.12" stroke="none" />
+          ) : null)}
+          {/* survival staircases */}
+          {groups.map((g, i) => {
+            const col = colorOf(g, i);
+            const dim = hover && hover.label !== (g.label || "");
+            return (
+              <g key={i} onMouseEnter={() => setHover({ label: g.label || "", median: g.median })} onMouseLeave={() => setHover(null)} style={{ cursor: "pointer" }}>
+                <path d={stepPath(g.steps)} fill="none" stroke={col} strokeWidth={dim ? 1.3 : 2.1} opacity={dim ? 0.5 : 1} strokeLinejoin="round" />
+                {(g.censors || []).map((tc, ci) => { const sy = yPix(survAt(g.steps, tc)); const cx = xPix(tc); return (
+                  <line key={ci} x1={cx} y1={sy - 3.4} x2={cx} y2={sy + 3.4} stroke={col} strokeWidth="1.3" opacity={dim ? 0.5 : 0.95} />
+                ); })}
+              </g>
+            );
+          })}
+          <text x={padL + plotW / 2} y={padT + plotH + 24} textAnchor="middle" fontSize="8.5" fill="#94a3b8">{panel.xLabel || (km.timeUnit ? `time (${km.timeUnit})` : "time")}</text>
+          {/* numbers-at-risk table */}
+          {riskRows && (
+            <g>
+              <text x={padL} y={padT + plotH + 40} fontSize="8" fontWeight="700" fill="#64748b">No. at risk</text>
+              {riskRows.map((r, ri) => {
+                const gi = labels.indexOf(r.label);
+                const col = gi >= 0 ? colorOf(groups[gi], gi) : "#64748b";
+                const y = padT + plotH + 52 + ri * 14;
+                return (
+                  <g key={ri}>
+                    <rect x={6} y={y - 7} width="6" height="6" rx="1" fill={col} />
+                    {riskTimes.map((t, ti) => (
+                      <text key={ti} x={xPix(t)} y={y} textAnchor="middle" fontSize="8" fill="#52514e" style={{ fontVariantNumeric: "tabular-nums" }}>{r.counts?.[ti] ?? ""}</text>
+                    ))}
+                  </g>
+                );
+              })}
+            </g>
+          )}
+        </svg>
+      </div>
+    </PanelShell>
+  );
+}
+
 /* ---------------- dispatcher ---------------- */
 
 export const SPECIAL_DIGITIZED_KINDS = [
-  "radar", "box", "heatmap", "violin", "groupedBar", "stackedBar", "stackedBarH", "scatter", "radialBar",
+  "radar", "box", "heatmap", "violin", "groupedBar", "stackedBar", "stackedBarH", "scatter", "radialBar", "kaplanMeier",
 ];
 
 /** Picks the renderer for a non-line digitized kind. Returns null for kinds
@@ -912,6 +1049,7 @@ export function DigitizedPanel({ panel, height }) {
     case "stackedBarH": return <StackedBarHPanel panel={panel} height={height} />;
     case "scatter": return <ScatterPanel panel={panel} height={height} />;
     case "radialBar": return <RadialBarPanel panel={panel} height={height} />;
+    case "kaplanMeier": return <KaplanMeierPanel panel={panel} height={height} />;
     default: return null;
   }
 }

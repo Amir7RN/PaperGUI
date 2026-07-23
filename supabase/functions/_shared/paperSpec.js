@@ -652,7 +652,7 @@ export const SPEC_SCHEMA = {
                     "blandAltman", "funnel", "bode", "polar", "surface3d",
                     "image", "schematic", "other",
                   ],
-                  description: "STEP 1 — classify this subplot's chart family by LOOKING AT IT, from this exact list. The first 11 (line…radialBar) are the families this platform renders faithfully. Everything after is either NOT YET renderable (kaplanMeier, forest, pie, stackedArea, volcano, manhattan, roc, ecdf, qq, contour, quiver, sankey, choropleth, network, tree, dendrogram, sem, ternary, slope, waterfall, blandAltman, funnel, bode, polar, surface3d) or must never be reproduced (image = micrograph/gel/photo/MRI, schematic = diagram). Classify HONESTLY — a box is 'box', never 'bar'. This drives whether the subplot is reproduced or shown as the original only.",
+                  description: "STEP 1 — classify this subplot's chart family by LOOKING AT IT, from this exact list. RENDERABLE families (reproduce these): line, bar, groupedBar, scatter, box, violin, heatmap, stackedBar, stackedBarH, radar, radialBar, and kaplanMeier (survival step plots — via the `km` carrier). Everything else is either NOT YET renderable (forest, pie, stackedArea, volcano, manhattan, roc, ecdf, qq, contour, quiver, sankey, choropleth, network, tree, dendrogram, sem, ternary, slope, waterfall, blandAltman, funnel, bode, polar, surface3d) or must never be reproduced (image = micrograph/gel/photo/MRI, schematic = diagram). Classify HONESTLY — a box is 'box', never 'bar'; a survival staircase is 'kaplanMeier', never 'line'. This drives whether the subplot is reproduced or shown as the original only.",
                 },
                 confidence: {
                   type: "string",
@@ -688,7 +688,7 @@ export const SPEC_SCHEMA = {
                   additionalProperties: false,
                   required: ["kind", "source"],
                   properties: {
-                    kind: { type: "string", enum: ["groupedBar", "stackedBar", "stackedBarH", "heatmap", "radar", "scatter", "radialBar", "box", "violin"], description: "Chart family MATCHING THE ORIGINAL subplot exactly: groupedBar = vertical bar clusters; stackedBar = VERTICAL stacked bars (segments stack UP per x category — capacity/generation/cost stacks); stackedBarH = HORIZONTAL stacked bars (bars run left→right — never rotate a horizontal figure vertical or vice-versa); heatmap = colour-coded grid; radar = spider chart; scatter = embedding/point cloud; radialBar = circular/polar bar sectors; box = box-and-whisker (five-number summaries, one or more boxes per category); violin = density-outline distributions (one or more, possibly overlapping, per category). A subplot of boxes is NEVER a bar chart; a subplot of violins is NEVER a bar chart; stacked segments are NEVER redrawn as side-by-side groups." },
+                    kind: { type: "string", enum: ["groupedBar", "stackedBar", "stackedBarH", "heatmap", "radar", "scatter", "radialBar", "box", "violin", "kaplanMeier"], description: "Chart family MATCHING THE ORIGINAL subplot exactly: kaplanMeier = a survival/time-to-event step plot (staircase curves falling from 1, censor ticks, sometimes a shaded CI band and a numbers-at-risk table) — fill the `km` carrier, NEVER redraw it as a line; groupedBar = vertical bar clusters; stackedBar = VERTICAL stacked bars (segments stack UP per x category — capacity/generation/cost stacks); stackedBarH = HORIZONTAL stacked bars (bars run left→right — never rotate a horizontal figure vertical or vice-versa); heatmap = colour-coded grid; radar = spider chart; scatter = embedding/point cloud; radialBar = circular/polar bar sectors; box = box-and-whisker (five-number summaries, one or more boxes per category); violin = density-outline distributions (one or more, possibly overlapping, per category). A subplot of boxes is NEVER a bar chart; a subplot of violins is NEVER a bar chart; stacked segments are NEVER redrawn as side-by-side groups." },
                     source: { type: "string", description: "Where these values come from in the paper (table / figure / supplementary data)" },
                     groups: { type: "array", items: { type: "object", additionalProperties: false, required: ["name", "bars"], properties: { name: { type: "string" }, bars: { type: "array", items: { type: "object", additionalProperties: false, required: ["label", "value"], properties: { label: { type: "string" }, value: { type: "number" }, err: { type: "number", description: "optional ± error whisker" }, hatch: { type: "boolean", description: "hatched variant (e.g. the original's low-speed bars)" } } } } } }, description: "For groupedBar/radialBar" },
                     rows: { type: "array", items: { type: "object", additionalProperties: false, required: ["name", "segments"], properties: { name: { type: "string" }, segments: { type: "array", items: { type: "object", additionalProperties: false, required: ["label", "value"], properties: { label: { type: "string" }, value: { type: "number" } } } } } }, description: "For stackedBarH — rows in the ORIGINAL's top-to-bottom order" },
@@ -699,6 +699,54 @@ export const SPEC_SCHEMA = {
                       points: { type: "array", items: { type: "object", additionalProperties: false, required: ["label", "value"], properties: { label: { type: "string" }, value: { type: "number" }, color: { type: "string" } } }, description: "For box: extra dot markers drawn on the category (e.g. the purple 'average' points above each box)." },
                       violins: { type: "array", items: { type: "object", additionalProperties: false, required: ["label", "dist"], properties: { label: { type: "string", description: "series name (e.g. 'summer'); empty string if single" }, color: { type: "string" }, dist: { type: "array", minItems: 3, items: { type: "object", additionalProperties: false, required: ["y", "w"], properties: { y: { type: "number", description: "a value on the y axis" }, w: { type: "number", description: "the violin's HALF-WIDTH there as a fraction 0..1 of the max — trace the outline: narrow at the tails, widest at the dense middle" } } } } } }, description: "For violin: the 1+ density outlines drawn in this category (two = overlapping series, e.g. summer + winter). Sample dist bottom→top from the outline shape." },
                     } }, description: "For box / violin: one entry per x category, each carrying its boxes (five-number summaries) and/or violins (density outlines) plus optional dot markers. This is the fidelity path that keeps distribution figures as boxes/violins instead of bars." },
+                    km: {
+                      type: "object",
+                      additionalProperties: false,
+                      required: ["groups"],
+                      properties: {
+                        yAsPercent: { type: "boolean", description: "true if the y-axis is survival PERCENT (0–100) rather than probability (0–1). Match the original's steps values to this." },
+                        pValue: { type: "string", description: "The log-rank / comparison annotation as printed, e.g. 'log-rank p < 0.001' or 'HR 0.62 (95% CI 0.48–0.79)'. Empty string if none." },
+                        timeUnit: { type: "string", description: "The x-axis time unit as printed, e.g. 'months', 'years', 'days'." },
+                        groups: {
+                          type: "array", minItems: 1,
+                          items: {
+                            type: "object", additionalProperties: false, required: ["label", "steps"],
+                            properties: {
+                              label: { type: "string", description: "The arm/group name from the legend, e.g. 'Treatment' / 'Placebo'. Empty string if the plot has a single unlabeled curve." },
+                              color: { type: "string", description: "#rrggbb read off the curve." },
+                              steps: {
+                                type: "array", minItems: 2,
+                                items: { type: "array", minItems: 2, maxItems: 2, items: { type: "number" } },
+                                description: "The staircase vertices as [time, survival] pairs, time increasing, survival NON-INCREASING (starts at 1.0 or 100 at t=0). Read the curve's plateau/drop points off the figure — the renderer draws the step-after staircase between them. 8–30 points captures a curve well.",
+                              },
+                              censors: { type: "array", items: { type: "number" }, description: "Optional censoring times (the small vertical ticks on the curve). Each is a time value; the renderer places the tick at the curve's height there." },
+                              ci: {
+                                type: "array",
+                                items: { type: "array", minItems: 3, maxItems: 3, items: { type: "number" } },
+                                description: "Optional confidence band as [time, lower, upper] triples (same time grid feel as steps). Renders as a translucent stepped ribbon.",
+                              },
+                              median: { type: "number", description: "Optional median survival time (where the curve crosses 0.5) as reported." },
+                            },
+                          },
+                          description: "One entry per survival curve in the plot (2 for a two-arm trial). Keep the paper's colours and legend order.",
+                        },
+                        risk: {
+                          type: "object", additionalProperties: false, required: ["times", "rows"],
+                          properties: {
+                            times: { type: "array", items: { type: "number" }, description: "The time points the numbers-at-risk table is printed at (x-axis ticks), left→right." },
+                            rows: {
+                              type: "array",
+                              items: { type: "object", additionalProperties: false, required: ["label", "counts"], properties: {
+                                label: { type: "string", description: "the arm name, matching a group label" },
+                                counts: { type: "array", items: { type: "number" }, description: "n-at-risk at each `times` point, same length/order as times" },
+                              } },
+                            },
+                          },
+                          description: "Optional numbers-at-risk table printed under the axis — reproduce it verbatim when the figure shows one (clinicians read it as part of the figure).",
+                        },
+                      },
+                      description: "For kaplanMeier: the survival curves' own values read off the figure. This is the fidelity path that keeps a survival plot a staircase (with censor ticks + risk table) instead of a smooth line.",
+                    },
                     axes: { type: "array", items: { type: "object", additionalProperties: false, required: ["name"], properties: { name: { type: "string" } } }, description: "For radar" },
                     series: { type: "array", items: { type: "object", additionalProperties: false, required: ["label"], properties: { label: { type: "string" }, values: { type: "array", items: { type: "number" }, description: "radar: one value per axis" }, points: { type: "array", items: { type: "array", items: { type: "number" } }, description: "scatter: [x,y] pairs (≤150 per series)" }, color: { type: "string", description: "#rrggbb from the original figure" }, marker: { type: "string", description: "scatter marker: dot | x | diamond" } } }, description: "For radar/scatter" },
                     grid: { type: "array", items: { type: "array", items: { type: "number" } }, description: "For heatmap: rows×cols of values (use null-free numbers; NaN cells not expressible — use the min value)" },
@@ -710,7 +758,7 @@ export const SPEC_SCHEMA = {
                     refLines: { type: "array", items: { type: "object", additionalProperties: false, required: ["label", "value"], properties: { label: { type: "string" }, value: { type: "number" }, color: { type: "string" } } }, description: "dashed baselines the original draws (e.g. 'Top-down: 3068')" },
                     unit: { type: "string" },
                   },
-                  description: "REQUIRED whenever the ORIGINAL subplot is NOT a plain x-y line/scatter/simple-bar — i.e. box, violin, vertical stacked bar (stackedBar), horizontal stacked bar (stackedBarH), heatmap, radar, polar/radial bar, or a PCA/t-SNE scatter cloud. Carry the paper's OWN values in the matching structure so the client renders the SAME chart family, orientation and colours as the original; set the sibling computeJs to the empty string. This is the fidelity path — omitting it here and emitting a plain bar/line instead is the #1 rejected failure. Fill the field that matches `kind`: groups→groupedBar/radialBar; subPanels→stackedBar; rows→stackedBarH; categories→box/violin; grid→heatmap; axes+series→radar; series→scatter.",
+                  description: "REQUIRED whenever the ORIGINAL subplot is NOT a plain x-y line/scatter/simple-bar — i.e. box, violin, vertical stacked bar (stackedBar), horizontal stacked bar (stackedBarH), heatmap, radar, polar/radial bar, or a PCA/t-SNE scatter cloud. Carry the paper's OWN values in the matching structure so the client renders the SAME chart family, orientation and colours as the original; set the sibling computeJs to the empty string. This is the fidelity path — omitting it here and emitting a plain bar/line instead is the #1 rejected failure. Fill the field that matches `kind`: groups→groupedBar/radialBar; subPanels→stackedBar; rows→stackedBarH; categories→box/violin; grid→heatmap; axes+series→radar; series→scatter; km→kaplanMeier.",
                 },
               },
             },
@@ -791,11 +839,11 @@ export const PHASE_SCHEMAS = {
 export const FIELD_LEXICON = {
   "medicine-clinical": {
     signature: "Kaplan–Meier survival curves (step + censor ticks + risk table), forest plots (per-arm/subgroup estimate ± CI + pooled diamond), ROC curves, bar ± SE, box plots.",
-    crop: "kaplanMeier, forest, roc are NOT yet renderable — classify them exactly and set reproduce:false (show the real figure). A clinician checks censoring, numbers-at-risk and CI coverage; do not fake these.",
+    crop: "kaplanMeier IS renderable — use figureFamily/digitized 'kaplanMeier' and the km carrier (steps, censor ticks, CI band, numbers-at-risk). forest and roc are NOT yet renderable — reproduce:false, show the real figure. A clinician checks censoring, numbers-at-risk and CI coverage; reproduce the survival curve faithfully and never fake a forest plot.",
   },
   "epidemiology-public-health": {
     signature: "Forest plots, Kaplan–Meier, choropleth maps, funnel plots, incidence/prevalence lines, bar ± CI.",
-    crop: "forest, choropleth, funnel, kaplanMeier are not yet renderable — reproduce:false. Reproduce only plain incidence lines and bars from the paper's own numbers.",
+    crop: "kaplanMeier IS renderable (km carrier). forest, choropleth, funnel are not yet renderable — reproduce:false. Also reproduce plain incidence lines and bars from the paper's own numbers.",
   },
   "genomics-omics": {
     signature: "Volcano plots (log2FC vs −log10 p with FDR lines + labelled hits), Manhattan plots, clustered heatmaps (with dendrogram), PCA/UMAP scatter, box/violin of expression.",
@@ -932,8 +980,8 @@ Readers can open the real PDF; one fabricated plot destroys trust in everything 
 Fabricating dynamics the paper never had is the ONLY forbidden move. Everything else stays hands-on.
 
 THE HONEST-DEGRADE RULE (this is how one shot stays trustworthy across EVERY field):
-This platform renders 11 chart families faithfully: line, bar, groupedBar, scatter, box, violin, heatmap, stackedBar, stackedBarH, radar, radialBar. Many scientific figures are NOT in that set — Kaplan–Meier survival curves, forest plots, pie/donut, stacked-area, volcano, Manhattan, ROC, ECDF/QQ, contour fields, quiver, Sankey, choropleth maps, networks, phylogenetic trees, SEM/path diagrams, ternary, waterfall, Bode, 3-D surfaces — and some figures (micrographs, gels, MRI/CT, photos, schematics) must NEVER be turned into a chart.
-For EVERY subplot you: (1) set figureFamily by looking at it; (2) set confidence; (3) make the reproduce decision. Reproduce TRUE only when the family is one of the 11 renderable ones AND confidence is high/medium AND an honest data source exists. Otherwise reproduce FALSE with a one-line degradeReason — you emit NO chart, and the reader still sees the real cropped figure with its hotspots and guided tour (which is already trustworthy and complete).
+This platform renders 12 chart families faithfully: line, bar, groupedBar, scatter, box, violin, heatmap, stackedBar, stackedBarH, radar, radialBar, and kaplanMeier (survival/time-to-event step plots — via the digitized 'km' carrier). Many scientific figures are NOT in that set — forest plots, pie/donut, stacked-area, volcano, Manhattan, ROC, ECDF/QQ, contour fields, quiver, Sankey, choropleth maps, networks, phylogenetic trees, SEM/path diagrams, ternary, waterfall, Bode, 3-D surfaces — and some figures (micrographs, gels, MRI/CT, photos, schematics) must NEVER be turned into a chart.
+For EVERY subplot you: (1) set figureFamily by looking at it; (2) set confidence; (3) make the reproduce decision. Reproduce TRUE only when the family is one of the 12 renderable ones AND confidence is high/medium AND an honest data source exists. Otherwise reproduce FALSE with a one-line degradeReason — you emit NO chart, and the reader still sees the real cropped figure with its hotspots and guided tour (which is already trustworthy and complete).
 Drawing a wrong-family chart — a survival curve as a line, a forest plot as bars, a contour as a heatmap — to avoid a FALSE is the single worst failure and an automatic rejection. A faithful ORIGINAL always beats a fabricated reproduction. Honest-degrade is a first-class, correct outcome, never a shortfall.
 
 FEWER FIGURES, FLAWLESS (REQ: first-shot trust is won by 3 perfect figures and lost by 6 shaky ones):
@@ -1014,6 +1062,7 @@ PANELS — EVERY SUBPLOT STAYS INTERACTIVE VIA THE RIGHT SOURCE:
     * VIOLINS (a smooth symmetric blob wider where data is dense) → digitized.kind "violin". This is NEVER "bar". Trace each blob's half-width top→bottom into categories[].violins[].dist; overlaid blobs of different colour = multiple entries in violins.
     * bars whose segments STACK on top of each other within one bar → digitized.kind "stackedBar" if the bars stand up VERTICALLY (segments stack upward — capacity/generation/cost stacks; use subPanels, one per paired variant like 80%/95%), or "stackedBarH" if the bars run HORIZONTALLY. Never redraw stacked segments as side-by-side groups, and never swap the orientation.
     * a colour-coded grid → digitized.kind "heatmap"; a spider/radar → "radar"; a circular/polar bar wheel → "radialBar".
+    * a SURVIVAL / TIME-TO-EVENT staircase (curves that start at 1.0 and step DOWN over time, often with little censor ticks and a numbers-at-risk table beneath) → figureFamily "kaplanMeier", digitized.kind "kaplanMeier", fill the 'km' carrier. This is NEVER "line" — read the plateau/drop vertices into km.groups[].steps as [time, survival] pairs, the censor tick times into censors, any CI band into ci, and the numbers-at-risk row into km.risk.
   When you use a digitized.kind, set that panel's chartKind to the closest of line/bar/scatter for schema validity BUT the digitized object is what renders — fill the carrier field that matches the kind and set computeJs to the empty string. A subplot of boxes emitted as a bar chart, or stacked segments emitted as grouped bars, is an automatic rejection.
 - ONE PANEL PER VISIBLE SUBPLOT. If the figure shows 4 subplots (A,B,C,D), emit 4 panels; if 8, emit 8. Do NOT reproduce only the first one or two and drop the rest — a figure reproduced with fewer panels than it has subplots is a fidelity failure. Give each panel the subplot's own label (e.g. '(A) Capacity').
 - FORM AND ORIENTATION ARE PART OF FIDELITY, and so is the number of series: reproduce EVERY box, violin, stack segment or curve the subplot shows, in the paper's own order and colours (keep row order, stack order bottom→top, group structure, and dashed reference lines via refLines).

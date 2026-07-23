@@ -275,7 +275,7 @@ export function buildPanelRows(baseRun, actRun) {
  *  Kept in sync with DigitizedPanels.jsx (which imports this list's superset
  *  logic via its own SPECIAL_DIGITIZED_KINDS export). */
 const SPECIAL_KINDS = new Set([
-  "radar", "box", "heatmap", "violin", "groupedBar", "stackedBar", "stackedBarH", "scatter", "radialBar",
+  "radar", "box", "heatmap", "violin", "groupedBar", "stackedBar", "stackedBarH", "scatter", "radialBar", "kaplanMeier",
 ]);
 
 /** Minimal shape check per special kind so a malformed digitized panel from
@@ -299,6 +299,9 @@ export function specialDigitizedValid(d) {
     case "radialBar":
       if (d.sectors?.length >= 1) return d.sectors.every((s) => s.max > 0 && s.groups?.length >= 1 && s.groups.every((g) => g.bars?.length >= 1));
       return d.groups?.length >= 1 && d.groups.every((g) => g.bars?.length >= 1);
+    case "kaplanMeier":
+      return d.km?.groups?.length >= 1 && d.km.groups.every((g) => Array.isArray(g.steps) && g.steps.length >= 2 &&
+        g.steps.every((p) => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1])));
     default: return false;
   }
 }
@@ -460,7 +463,7 @@ export function auditResultFiguresQuality(spec, compiled, helpers, defaults) {
  *  honest-degraded (reproduce:false). Kept in sync with paperSpec.js. */
 const RENDERABLE_FAMILIES = new Set([
   "line", "bar", "groupedBar", "scatter", "box", "violin", "heatmap",
-  "stackedBar", "stackedBarH", "radar", "radialBar",
+  "stackedBar", "stackedBarH", "radar", "radialBar", "kaplanMeier",
 ]);
 
 /**
@@ -501,7 +504,7 @@ export function auditFigureFidelity(spec) {
       if (!hasChart) {
         problems.push(`${where} has reproduce:true but carries neither computeJs nor a digitized object — either give it a real honest chart or set reproduce:false with a degradeReason.`);
       }
-      const unitless = (lab) => lab && !/[()%\/]|log|per |dimensionless|count|index|iteration|epoch|sample/i.test(lab);
+      const unitless = (lab) => lab && !/[()%\/]|log|per |dimensionless|count|index|iteration|epoch|sample|probability|survival|fraction|proportion|rate|score|ratio/i.test(lab);
       if (hasChart && (unitless(panel.xLabel) || unitless(panel.yLabel))) {
         problems.push(`${where} has an axis label without a unit ("${unitless(panel.xLabel) ? panel.xLabel : panel.yLabel}") — every reproduced axis must name its quantity AND unit exactly as the paper's axis reads.`);
       }
