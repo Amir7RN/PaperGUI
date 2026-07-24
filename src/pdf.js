@@ -33,6 +33,37 @@ export async function loadPdfDoc(src) {
 }
 
 /**
+ * Text geometry for one page of an open document, normalized to page fractions
+ * (0..1, top-left origin) so a highlight box drawn from it survives any zoom.
+ * Returns { page, width, height, items: [{ str, x, y, w, h }] } with items in
+ * the PDF's own content order (column order is sorted out downstream).
+ */
+export async function extractPageItems(doc, pageNo) {
+  const page = await doc.getPage(pageNo);
+  const viewport = page.getViewport({ scale: 1 });
+  const W = viewport.width || 1;
+  const H = viewport.height || 1;
+  const { items } = await page.getTextContent();
+  const out = [];
+  for (const it of items) {
+    if (typeof it.str !== "string" || !it.str) continue;
+    // item.transform is text space; compose with the viewport to get device
+    // coords with a top-left origin, then normalize by the page box.
+    const tx = pdfjsLib.Util.transform(viewport.transform, it.transform);
+    const h = Math.hypot(tx[2], tx[3]);
+    if (!(h > 0)) continue;
+    out.push({
+      str: it.str,
+      x: tx[4] / W,
+      y: (tx[5] - h) / H,
+      w: (it.width || 0) / W,
+      h: h / H,
+    });
+  }
+  return { page: pageNo, width: W, height: H, items: out };
+}
+
+/**
  * Render one page of an already-opened document to a JPEG data URL at the given
  * scale. Returns { dataUrl, width, height } (pixel size of the rendered image).
  */

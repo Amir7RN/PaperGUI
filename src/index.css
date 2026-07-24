@@ -123,44 +123,63 @@
   .pp-hero::after, .pp-orb, .pp-section-in { animation: none !important; }
 }
 
-/* ---- fancy PDF reader: real book-style page turn ----
- * The stage keeps the destination page underneath; a single "leaf" (the page
- * being turned) rotates around the spine. `--next` flips the outgoing page
- * away to the left; `--prev` flips the incoming page in from the left. A soft
- * gloss sweeps across the turning leaf to sell the paper curl. */
+/* ---- in-app PDF reader ----
+ * A page is a canvas (graphics) + pdf.js's text layer (invisible, positioned
+ * spans = real selectable words) + a highlight layer between them. The
+ * highlights multiply rather than paint over, so the paper's own text stays
+ * fully readable underneath the marker. */
 .pdfr-perspective { perspective: 2200px; }
 .pdfr-shadow {
   border-radius: 3px;
   box-shadow: 0 24px 60px -18px rgba(0, 0, 0, 0.75), 0 2px 8px rgba(0, 0, 0, 0.4);
 }
-.pdfr-leaf {
-  transform-origin: left center;
-  transform-style: preserve-3d;
-  backface-visibility: hidden;
-  will-change: transform;
-  overflow: hidden;
+.pdfr-page { animation: pdfr-page-in 0.42s cubic-bezier(0.22, 0.61, 0.36, 1) both; }
+@keyframes pdfr-page-in {
+  from { opacity: 0; transform: perspective(2200px) rotateY(-9deg) translateX(-14px); }
+  to   { opacity: 1; transform: none; }
 }
-.pdfr-leaf--next { animation: pdfr-turn-next 0.62s cubic-bezier(0.4, 0.05, 0.3, 1) forwards; }
-.pdfr-leaf--prev { animation: pdfr-turn-prev 0.62s cubic-bezier(0.4, 0.05, 0.3, 1) forwards; }
-@keyframes pdfr-turn-next {
-  from { transform: rotateY(0deg); }
-  to   { transform: rotateY(-168deg); }
+
+/* provenance marker: translucent wash, never a cover */
+.pdfr-hl {
+  position: absolute;
+  border-radius: 3px;
+  mix-blend-mode: multiply;
+  transition: background 0.25s ease, box-shadow 0.25s ease;
 }
-@keyframes pdfr-turn-prev {
-  from { transform: rotateY(-168deg); }
-  to   { transform: rotateY(0deg); }
+
+/* pdf.js text layer — the part that makes words clickable and selectable */
+.pdfr-textlayer {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  overflow: clip;
+  line-height: 1;
+  text-align: initial;
+  transform-origin: 0 0;
+  forced-color-adjust: none;
+  text-size-adjust: none;
+  caret-color: transparent;
 }
-/* moving gloss on the turning leaf */
-.pdfr-gloss {
-  position: absolute; inset: 0;
-  background: linear-gradient(105deg, rgba(0,0,0,0.28) 0%, rgba(255,255,255,0.12) 45%, rgba(0,0,0,0.0) 70%);
-  animation: pdfr-gloss 0.62s ease-out forwards;
-  pointer-events: none;
+.pdfr-textlayer :is(span, br) {
+  color: transparent;
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
 }
-@keyframes pdfr-gloss {
-  from { opacity: 0.9; }
-  to   { opacity: 0; }
+.pdfr-textlayer span.markedContent { top: 0; height: 0; }
+.pdfr-textlayer span[role="img"] { user-select: none; cursor: default; }
+.pdfr-textlayer .endOfContent {
+  display: block;
+  position: absolute;
+  inset: 100% 0 0;
+  z-index: 0;
+  cursor: default;
+  user-select: none;
 }
+.pdfr-textlayer.selecting .endOfContent { top: 0; }
+.pdfr-textlayer ::selection { background: rgba(56, 189, 248, 0.4); }
+
 @media (prefers-reduced-motion: reduce) {
-  .pdfr-leaf--next, .pdfr-leaf--prev, .pdfr-gloss { animation-duration: 0.01s; }
+  .pdfr-page { animation-duration: 0.01s; }
 }

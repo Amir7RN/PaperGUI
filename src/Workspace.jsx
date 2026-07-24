@@ -3425,19 +3425,22 @@ function SelectionExplain({ onAsk }) {
     return () => { document.removeEventListener("mouseup", onUp); document.removeEventListener("mousedown", onDown); };
   }, []);
   if (!chip) return null;
+  // pp-rise animates `transform`, so the chip's placement lives on a wrapper —
+  // otherwise the animation's final `transform: none` drops the centering.
   return (
-    <button
-      onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
-      onClick={() => {
-        onAsk({ sectionId: chip.sectionId, title: chip.sectionTitle, initialAsk: `Explain this, in the context of this section: “${chip.text}”` });
-        setChip(null);
-        window.getSelection()?.removeAllRanges();
-      }}
-      style={{ position: "fixed", left: chip.x, top: chip.y, transform: "translate(-50%, -100%)", zIndex: 60 }}
-      className="pp-rise flex items-center gap-1.5 rounded-full bg-indigo-600 px-3.5 py-2 text-[12px] font-semibold text-white shadow-xl ring-2 ring-white hover:bg-indigo-700"
-    >
-      <Sparkles size={13} /> Explain the selected text
-    </button>
+    <div style={{ position: "fixed", left: chip.x, top: chip.y, transform: "translate(-50%, -100%)", zIndex: 60 }}>
+      <button
+        onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+        onClick={() => {
+          onAsk({ sectionId: chip.sectionId, title: chip.sectionTitle, initialAsk: `Explain this, in the context of this section: “${chip.text}”` });
+          setChip(null);
+          window.getSelection()?.removeAllRanges();
+        }}
+        className="pp-rise flex items-center gap-1.5 rounded-full bg-indigo-600 px-3.5 py-2 text-[12px] font-semibold text-white shadow-xl ring-2 ring-white hover:bg-indigo-700"
+      >
+        <Sparkles size={13} /> Explain the selected text
+      </button>
+    </div>
   );
 }
 
@@ -4004,7 +4007,12 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
       <SelectionExplain onAsk={setChatSection} />
       <SectionChat spec={spec} open={chatSection} onClose={() => setChatSection(null)} />
       {hasPdf && (
-        <PdfReader url={spec.paperPdf} title={spec.meta?.title} open={pdfOpen} onClose={() => setPdfOpen(false)} />
+        <PdfReader
+          url={spec.paperPdf} title={spec.meta?.title} open={pdfOpen} onClose={() => setPdfOpen(false)}
+          spec={spec}
+          section={activeS ? { id: activeS.id, title: sec(activeS.id).title, tone: activeS.tone } : null}
+          onAsk={setChatSection}
+        />
       )}
 
       <InfoModal block={infoBlock} onClose={() => setInfoKey(null)} />

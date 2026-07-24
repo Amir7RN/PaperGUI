@@ -153,13 +153,38 @@ export default function SectionChat({ spec, open, onClose }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingAsk, mode]);
 
+  // Opened with a quote to talk *around* (e.g. text selected in the PDF
+  // reader): pre-fill the box and let the reader type their own question.
+  // Applied after the mode switch so the section/mode reset can't wipe it.
+  const draftRef = useRef(null);
+  const [pendingDraft, setPendingDraft] = useState(null);
+  useEffect(() => {
+    if (open?.initialDraft && draftRef.current !== open.initialDraft) {
+      draftRef.current = open.initialDraft;
+      setMode("ask");
+      setPendingDraft(open.initialDraft);
+    }
+  }, [open]);
+  useEffect(() => {
+    if (!pendingDraft || mode !== "ask") return;
+    setInput(pendingDraft);
+    setPendingDraft(null);
+    setTimeout(() => {
+      const el = inputRef.current;
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(el.value.length, el.value.length);
+    }, 60);
+  }, [pendingDraft, mode]);
+
   if (!open) return null;
 
   const visible = messages.filter((m) => !m.hidden);
   const activeMode = MODES.find((m) => m.id === mode);
 
   return (
-    <div className="fixed bottom-4 right-4 z-50 flex max-h-[min(640px,calc(100vh-2rem))] w-[min(410px,calc(100vw-2rem))] flex-col overflow-hidden rounded-2xl border border-indigo-200 bg-white shadow-2xl">
+    /* z above the PDF reader (z-60) so you can read and chat at the same time */
+    <div className="fixed bottom-4 right-4 z-[80] flex max-h-[min(640px,calc(100vh-2rem))] w-[min(410px,calc(100vw-2rem))] flex-col overflow-hidden rounded-2xl border border-indigo-200 bg-white shadow-2xl">
       {/* header */}
       <div className="flex items-center gap-2.5 bg-indigo-600 px-4 py-3">
         <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/15">
