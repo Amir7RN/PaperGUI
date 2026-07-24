@@ -28,7 +28,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   X, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Download, Loader2,
   BookOpen, PanelLeftClose, PanelLeftOpen, Highlighter, Sparkles,
-  MessageCircle, Copy, Check, Crosshair, GraduationCap,
+  MessageCircle, Copy, Check, Crosshair, GraduationCap, HelpCircle,
+  MousePointerClick, ArrowLeftRight,
 } from "lucide-react";
 import { TextLayer } from "pdfjs-dist";
 import { loadPdfDoc, renderPdfPage, extractPageItems } from "./pdf.js";
@@ -52,6 +53,9 @@ const toneOf = (t) => TONE_HL[t] || TONE_HL.amber;
 
 /* One text index per document URL — surviving close/reopen and section swaps. */
 const INDEX_CACHE = new Map();
+
+/* "You've seen the how-to-read-this card" flag. */
+const GUIDE_KEY = "pp-pdfr-guide-v1";
 
 /* ---------------- one live page: canvas + real text layer + highlights ------ */
 
@@ -175,6 +179,9 @@ export default function PdfReader({ url, title, open, onClose, spec, section, on
   const [markIdx, setMarkIdx] = useState(0);
   const [sel, setSel] = useState(null);           // { x, y, text }
   const [copied, setCopied] = useState(false);
+  // First-time orientation: what the colour means and what you can do here.
+  // Dismissed for good once, reopenable from the ? button.
+  const [guide, setGuide] = useState(false);
 
   const thumbCache = useRef(new Map());
   const [, force] = useState(0);
@@ -192,6 +199,7 @@ export default function PdfReader({ url, title, open, onClose, spec, section, on
     setDoc(null); setLoadErr(null); setNumPages(0); setZoom(1);
     setAnchor(null); setAnchorMiss(false); setSel(null);
     thumbCache.current = new Map();
+    setGuide(localStorage.getItem(GUIDE_KEY) !== "1");
     loadPdfDoc(url)
       .then((d) => { if (alive) { setDoc(d); setNumPages(d.numPages); } })
       .catch((e) => { if (alive) setLoadErr(e?.message || "Could not open the PDF."); });
@@ -411,6 +419,10 @@ export default function PdfReader({ url, title, open, onClose, spec, section, on
             <button onClick={() => setZoom((z) => Math.min(2.6, +(z + 0.2).toFixed(2)))} title="Zoom in"
               className="rounded p-1 text-slate-300 transition hover:bg-white/10 hover:text-white"><ZoomIn size={15} /></button>
           </div>
+          <button onClick={() => setGuide((g) => !g)} title="How to read this"
+            className={`rounded-lg p-1.5 transition hover:bg-white/10 hover:text-white ${guide ? "text-cyan-300" : "text-slate-300"}`}>
+            <HelpCircle size={16} />
+          </button>
           <a href={url} download title="Download the PDF"
             className="rounded-lg p-1.5 text-slate-300 transition hover:bg-white/10 hover:text-white"><Download size={16} /></a>
           <button onClick={onClose} title="Close (Esc)"
@@ -481,6 +493,40 @@ export default function PdfReader({ url, title, open, onClose, spec, section, on
           )}
         </div>
       </div>
+
+      {/* ---- how to read this: three lines, once ---- */}
+      {guide && doc && !loadErr && (
+        <div className="pp-rise absolute bottom-14 right-4 z-[3] w-[268px] rounded-xl border border-white/15 bg-slate-900/95 p-3 shadow-2xl backdrop-blur">
+          <div className="mb-2 flex items-center gap-1.5">
+            <HelpCircle size={13} className="text-cyan-300" />
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-300">Reading this paper</span>
+            <button onClick={() => { setGuide(false); localStorage.setItem(GUIDE_KEY, "1"); }}
+              aria-label="Dismiss" className="ml-auto rounded p-0.5 text-slate-400 hover:bg-white/10 hover:text-white">
+              <X size={13} />
+            </button>
+          </div>
+          <ul className="space-y-1.5 text-[11.5px] leading-snug text-slate-300">
+            {marks.length > 0 && (
+              <li className="flex gap-2">
+                <span className="mt-1 h-2.5 w-4 shrink-0 rounded-sm" style={{ background: c.soft, outline: `1px solid ${c.ring}66` }} />
+                <span>Coloured text = the passages “{section?.title || "this section"}” was built from.</span>
+              </li>
+            )}
+            <li className="flex gap-2">
+              <MousePointerClick size={13} className="mt-0.5 shrink-0 text-indigo-300" />
+              <span>Select any words → <strong className="text-white">Explain · Simplify · Ask AI</strong>.</span>
+            </li>
+            <li className="flex gap-2">
+              <ArrowLeftRight size={13} className="mt-0.5 shrink-0 text-slate-400" />
+              <span>← → turn pages{marks.length > 0 ? <>, <strong className="text-white">n</strong> jumps to the next passage</> : null} · Esc closes.</span>
+            </li>
+          </ul>
+          <button onClick={() => { setGuide(false); localStorage.setItem(GUIDE_KEY, "1"); }}
+            className="mt-2.5 w-full rounded-lg bg-white/10 py-1.5 text-[11px] font-semibold text-white transition hover:bg-white/20">
+            Got it
+          </button>
+        </div>
+      )}
 
       {/* ---- selection assist bar ---- */}
       {sel && onAsk && (
