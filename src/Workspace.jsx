@@ -22,7 +22,7 @@ import {
   Landmark, Maximize2, Lightbulb, LineChart as LineChartIcon, LayoutTemplate, Move,
   Sparkles, BookMarked, Play, Pause, Puzzle, Rocket, Network, ChevronLeft, FileCode2, Crosshair,
   Shuffle, Wand2, Trophy, Bot, ListChecks, GraduationCap, Images, Link2,
-  ShieldCheck, Layers, RotateCw, Check as CheckIcon,
+  ShieldCheck, Layers, RotateCw, Check as CheckIcon, GripVertical,
 } from "lucide-react";
 import SectionChat from "./SectionChat.jsx";
 import ExplainerVideo from "./ExplainerVideo.jsx";
@@ -3415,8 +3415,24 @@ const GUIDE_TIPS = [
   { icon: Layers, text: "Flip the flashcards to make it stick." },
 ];
 
-function LeftGuide({ sections, sec }) {
+const GUIDE_POS_KEY = "pp-guide-pos-v1";
+const clampN = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+function DraggableGuide({ sections, sec }) {
   const [activeId, setActiveId] = useState(sections[0]?.id);
+  const [collapsed, setCollapsed] = useState(false);
+  // default: tucked into the right margin; user drags it wherever they want
+  const [pos, setPos] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(GUIDE_POS_KEY) || "null");
+      if (saved && Number.isFinite(saved.x) && Number.isFinite(saved.y)) return saved;
+    } catch { /* fall through */ }
+    const w = typeof window !== "undefined" ? window.innerWidth : 1440;
+    return { x: Math.max(12, w - 248), y: 96 };
+  });
+  const [dragging, setDragging] = useState(false);
+  const dragRef = useRef(null);
+
   useEffect(() => {
     const targets = sections.map((s) => document.querySelector(`[data-box="${s.boxId}"]`)).filter(Boolean);
     if (!targets.length) return;
@@ -3434,48 +3450,81 @@ function LeftGuide({ sections, sec }) {
     return () => io.disconnect();
   }, [sections]);
 
+  const persist = (p) => { try { localStorage.setItem(GUIDE_POS_KEY, JSON.stringify(p)); } catch { /* quota */ } };
+  const startDrag = (e) => {
+    e.preventDefault();
+    setDragging(true);
+    dragRef.current = { px: e.clientX, py: e.clientY, x: pos.x, y: pos.y };
+    const move = (ev) => {
+      const nx = clampN(dragRef.current.x + (ev.clientX - dragRef.current.px), 0, window.innerWidth - 60);
+      const ny = clampN(dragRef.current.y + (ev.clientY - dragRef.current.py), 0, window.innerHeight - 36);
+      setPos({ x: Math.round(nx), y: Math.round(ny) });
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      setDragging(false);
+      setPos((p) => { persist(p); return p; });
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+
   const jump = (boxId) => document.querySelector(`[data-box="${boxId}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" });
 
   return (
-    <aside className="hidden xl:block w-[230px] shrink-0">
-      <div className="sticky top-16 flex flex-col gap-3">
-        <div className="rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm">
-          <div className="mb-1 text-[10px] font-bold uppercase tracking-wider text-blue-600">Your guide</div>
-          <p className="mb-2.5 text-[11.5px] leading-relaxed text-slate-500">
-            This is the paper rebuilt as a hands-on walkthrough — read top to bottom, or jump around.
-          </p>
-          <ul className="flex flex-col gap-2">
-            {GUIDE_TIPS.map((t, i) => {
-              const Icon = t.icon;
+    <div style={{ position: "fixed", left: pos.x, top: pos.y, width: 224, zIndex: 40 }}
+      className={`flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-lg ${dragging ? "ring-2 ring-blue-400 select-none" : ""}`}>
+      {/* drag handle — shows live x,y so you can tell me exactly where to fix it */}
+      <div onPointerDown={startDrag}
+        className="flex cursor-move items-center gap-1.5 bg-slate-800 px-2.5 py-1.5 text-[10px] font-semibold text-white">
+        <GripVertical size={12} className="opacity-70" />
+        <span className="flex-1">Guide</span>
+        <span className="tabular-nums text-[9px] text-slate-300">{pos.x},{pos.y}</span>
+        <button onClick={(e) => { e.stopPropagation(); setCollapsed((c) => !c); }}
+          onPointerDown={(e) => e.stopPropagation()}
+          className="rounded px-1 text-slate-300 hover:bg-white/20 hover:text-white" title={collapsed ? "Expand" : "Collapse"}>
+          {collapsed ? <ChevronRight size={12} /> : <ChevronLeft size={12} />}
+        </button>
+      </div>
+
+      {!collapsed && (
+        <div className="flex max-h-[calc(100vh-140px)] flex-col gap-2.5 overflow-y-auto p-2.5">
+          <div>
+            <div className="mb-1 text-[10px] font-bold uppercase tracking-wider text-blue-600">Your guide</div>
+            <ul className="flex flex-col gap-1.5">
+              {GUIDE_TIPS.map((t, i) => {
+                const Icon = t.icon;
+                return (
+                  <li key={i} className="flex items-start gap-2 text-[11px] leading-snug text-slate-600">
+                    <Icon size={13} className="mt-0.5 shrink-0 text-indigo-500" /> {t.text}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+
+          <nav className="border-t border-slate-100 pt-2">
+            <div className="mb-0.5 px-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">On this page</div>
+            {sections.map((s, i) => {
+              const t = SECTION_TONES[s.tone];
+              const on = activeId === s.id;
+              const Icon = s.icon;
               return (
-                <li key={i} className="flex items-start gap-2 text-[11px] leading-snug text-slate-600">
-                  <Icon size={13} className="mt-0.5 shrink-0 text-indigo-500" /> {t.text}
-                </li>
+                <button key={s.id} onClick={() => jump(s.boxId)}
+                  className={`flex w-full items-center gap-2 rounded-lg px-1.5 py-1 text-left text-[12px] transition ${
+                    on ? "bg-slate-100 font-semibold text-slate-800" : "text-slate-500 hover:bg-slate-50 hover:text-slate-700"
+                  }`}>
+                  <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded text-[9px] font-bold text-white ${t.badge}`}>{i + 1}</span>
+                  <Icon size={13} className={on ? t.text : "text-slate-400"} />
+                  <span className="truncate">{s.navLabel}</span>
+                </button>
               );
             })}
-          </ul>
+          </nav>
         </div>
-
-        <nav className="rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
-          <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">On this page</div>
-          {sections.map((s, i) => {
-            const t = SECTION_TONES[s.tone];
-            const on = activeId === s.id;
-            const Icon = s.icon;
-            return (
-              <button key={s.id} onClick={() => jump(s.boxId)}
-                className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[12px] transition ${
-                  on ? "bg-slate-100 font-semibold text-slate-800" : "text-slate-500 hover:bg-slate-50 hover:text-slate-700"
-                }`}>
-                <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded text-[9px] font-bold text-white ${t.badge}`}>{i + 1}</span>
-                <Icon size={13} className={on ? t.text : "text-slate-400"} />
-                <span className="truncate">{s.navLabel}</span>
-              </button>
-            );
-          })}
-        </nav>
-      </div>
-    </aside>
+      )}
+    </div>
   );
 }
 
@@ -3764,52 +3813,38 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
         className={free ? "relative w-full p-0" : "mx-auto pt-4"}
         style={free
           ? { height: canvasHeight, maxWidth: "none" }
-          : { maxWidth: "var(--content-max, 1320px)", paddingLeft: "var(--page-pad, 24px)", paddingRight: "var(--page-pad, 24px)" }}
+          : { maxWidth: "var(--content-max, 1280px)", paddingLeft: "var(--page-pad, 24px)", paddingRight: "var(--page-pad, 24px)" }}
       >
-        {(() => {
-          const boxes = (
-            <>
-              <DesignBox id="conclusion" label="Conclusion" mode={free ? "free" : "flow"} rect={layout.boxes.conclusion} onRect={setBox} register={registerBox}>
-                <TakeawayBox
-                  conclusion={spec.conclusion}
-                  modifiedCount={modifiedCount}
-                  onReset={() => { setParams(defaults); setPinnedT(null); }}
-                />
-                {active.error && (
-                  <div className="mt-3 rounded-xl border-2 border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800">
-                    <strong>Pipeline error:</strong> {active.error}
-                  </div>
-                )}
-              </DesignBox>
-
-              {/* sections come from the `sections` list built above — a hidden or
-                  empty one just disappears from the array, so numbering never
-                  leaves a gap and the nav bar always matches what's on screen. */}
-              {sections.map((s, i) => (
-                <DesignBox key={s.id} id={s.boxId} label={s.boxLabel} mode={free ? "free" : "flow"} rect={layout.boxes[s.boxId]} onRect={setBox} register={registerBox}>
-                  <section aria-label={s.ariaLabel} data-section-id={s.id} data-section-title={sec(s.id).title}>
-                    <SectionHeader
-                      num={i + 1} tone={s.tone} icon={s.icon} title={sec(s.id).title} sub={sec(s.id).sub}
-                      onAsk={() => setChatSection({ sectionId: s.id, title: sec(s.id).title })}
-                    />
-                    {s.content}
-                  </section>
-                </DesignBox>
-              ))}
-            </>
-          );
-          // Free-layout mode: DesignBoxes must sit DIRECTLY under the canvas
-          // (their absolute positioning is relative to it) — no wrapper. Flow
-          // mode: add the left guide rail beside the content on wide screens.
-          if (free) return boxes;
-          return (
-            <div className="flex items-start gap-6">
-              <LeftGuide sections={sections} sec={sec} />
-              <div className="min-w-0 flex-1">{boxes}</div>
+        <DesignBox id="conclusion" label="Conclusion" mode={free ? "free" : "flow"} rect={layout.boxes.conclusion} onRect={setBox} register={registerBox}>
+          <TakeawayBox
+            conclusion={spec.conclusion}
+            modifiedCount={modifiedCount}
+            onReset={() => { setParams(defaults); setPinnedT(null); }}
+          />
+          {active.error && (
+            <div className="mt-3 rounded-xl border-2 border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800">
+              <strong>Pipeline error:</strong> {active.error}
             </div>
-          );
-        })()}
+          )}
+        </DesignBox>
+
+        {/* sections come from the `sections` list built above — a hidden or
+            empty one just disappears from the array, so numbering never
+            leaves a gap and the nav bar always matches what's on screen. */}
+        {sections.map((s, i) => (
+          <DesignBox key={s.id} id={s.boxId} label={s.boxLabel} mode={free ? "free" : "flow"} rect={layout.boxes[s.boxId]} onRect={setBox} register={registerBox}>
+            <section aria-label={s.ariaLabel} data-section-id={s.id} data-section-title={sec(s.id).title}>
+              <SectionHeader
+                num={i + 1} tone={s.tone} icon={s.icon} title={sec(s.id).title} sub={sec(s.id).sub}
+                onAsk={() => setChatSection({ sectionId: s.id, title: sec(s.id).title })}
+              />
+              {s.content}
+            </section>
+          </DesignBox>
+        ))}
       </main>
+
+      {!free && <DraggableGuide sections={sections} sec={sec} />}
 
       <SelectionExplain onAsk={setChatSection} />
       <SectionChat spec={spec} open={chatSection} onClose={() => setChatSection(null)} />
