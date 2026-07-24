@@ -278,23 +278,25 @@ function SectionNav({ sections, conclusionLabel }) {
   const [activeId, setActiveId] = useState(sections[0]?.id);
   const barRef = useRef(null);
 
+  // Scroll-spy via IntersectionObserver-as-trigger + full recompute (see
+  // DraggableGuide) — avoids stale-entry bugs and permanent rAF polling.
   useEffect(() => {
-    const targets = sections
-      .map((s) => document.querySelector(`[data-box="${s.boxId}"]`))
-      .filter(Boolean);
-    if (!targets.length) return;
-    const io = new IntersectionObserver(
-      (entries) => {
-        const visible = entries.filter((e) => e.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
-        if (visible[0]) {
-          const id = sections.find((s) => document.querySelector(`[data-box="${s.boxId}"]`) === visible[0].target)?.id;
-          if (id) setActiveId(id);
-        }
-      },
-      { rootMargin: "-15% 0px -70% 0px", threshold: 0 }
-    );
-    targets.forEach((t) => io.observe(t));
-    return () => io.disconnect();
+    const compute = () => {
+      let current = sections[0]?.id;
+      for (const s of sections) {
+        const el = document.querySelector(`[data-box="${s.boxId}"]`);
+        if (!el) continue;
+        if (el.getBoundingClientRect().top <= 90) current = s.id;
+        else break;
+      }
+      setActiveId(current);
+    };
+    compute();
+    const els = sections.map((s) => document.querySelector(`[data-box="${s.boxId}"]`)).filter(Boolean);
+    const io = new IntersectionObserver(compute, { threshold: [0, 0.5, 1], rootMargin: "-60px 0px 0px 0px" });
+    els.forEach((e) => io.observe(e));
+    window.addEventListener("resize", compute);
+    return () => { io.disconnect(); window.removeEventListener("resize", compute); };
   }, [sections]);
 
   const jump = (boxId) => {
@@ -3415,39 +3417,57 @@ const GUIDE_TIPS = [
   { icon: Layers, text: "Flip the flashcards to make it stick." },
 ];
 
-const GUIDE_POS_KEY = "pp-guide-pos-v1";
+const GUIDE_POS_KEY = "pp-guide-pos-v2";
+const GUIDE_W = 224;
 const clampN = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
 function DraggableGuide({ sections, sec }) {
   const [activeId, setActiveId] = useState(sections[0]?.id);
   const [collapsed, setCollapsed] = useState(false);
-  // default: tucked into the right margin; user drags it wherever they want
+  // Home = the left margin, beside the main text (the coordinate the user picked).
+  // Kept in fixed positioning so it stays pinned on screen while scrolling.
   const [pos, setPos] = useState(() => {
     try {
       const saved = JSON.parse(localStorage.getItem(GUIDE_POS_KEY) || "null");
       if (saved && Number.isFinite(saved.x) && Number.isFinite(saved.y)) return saved;
     } catch { /* fall through */ }
-    const w = typeof window !== "undefined" ? window.innerWidth : 1440;
-    return { x: Math.max(12, w - 248), y: 96 };
+    return { x: 23, y: 450 };
   });
   const [dragging, setDragging] = useState(false);
   const dragRef = useRef(null);
 
+  // Only show the rail when the left margin is actually wide enough to hold it
+  // without covering the centred content column (~1280px). On narrower screens
+  // the sticky top nav already handles jumping, so we simply hide the rail.
+  const [roomy, setRoomy] = useState(typeof window !== "undefined" ? window.innerWidth >= 1780 : true);
   useEffect(() => {
-    const targets = sections.map((s) => document.querySelector(`[data-box="${s.boxId}"]`)).filter(Boolean);
-    if (!targets.length) return;
-    const io = new IntersectionObserver(
-      (entries) => {
-        const vis = entries.filter((e) => e.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
-        if (vis[0]) {
-          const id = sections.find((s) => document.querySelector(`[data-box="${s.boxId}"]`) === vis[0].target)?.id;
-          if (id) setActiveId(id);
-        }
-      },
-      { rootMargin: "-15% 0px -70% 0px", threshold: 0 }
-    );
-    targets.forEach((t) => io.observe(t));
-    return () => io.disconnect();
+    const onResize = () => setRoomy(window.innerWidth >= 1780);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  // Scroll-spy: highlight the section you're currently in. An Intersection
+  // Observer is used only as a cheap trigger; on every fire we recompute the
+  // active section from ALL sections' live rects (the last whose top has passed
+  // a line ~130px down), which avoids the "only-changed-entries" staleness of a
+  // naive observer and the CPU cost of a permanent rAF poll.
+  useEffect(() => {
+    const compute = () => {
+      let current = sections[0]?.id;
+      for (const s of sections) {
+        const el = document.querySelector(`[data-box="${s.boxId}"]`);
+        if (!el) continue;
+        if (el.getBoundingClientRect().top <= 130) current = s.id;
+        else break;
+      }
+      setActiveId(current);
+    };
+    compute();
+    const els = sections.map((s) => document.querySelector(`[data-box="${s.boxId}"]`)).filter(Boolean);
+    const io = new IntersectionObserver(compute, { threshold: [0, 0.5, 1], rootMargin: "-80px 0px 0px 0px" });
+    els.forEach((e) => io.observe(e));
+    window.addEventListener("resize", compute);
+    return () => { io.disconnect(); window.removeEventListener("resize", compute); };
   }, [sections]);
 
   const persist = (p) => { try { localStorage.setItem(GUIDE_POS_KEY, JSON.stringify(p)); } catch { /* quota */ } };
@@ -3472,24 +3492,27 @@ function DraggableGuide({ sections, sec }) {
 
   const jump = (boxId) => document.querySelector(`[data-box="${boxId}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" });
 
+  // No left-margin room on this screen — the sticky top nav covers navigation.
+  if (!roomy) return null;
+
   return (
-    <div style={{ position: "fixed", left: pos.x, top: pos.y, width: 224, zIndex: 40 }}
-      className={`flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-lg ${dragging ? "ring-2 ring-blue-400 select-none" : ""}`}>
-      {/* drag handle — shows live x,y so you can tell me exactly where to fix it */}
+    <div style={{ position: "fixed", left: pos.x, top: pos.y, width: GUIDE_W, zIndex: 40 }}
+      className={`flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white/95 shadow-lg backdrop-blur ${dragging ? "ring-2 ring-blue-400 select-none" : ""}`}>
+      {/* thin handle — drag to reposition; the rail stays pinned while scrolling */}
       <div onPointerDown={startDrag}
-        className="flex cursor-move items-center gap-1.5 bg-slate-800 px-2.5 py-1.5 text-[10px] font-semibold text-white">
-        <GripVertical size={12} className="opacity-70" />
-        <span className="flex-1">Guide</span>
-        <span className="tabular-nums text-[9px] text-slate-300">{pos.x},{pos.y}</span>
+        className="flex cursor-move items-center gap-1.5 border-b border-slate-100 bg-slate-50 px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+        <GripVertical size={11} className="opacity-60" />
+        <span className="flex-1">Guide · drag to move</span>
+        {dragging && <span className="tabular-nums text-[9px] text-slate-400">{pos.x},{pos.y}</span>}
         <button onClick={(e) => { e.stopPropagation(); setCollapsed((c) => !c); }}
           onPointerDown={(e) => e.stopPropagation()}
-          className="rounded px-1 text-slate-300 hover:bg-white/20 hover:text-white" title={collapsed ? "Expand" : "Collapse"}>
+          className="rounded px-0.5 text-slate-400 hover:bg-slate-200 hover:text-slate-600" title={collapsed ? "Expand" : "Collapse"}>
           {collapsed ? <ChevronRight size={12} /> : <ChevronLeft size={12} />}
         </button>
       </div>
 
       {!collapsed && (
-        <div className="flex max-h-[calc(100vh-140px)] flex-col gap-2.5 overflow-y-auto p-2.5">
+        <div className="flex flex-col gap-2.5 overflow-y-auto p-2.5" style={{ maxHeight: `calc(100vh - ${pos.y + 28}px)` }}>
           <div>
             <div className="mb-1 text-[10px] font-bold uppercase tracking-wider text-blue-600">Your guide</div>
             <ul className="flex flex-col gap-1.5">
