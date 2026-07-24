@@ -3417,40 +3417,32 @@ const GUIDE_TIPS = [
   { icon: Layers, text: "Flip the flashcards to make it stick." },
 ];
 
-const GUIDE_POS_KEY = "pp-guide-pos-v2";
+// Fixed placement chosen by the designer. Not user-draggable — pinned in the
+// left margin, scaled up, always visible while scrolling.
+const GUIDE_LEFT = 11;
+const GUIDE_TOP = 330;
+const GUIDE_SCALE = 1.3;
 const GUIDE_W = 224;
-const clampN = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
-function DraggableGuide({ sections, sec }) {
+function GuideRail({ sections }) {
   const [activeId, setActiveId] = useState(sections[0]?.id);
-  const [collapsed, setCollapsed] = useState(false);
-  // Home = the left margin, beside the main text (the coordinate the user picked).
-  // Kept in fixed positioning so it stays pinned on screen while scrolling.
-  const [pos, setPos] = useState(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem(GUIDE_POS_KEY) || "null");
-      if (saved && Number.isFinite(saved.x) && Number.isFinite(saved.y)) return saved;
-    } catch { /* fall through */ }
-    return { x: 23, y: 450 };
-  });
-  const [dragging, setDragging] = useState(false);
-  const dragRef = useRef(null);
 
-  // Only show the rail when the left margin is actually wide enough to hold it
-  // without covering the centred content column (~1280px). On narrower screens
-  // the sticky top nav already handles jumping, so we simply hide the rail.
-  const [roomy, setRoomy] = useState(typeof window !== "undefined" ? window.innerWidth >= 1780 : true);
+  // Only show when the left margin is wide enough to hold the (scaled) rail
+  // without covering the centred ~1280px content column. Otherwise the sticky
+  // top nav handles navigation.
+  const fits = () => (typeof window !== "undefined") &&
+    ((window.innerWidth - 1280) / 2) >= (GUIDE_LEFT + GUIDE_W * GUIDE_SCALE + 10);
+  const [roomy, setRoomy] = useState(fits());
   useEffect(() => {
-    const onResize = () => setRoomy(window.innerWidth >= 1780);
+    const onResize = () => setRoomy(fits());
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
-  // Scroll-spy: highlight the section you're currently in. An Intersection
-  // Observer is used only as a cheap trigger; on every fire we recompute the
-  // active section from ALL sections' live rects (the last whose top has passed
-  // a line ~130px down), which avoids the "only-changed-entries" staleness of a
-  // naive observer and the CPU cost of a permanent rAF poll.
+  // Scroll-spy: highlight the section you're currently in. An IntersectionObserver
+  // is used only as a cheap trigger; on every fire we recompute the active section
+  // from ALL sections' live rects (the last whose top has passed a line ~130px
+  // down) — avoids the "only-changed-entries" staleness of a naive observer.
   useEffect(() => {
     const compute = () => {
       let current = sections[0]?.id;
@@ -3470,83 +3462,47 @@ function DraggableGuide({ sections, sec }) {
     return () => { io.disconnect(); window.removeEventListener("resize", compute); };
   }, [sections]);
 
-  const persist = (p) => { try { localStorage.setItem(GUIDE_POS_KEY, JSON.stringify(p)); } catch { /* quota */ } };
-  const startDrag = (e) => {
-    e.preventDefault();
-    setDragging(true);
-    dragRef.current = { px: e.clientX, py: e.clientY, x: pos.x, y: pos.y };
-    const move = (ev) => {
-      const nx = clampN(dragRef.current.x + (ev.clientX - dragRef.current.px), 0, window.innerWidth - 60);
-      const ny = clampN(dragRef.current.y + (ev.clientY - dragRef.current.py), 0, window.innerHeight - 36);
-      setPos({ x: Math.round(nx), y: Math.round(ny) });
-    };
-    const up = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-      setDragging(false);
-      setPos((p) => { persist(p); return p; });
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
-  };
-
   const jump = (boxId) => document.querySelector(`[data-box="${boxId}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" });
 
-  // No left-margin room on this screen — the sticky top nav covers navigation.
   if (!roomy) return null;
 
   return (
-    <div style={{ position: "fixed", left: pos.x, top: pos.y, width: GUIDE_W, zIndex: 40 }}
-      className={`flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white/95 shadow-lg backdrop-blur ${dragging ? "ring-2 ring-blue-400 select-none" : ""}`}>
-      {/* thin handle — drag to reposition; the rail stays pinned while scrolling */}
-      <div onPointerDown={startDrag}
-        className="flex cursor-move items-center gap-1.5 border-b border-slate-100 bg-slate-50 px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-        <GripVertical size={11} className="opacity-60" />
-        <span className="flex-1">Guide · drag to move</span>
-        {dragging && <span className="tabular-nums text-[9px] text-slate-400">{pos.x},{pos.y}</span>}
-        <button onClick={(e) => { e.stopPropagation(); setCollapsed((c) => !c); }}
-          onPointerDown={(e) => e.stopPropagation()}
-          className="rounded px-0.5 text-slate-400 hover:bg-slate-200 hover:text-slate-600" title={collapsed ? "Expand" : "Collapse"}>
-          {collapsed ? <ChevronRight size={12} /> : <ChevronLeft size={12} />}
-        </button>
-      </div>
-
-      {!collapsed && (
-        <div className="flex flex-col gap-2.5 overflow-y-auto p-2.5" style={{ maxHeight: `calc(100vh - ${pos.y + 28}px)` }}>
-          <div>
-            <div className="mb-1 text-[10px] font-bold uppercase tracking-wider text-blue-600">Your guide</div>
-            <ul className="flex flex-col gap-1.5">
-              {GUIDE_TIPS.map((t, i) => {
-                const Icon = t.icon;
-                return (
-                  <li key={i} className="flex items-start gap-2 text-[11px] leading-snug text-slate-600">
-                    <Icon size={13} className="mt-0.5 shrink-0 text-indigo-500" /> {t.text}
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-
-          <nav className="border-t border-slate-100 pt-2">
-            <div className="mb-0.5 px-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">On this page</div>
-            {sections.map((s, i) => {
-              const t = SECTION_TONES[s.tone];
-              const on = activeId === s.id;
-              const Icon = s.icon;
+    <div style={{ position: "fixed", left: GUIDE_LEFT, top: GUIDE_TOP, width: GUIDE_W, transform: `scale(${GUIDE_SCALE})`, transformOrigin: "top left", zIndex: 40 }}
+      className="flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white/95 shadow-lg backdrop-blur">
+      <div className="flex flex-col gap-2.5 overflow-y-auto p-2.5" style={{ maxHeight: `calc((100vh - ${GUIDE_TOP + 16}px) / ${GUIDE_SCALE})` }}>
+        <div>
+          <div className="mb-1 text-[10px] font-bold uppercase tracking-wider text-blue-600">Your guide</div>
+          <ul className="flex flex-col gap-1.5">
+            {GUIDE_TIPS.map((t, i) => {
+              const Icon = t.icon;
               return (
-                <button key={s.id} onClick={() => jump(s.boxId)}
-                  className={`flex w-full items-center gap-2 rounded-lg px-1.5 py-1 text-left text-[12px] transition ${
-                    on ? "bg-slate-100 font-semibold text-slate-800" : "text-slate-500 hover:bg-slate-50 hover:text-slate-700"
-                  }`}>
-                  <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded text-[9px] font-bold text-white ${t.badge}`}>{i + 1}</span>
-                  <Icon size={13} className={on ? t.text : "text-slate-400"} />
-                  <span className="truncate">{s.navLabel}</span>
-                </button>
+                <li key={i} className="flex items-start gap-2 text-[11px] leading-snug text-slate-600">
+                  <Icon size={13} className="mt-0.5 shrink-0 text-indigo-500" /> {t.text}
+                </li>
               );
             })}
-          </nav>
+          </ul>
         </div>
-      )}
+
+        <nav className="border-t border-slate-100 pt-2">
+          <div className="mb-0.5 px-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">On this page</div>
+          {sections.map((s, i) => {
+            const t = SECTION_TONES[s.tone];
+            const on = activeId === s.id;
+            const Icon = s.icon;
+            return (
+              <button key={s.id} onClick={() => jump(s.boxId)}
+                className={`flex w-full items-center gap-2 rounded-lg px-1.5 py-1 text-left text-[12px] transition ${
+                  on ? "bg-slate-100 font-semibold text-slate-800" : "text-slate-500 hover:bg-slate-50 hover:text-slate-700"
+                }`}>
+                <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded text-[9px] font-bold text-white ${t.badge}`}>{i + 1}</span>
+                <Icon size={13} className={on ? t.text : "text-slate-400"} />
+                <span className="truncate">{s.navLabel}</span>
+              </button>
+            );
+          })}
+        </nav>
+      </div>
     </div>
   );
 }
@@ -3867,7 +3823,7 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
         ))}
       </main>
 
-      {!free && <DraggableGuide sections={sections} sec={sec} />}
+      {!free && <GuideRail sections={sections} />}
 
       <SelectionExplain onAsk={setChatSection} />
       <SectionChat spec={spec} open={chatSection} onClose={() => setChatSection(null)} />
