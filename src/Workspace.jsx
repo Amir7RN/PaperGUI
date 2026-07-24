@@ -241,29 +241,45 @@ const SECTION_TONES = {
   fuchsia: { badge: "bg-fuchsia-600", ring: "ring-fuchsia-200/60", text: "text-fuchsia-700" },
 };
 
+/* one gradient per tone — the section's visual signature, reused by the
+ * header badge, the sidebar's active pill, the mobile tabs and the pager */
+const TONE_GRAD = {
+  rose:    "from-rose-500 to-pink-600",
+  violet:  "from-violet-500 to-purple-600",
+  amber:   "from-amber-400 to-orange-500",
+  blue:    "from-blue-500 to-indigo-600",
+  emerald: "from-emerald-500 to-teal-600",
+  fuchsia: "from-fuchsia-500 to-purple-600",
+};
+
 function SectionHeader({ num, tone, icon: IconCmp, title, sub, onAsk }) {
   const t = SECTION_TONES[tone];
+  const grad = TONE_GRAD[tone];
   return (
-    <div className="pp-rise mb-4 flex items-start gap-3" style={{ marginTop: "var(--sec-gap, 40px)" }}>
-      <div
-        className={`flex shrink-0 items-center justify-center rounded-xl ${t.badge} font-bold text-white shadow-md ring-4 ${t.ring}`}
-        style={{ width: "var(--sec-badge, 36px)", height: "var(--sec-badge, 36px)", fontSize: "calc(var(--sec-badge, 36px) * 0.4)" }}
-      >
-        {num}
+    <div className="pp-rise mb-5 flex items-start gap-3.5" style={{ marginTop: "var(--sec-gap, 40px)" }}>
+      <div className="relative shrink-0">
+        <div className={`absolute inset-0 rounded-2xl bg-gradient-to-br ${grad} opacity-40 blur-lg`} aria-hidden="true" />
+        <div
+          className={`relative flex items-center justify-center rounded-2xl bg-gradient-to-br ${grad} font-bold text-white shadow-lg`}
+          style={{ width: "var(--sec-badge, 38px)", height: "var(--sec-badge, 38px)", fontSize: "calc(var(--sec-badge, 38px) * 0.4)" }}
+        >
+          {num}
+        </div>
       </div>
       <div className="min-w-0 flex-1">
-        <h2 className="flex items-center gap-2 font-bold text-slate-900" style={{ fontSize: "calc(var(--sec-head, 16px) * var(--box-font-scale, 1))" }}>
-          <IconCmp size={16} className={t.text} /> {title}
+        <h2 className="flex items-center gap-2 font-bold tracking-tight text-slate-900" style={{ fontSize: "calc(var(--sec-head, 17px) * var(--box-font-scale, 1))" }}>
+          <IconCmp size={17} className={t.text} /> {title}
         </h2>
-        <p className="mt-0.5 leading-relaxed text-slate-500" style={{ fontSize: "calc(var(--sec-sub, 12px) * var(--box-font-scale, 1))" }}>{sub}</p>
+        <span className={`mt-1 block h-[3px] w-14 rounded-full bg-gradient-to-r ${grad}`} aria-hidden="true" />
+        <p className="mt-1.5 leading-relaxed text-slate-500" style={{ fontSize: "calc(var(--sec-sub, 12px) * var(--box-font-scale, 1))" }}>{sub}</p>
       </div>
       {onAsk && (
         <button
           onClick={onAsk}
           title="Ask questions, get Socratically tutored, quiz yourself, or talk by voice — all about this section"
-          className="mt-0.5 flex shrink-0 items-center gap-1.5 rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-[11px] font-semibold text-indigo-700 shadow-sm transition hover:border-indigo-400 hover:bg-indigo-100"
+          className="group mt-0.5 flex shrink-0 items-center gap-1.5 rounded-full bg-gradient-to-r from-indigo-500 to-violet-600 px-3.5 py-1.5 text-[11px] font-semibold text-white shadow-md transition hover:shadow-lg hover:brightness-110"
         >
-          <GraduationCap size={13} /> Tutor &amp; quiz
+          <GraduationCap size={13} className="transition-transform group-hover:-rotate-6" /> Tutor &amp; quiz
         </button>
       )}
     </div>
@@ -391,11 +407,13 @@ function Lightbox({ fig, onClose }) {
  * one animated beat at a time with tap-to-jump progress bars (story-player
  * pattern). Pause, scrub, replay. */
 
+/* each beat kind gets its own dark-tinted scene, so the story visibly shifts
+ * mood as it moves problem → gap → contribution → payoff */
 const BEAT_HUES = {
-  problem:      { bg: "from-slate-800 to-slate-900",  chip: "bg-red-500/20 text-red-300",       bar: "#e34948" },
-  gap:          { bg: "from-slate-800 to-slate-900",  chip: "bg-amber-500/20 text-amber-300",   bar: "#eda100" },
-  contribution: { bg: "from-slate-800 to-slate-900",  chip: "bg-rose-500/20 text-rose-300",     bar: "#e0447c" },
-  payoff:       { bg: "from-slate-800 to-slate-900",  chip: "bg-emerald-500/20 text-emerald-300", bar: "#1baf7a" },
+  problem:      { bg: "from-rose-950 via-slate-900 to-slate-950",    chip: "bg-red-500/20 text-red-300",       bar: "#e34948" },
+  gap:          { bg: "from-amber-950 via-slate-900 to-slate-950",   chip: "bg-amber-500/20 text-amber-300",   bar: "#eda100" },
+  contribution: { bg: "from-fuchsia-950 via-slate-900 to-slate-950", chip: "bg-rose-500/20 text-rose-300",     bar: "#e0447c" },
+  payoff:       { bg: "from-emerald-950 via-slate-900 to-slate-950", chip: "bg-emerald-500/20 text-emerald-300", bar: "#1baf7a" },
 };
 
 function StoryPlayer({ story }) {
@@ -1609,23 +1627,29 @@ function ResultFigures({ spec, pipelineCompiled, helpers, baseOutputs, actOutput
 function TakeawayBox({ conclusion, modifiedCount, onReset }) {
   const exploring = modifiedCount > 0;
   return (
-    <div className={`rounded-xl border-2 p-4 ${exploring ? "border-sky-300 bg-sky-50 text-sky-900" : "border-emerald-300 bg-emerald-50 text-emerald-900"}`}>
-      <div className="flex items-start gap-3">
-        {exploring
-          ? <CircleAlert size={20} className="mt-0.5 shrink-0" />
-          : <CircleCheck size={20} className="mt-0.5 shrink-0" />}
+    <div className={`rounded-2xl bg-gradient-to-r p-[1.5px] shadow-lg ${
+      exploring ? "from-sky-400 via-blue-500 to-indigo-500 shadow-sky-200/60" : "from-emerald-400 via-teal-500 to-cyan-500 shadow-emerald-200/60"
+    }`}>
+      <div className="flex items-start gap-3.5 rounded-[14.5px] bg-white px-4 py-3.5">
+        <span className={`mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-gradient-to-br text-white shadow-md ${
+          exploring ? "from-sky-500 to-indigo-600" : "from-emerald-500 to-teal-600"
+        }`}>
+          {exploring ? <FlaskConical size={17} /> : <CircleCheck size={17} />}
+        </span>
         <div className="min-w-0 flex-1">
-          <h2 className="text-sm font-bold">What the paper found</h2>
-          <p className="mt-1 text-[13px] leading-relaxed opacity-90">{conclusion}</p>
+          <h2 className={`text-[10.5px] font-bold uppercase tracking-[0.14em] ${exploring ? "text-sky-600" : "text-emerald-600"}`}>
+            {exploring ? "Your experiment is live" : "What the paper found"}
+          </h2>
+          <p className="mt-1 text-[13.5px] leading-relaxed text-slate-700">{conclusion}</p>
           {exploring && (
             <div className="mt-2 flex flex-wrap items-center gap-2 text-[12px]">
-              <span className="rounded-full bg-white/70 px-2.5 py-1 font-medium">
+              <span className="rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 font-medium text-sky-800">
                 You've changed {modifiedCount} dial{modifiedCount === 1 ? "" : "s"} from the paper's published values —
                 the plots now show your what-if experiment next to the paper's own setting.
               </span>
               {onReset && (
                 <button onClick={onReset}
-                  className="rounded-full bg-sky-600 px-2.5 py-1 font-semibold text-white hover:bg-sky-700">
+                  className="rounded-full bg-gradient-to-r from-sky-500 to-indigo-600 px-3 py-1 font-semibold text-white shadow-sm transition hover:brightness-110">
                   Back to the paper's values
                 </button>
               )}
@@ -3415,6 +3439,7 @@ const GUIDE_TIPS = [
   { icon: Sparkles, text: "Select any text → “Explain the selected text”." },
   { icon: GraduationCap, text: "Tutor & quiz on every section — type or talk." },
   { icon: Layers, text: "Flip the flashcards to make it stick." },
+  { icon: ChevronRight, text: "← / → arrow keys jump between sections." },
 ];
 
 /* ---------------- app-shell navigation (single-section reading view) --------
@@ -3422,27 +3447,44 @@ const GUIDE_TIPS = [
  * persistent left sidebar on desktop, a sticky tab strip on mobile. The reader
  * never hunts through a scroll wall — they pick a section and it's shown. */
 
-/** Persistent desktop sidebar — the primary way to move around a paper. */
-function SideNav({ sections, activeId, onSelect }) {
+/** Persistent desktop sidebar — the primary way to move around a paper.
+ *  Tracks which sections the reader has already opened and shows overall
+ *  progress, so working through a paper feels like clearing a map. */
+function SideNav({ sections, activeId, onSelect, visited }) {
+  const done = sections.filter((s) => visited?.has(s.id)).length;
+  const pct = sections.length ? Math.round((done / sections.length) * 100) : 0;
   return (
     <aside className="hidden shrink-0 lg:block" style={{ width: "236px" }}>
       <div className="sticky top-4 flex max-h-[calc(100vh-2rem)] flex-col overflow-y-auto pb-4 pr-1">
+        <div className="mb-2.5 rounded-xl border border-slate-200/80 bg-white p-3 shadow-sm">
+          <div className="flex items-baseline justify-between">
+            <span className="text-[9.5px] font-bold uppercase tracking-[0.14em] text-slate-400">Explored</span>
+            <span className="text-[11px] font-bold tabular-nums text-slate-700">{done}<span className="text-slate-300">/{sections.length}</span></span>
+          </div>
+          <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-slate-100">
+            <div className="h-full rounded-full bg-gradient-to-r from-indigo-500 via-fuchsia-500 to-emerald-500 transition-all duration-700"
+              style={{ width: `${Math.max(4, pct)}%` }} />
+          </div>
+        </div>
         <div className="mb-1.5 px-2 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">Sections</div>
         <nav className="flex flex-col gap-0.5">
           {sections.map((s, i) => {
             const t = SECTION_TONES[s.tone];
             const on = activeId === s.id;
+            const seen = visited?.has(s.id);
             const Icon = s.icon;
             return (
               <button key={s.id} onClick={() => onSelect(s.id)}
                 className={`group flex items-center gap-2.5 rounded-xl px-2.5 py-2 text-left transition ${
-                  on ? "bg-slate-900 text-white shadow-sm" : "text-slate-600 hover:bg-slate-100"
+                  on ? `bg-gradient-to-r ${TONE_GRAD[s.tone]} text-white shadow-md` : "text-slate-600 hover:translate-x-0.5 hover:bg-slate-100"
                 }`}>
-                <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-lg ${on ? "bg-white/15 text-white" : `bg-slate-100 ${t.text}`}`}>
+                <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-lg ${on ? "bg-white/20 text-white" : `bg-slate-100 ${t.text}`}`}>
                   <Icon size={14} />
                 </span>
                 <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{s.navLabel}</span>
-                <span className={`text-[10px] font-bold tabular-nums ${on ? "text-white/50" : "text-slate-300"}`}>{i + 1}</span>
+                {seen && !on
+                  ? <CheckIcon size={12} className="shrink-0 text-emerald-500" aria-label="visited" />
+                  : <span className={`text-[10px] font-bold tabular-nums ${on ? "text-white/60" : "text-slate-300"}`}>{i + 1}</span>}
               </button>
             );
           })}
@@ -3483,7 +3525,7 @@ function SectionTabBar({ sections, activeId, onSelect }) {
           return (
             <button key={s.id} data-on={on ? "1" : "0"} onClick={() => onSelect(s.id)}
               className={`flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[11px] font-medium transition ${
-                on ? "border-transparent bg-slate-900 text-white shadow-sm" : "border-slate-200 text-slate-600 hover:border-slate-300"
+                on ? `border-transparent bg-gradient-to-r ${TONE_GRAD[s.tone]} text-white shadow-sm` : "border-slate-200 text-slate-600 hover:border-slate-300"
               }`}>
               <span className={`flex h-4 w-4 items-center justify-center rounded-full text-[9px] font-bold ${on ? "bg-white/20" : "bg-slate-100 text-slate-500"}`}>{i + 1}</span>
               <Icon size={12} className={on ? "text-white" : t.text} />
@@ -3496,26 +3538,42 @@ function SectionTabBar({ sections, activeId, onSelect }) {
   );
 }
 
-/** Prev / Next footer for linear reading through the paper. */
+/** Prev / Next footer for linear reading through the paper. The "next" button
+ *  carries the next section's own gradient so the path forward is unmissable;
+ *  the last section earns a small finish-line card instead. */
 function SectionPager({ sections, activeIdx, onSelect }) {
   const prev = sections[activeIdx - 1];
   const next = sections[activeIdx + 1];
+  const PrevIcon = prev?.icon;
+  const NextIcon = next?.icon;
   return (
-    <div className="mt-10 flex items-stretch justify-between gap-3 border-t border-slate-100 pt-5">
+    <div className="mt-10 flex items-stretch justify-between gap-3 border-t border-slate-200/70 pt-5">
       {prev ? (
         <button onClick={() => onSelect(prev.id)}
-          className="group flex min-w-0 flex-col items-start rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-left transition hover:border-slate-300 hover:bg-slate-50">
-          <span className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400"><ChevronLeft size={12} /> Previous</span>
-          <span className="mt-0.5 truncate text-[13px] font-semibold text-slate-700">{prev.navLabel}</span>
+          className="group flex min-w-0 flex-col items-start rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md">
+          <span className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+            <ChevronLeft size={12} className="transition-transform group-hover:-translate-x-0.5" /> Previous
+          </span>
+          <span className="mt-0.5 flex items-center gap-1.5 truncate text-[13px] font-semibold text-slate-700">
+            {PrevIcon && <PrevIcon size={13} className={SECTION_TONES[prev.tone].text} />} {prev.navLabel}
+          </span>
         </button>
       ) : <span />}
       {next ? (
         <button onClick={() => onSelect(next.id)}
-          className="group flex min-w-0 flex-col items-end rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-right transition hover:border-slate-300 hover:bg-slate-50">
-          <span className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">Next <ChevronRight size={12} /></span>
-          <span className="mt-0.5 truncate text-[13px] font-semibold text-slate-700">{next.navLabel}</span>
+          className={`group flex min-w-0 flex-col items-end rounded-2xl bg-gradient-to-r ${TONE_GRAD[next.tone]} px-5 py-2.5 text-right text-white shadow-lg transition hover:-translate-y-0.5 hover:shadow-xl hover:brightness-110`}>
+          <span className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-white/70">
+            Up next <ChevronRight size={12} className="transition-transform group-hover:translate-x-0.5" />
+          </span>
+          <span className="mt-0.5 flex items-center gap-1.5 truncate text-[13.5px] font-bold">
+            {NextIcon && <NextIcon size={14} />} {next.navLabel}
+          </span>
         </button>
-      ) : <span />}
+      ) : (
+        <span className="flex items-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-2.5 text-[12.5px] font-semibold text-emerald-700">
+          <Trophy size={15} /> That's the whole paper — every section explored
+        </span>
+      )}
     </div>
   );
 }
@@ -3732,36 +3790,100 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
+  // Which sections the reader has opened — drives the sidebar's progress bar.
+  const [visited, setVisited] = useState(() => new Set());
+  useEffect(() => {
+    const id = activeS?.id;
+    if (!id) return;
+    setVisited((v) => (v.has(id) ? v : new Set(v).add(id)));
+  }, [activeS?.id]);
+
+  // ← / → arrow keys page through sections (reader view only, and never while
+  // typing in a field or while an overlay owns the keyboard).
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.altKey || e.metaKey || e.ctrlKey) return;
+      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+      const el = document.activeElement;
+      const tag = el?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el?.isContentEditable) return;
+      if (free || chatSection || lightbox || infoKey || refsOpen || editorOpen || inspect || traceTarget != null) return;
+      const target = e.key === "ArrowRight" ? sections[activeIdx + 1] : sections[activeIdx - 1];
+      if (target) { e.preventDefault(); selectSection(target.id); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }); // re-bound every render so it always sees the current section list
+
+  // hero at-a-glance stats — what's interactive inside this analysis
+  const liveDials = (spec.blocks || []).reduce((n, b) => n + (b.params?.length || 0), 0);
+  const heroStats = [
+    { Icon: Layers, label: `${sections.length} interactive section${sections.length === 1 ? "" : "s"}` },
+    spec.resultFigures?.length ? { Icon: LineChartIcon, label: `${spec.resultFigures.length} real figure${spec.resultFigures.length === 1 ? "" : "s"}` } : null,
+    liveDials ? { Icon: SlidersHorizontal, label: `${liveDials} live dial${liveDials === 1 ? "" : "s"}` } : null,
+    spec.references?.length ? { Icon: BookOpen, label: `${spec.references.length} reference${spec.references.length === 1 ? "" : "s"}` } : null,
+  ].filter(Boolean);
+
   return (
-    <div className="min-h-screen pb-16" style={{ fontFamily: "system-ui, -apple-system, 'Segoe UI', sans-serif", ...layoutStyle(layout) }}>
-      {/* ===== header ===== */}
-      <header className="border-b border-slate-200/70 bg-white/85 backdrop-blur">
-        <div className="mx-auto px-4 py-5 sm:px-6" style={{ maxWidth: "var(--content-max, 1280px)" }}>
+    <div className="pp-app-bg min-h-screen pb-16" style={{ fontFamily: "system-ui, -apple-system, 'Segoe UI', sans-serif", ...layoutStyle(layout) }}>
+      {/* ===== dark lab hero — same identity as the landing page ===== */}
+      <header className="pp-hero relative overflow-hidden">
+        <div className="pointer-events-none absolute inset-0" aria-hidden="true">
+          <div className="pp-orb absolute -top-24 right-[12%] h-72 w-72 rounded-full bg-indigo-600/25 blur-3xl" />
+          <div className="pp-orb absolute -bottom-32 left-[8%] h-80 w-80 rounded-full bg-cyan-500/15 blur-3xl" style={{ animationDelay: "-4s" }} />
+          <div className="pp-orb absolute -top-16 left-[38%] h-56 w-56 rounded-full bg-fuchsia-600/15 blur-3xl" style={{ animationDelay: "-8s" }} />
+          <div className="pp-grid-lines absolute inset-0" />
+        </div>
+        <div className="relative mx-auto px-4 py-6 sm:px-6" style={{ maxWidth: "var(--content-max, 1280px)" }}>
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="min-w-0 max-w-3xl">
-              <div className="mb-1 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-blue-600">
-                <FlaskConical size={13} /> Interactive Paper Playground
+              <div className="mb-2 flex items-center gap-2.5">
+                <span className="relative flex h-2 w-2" aria-hidden="true">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
+                  <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-400" />
+                </span>
+                <span className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.18em]">
+                  <FlaskConical size={13} className="text-cyan-300" />
+                  <span className="bg-gradient-to-r from-cyan-300 via-sky-300 to-indigo-300 bg-clip-text text-transparent">
+                    Interactive Paper Playground
+                  </span>
+                </span>
               </div>
-              <h1 className="font-bold leading-snug text-slate-900" style={{ fontSize: "var(--title-size, 22px)" }}>
+              <h1 className="font-bold leading-snug text-white" style={{ fontSize: "var(--title-size, 22px)" }}>
                 {spec.meta.title}
               </h1>
-              <p className="mt-1 text-slate-500" style={{ fontSize: "var(--author-size, 12px)" }}>
+              <p className="mt-1 text-slate-400" style={{ fontSize: "var(--author-size, 12px)" }}>
                 {spec.meta.authors}
-                {spec.meta.venue ? <> · <span className="italic">{spec.meta.venue}</span></> : null}
+                {spec.meta.venue ? <> · <span className="italic text-slate-500">{spec.meta.venue}</span></> : null}
               </p>
-              <p className="mt-2 leading-relaxed text-slate-600" style={{ fontSize: "var(--abstract-size, 13px)" }}>{spec.meta.abstract}</p>
+              <details className="group mt-2 max-w-2xl">
+                <summary className="cursor-pointer select-none list-none text-[11px] font-semibold text-slate-400 transition hover:text-cyan-300 [&::-webkit-details-marker]:hidden">
+                  <span className="group-open:hidden">▸ Read the abstract</span>
+                  <span className="hidden group-open:inline">▾ Hide the abstract</span>
+                </summary>
+                <p className="mt-1.5 leading-relaxed text-slate-300" style={{ fontSize: "var(--abstract-size, 13px)" }}>{spec.meta.abstract}</p>
+              </details>
+              {heroStats.length > 0 && (
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  {heroStats.map((s, i) => (
+                    <span key={i} className="flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10.5px] font-semibold text-slate-300 backdrop-blur">
+                      <s.Icon size={11} className="text-cyan-300/90" /> {s.label}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div className="flex shrink-0 flex-col gap-2">
               <button
                 onClick={onBack}
-                className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-600 shadow-sm hover:border-blue-300 hover:text-blue-700"
+                className="flex items-center gap-2 rounded-lg border border-white/12 bg-white/5 px-3 py-2 text-xs font-medium text-slate-200 shadow-sm backdrop-blur transition hover:border-cyan-400/40 hover:bg-white/10 hover:text-white"
               >
                 <ArrowLeft size={14} /> Analyze another paper
               </button>
               <button
                 onClick={() => setRefsOpen(true)}
-                className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-600 shadow-sm hover:border-blue-300 hover:text-blue-700"
+                className="flex items-center gap-2 rounded-lg border border-white/12 bg-white/5 px-3 py-2 text-xs font-medium text-slate-200 shadow-sm backdrop-blur transition hover:border-cyan-400/40 hover:bg-white/10 hover:text-white"
               >
                 <BookOpen size={14} /> View original references
               </button>
@@ -3770,14 +3892,14 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
                 <>
                   <button
                     onClick={() => setEditorOpen(true)}
-                    className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-600 shadow-sm hover:border-blue-300 hover:text-blue-700"
+                    className="flex items-center gap-2 rounded-lg border border-white/12 bg-white/5 px-3 py-2 text-xs font-medium text-slate-200 shadow-sm backdrop-blur transition hover:border-cyan-400/40 hover:bg-white/10 hover:text-white"
                   >
                     <LayoutTemplate size={14} /> Edit fonts &amp; sections
                   </button>
                   <button
                     onClick={toggleFree}
-                    className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-medium shadow-sm ${
-                      free ? "border-blue-500 bg-blue-600 text-white hover:bg-blue-700" : "border-slate-200 bg-white text-slate-600 hover:border-blue-300 hover:text-blue-700"
+                    className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-medium shadow-sm backdrop-blur transition ${
+                      free ? "border-blue-400 bg-blue-600 text-white hover:bg-blue-500" : "border-white/12 bg-white/5 text-slate-200 hover:border-cyan-400/40 hover:bg-white/10 hover:text-white"
                     }`}
                   >
                     <Move size={14} /> {free ? "Done arranging" : "Free layout (drag boxes)"}
@@ -3787,14 +3909,14 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
               <button
                 onClick={() => { setParams(defaults); setPinnedT(null); }}
                 disabled={modifiedCount === 0}
-                className="flex items-center gap-2 rounded-lg bg-slate-800 px-3 py-2 text-xs font-medium text-white shadow-sm hover:bg-slate-700 disabled:opacity-40"
+                className="flex items-center gap-2 rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 px-3 py-2 text-xs font-semibold text-white shadow-md transition hover:from-blue-500 hover:to-indigo-500 disabled:opacity-40"
               >
                 <RotateCcw size={14} /> Reset to author baseline
               </button>
               {onSignOut && (
                 <button
                   onClick={onSignOut}
-                  className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-600 shadow-sm hover:border-slate-300"
+                  className="flex items-center gap-2 rounded-lg border border-white/12 bg-white/5 px-3 py-2 text-xs font-medium text-slate-300 shadow-sm backdrop-blur transition hover:bg-white/10 hover:text-white"
                 >
                   <LogOut size={14} /> Sign out
                 </button>
@@ -3832,7 +3954,7 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
         <>
           <SectionTabBar sections={sections} activeId={activeS?.id} onSelect={selectSection} />
           <div className="mx-auto flex items-start gap-8 pt-4" style={{ maxWidth: "var(--content-max, 1360px)", paddingLeft: "var(--page-pad, 24px)", paddingRight: "var(--page-pad, 24px)" }}>
-            <SideNav sections={sections} activeId={activeS?.id} onSelect={selectSection} />
+            <SideNav sections={sections} activeId={activeS?.id} onSelect={selectSection} visited={visited} />
             <main ref={canvasRef} className="min-w-0 flex-1">
               <DesignBox id="conclusion" label="Conclusion" mode="flow" rect={layout.boxes.conclusion} onRect={setBox} register={registerBox}>
                 <TakeawayBox conclusion={spec.conclusion} modifiedCount={modifiedCount} onReset={() => { setParams(defaults); setPinnedT(null); }} />
@@ -3841,7 +3963,7 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
 
               {activeS && (
                 <DesignBox key={activeS.id} id={activeS.boxId} label={activeS.boxLabel} mode="flow" rect={layout.boxes[activeS.boxId]} onRect={setBox} register={registerBox}>
-                  <section aria-label={activeS.ariaLabel} data-section-id={activeS.id} data-section-title={sec(activeS.id).title}>
+                  <section className="pp-section-in" aria-label={activeS.ariaLabel} data-section-id={activeS.id} data-section-title={sec(activeS.id).title}>
                     <SectionHeader num={activeIdx + 1} tone={activeS.tone} icon={activeS.icon} title={sec(activeS.id).title} sub={sec(activeS.id).sub}
                       onAsk={() => setChatSection({ sectionId: activeS.id, title: sec(activeS.id).title })} />
                     {activeS.content}

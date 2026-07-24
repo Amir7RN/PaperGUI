@@ -66,7 +66,59 @@
 .pp-float { animation: pp-float 5s ease-in-out infinite; }
 .pp-ring  { animation: pp-ring 3.4s ease-out infinite; }
 
+/* ---- workspace shell: ambient canvas + dark lab hero ----
+ * The analyzed-paper page gets the same "dark lab" identity as the landing
+ * hero: a deep-slate header with drifting glow orbs and a faint blueprint
+ * grid, sitting on a softly-tinted page canvas instead of flat white. */
+.pp-app-bg {
+  background:
+    radial-gradient(1000px 420px at 88% -120px, rgba(99, 102, 241, 0.07), transparent 65%),
+    radial-gradient(800px 400px at -5% 8%, rgba(16, 185, 129, 0.05), transparent 60%),
+    radial-gradient(700px 500px at 50% 110%, rgba(217, 70, 239, 0.04), transparent 60%),
+    #f8fafc;
+}
+
+.pp-hero {
+  background:
+    radial-gradient(1100px 420px at 18% -180px, rgba(56, 189, 248, 0.14), transparent 60%),
+    radial-gradient(900px 420px at 85% -160px, rgba(129, 140, 248, 0.16), transparent 60%),
+    linear-gradient(180deg, #0b1220 0%, #0f172a 100%);
+}
+/* animated accent hairline along the hero's bottom edge */
+.pp-hero::after {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; bottom: 0; height: 2px;
+  background: linear-gradient(90deg, #6366f1, #22d3ee, #e879f9, #6366f1);
+  background-size: 200% 100%;
+  animation: pp-lab-pan 9s linear infinite;
+  opacity: 0.85;
+  pointer-events: none;
+}
+/* faint blueprint grid, fading out toward the hero's lower edge */
+.pp-grid-lines {
+  background-image:
+    linear-gradient(rgba(148, 163, 184, 0.07) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 163, 184, 0.07) 1px, transparent 1px);
+  background-size: 34px 34px;
+  -webkit-mask-image: radial-gradient(80% 100% at 50% 0%, black 30%, transparent 92%);
+  mask-image: radial-gradient(80% 100% at 50% 0%, black 30%, transparent 92%);
+}
+@keyframes pp-orb {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(26px, 16px) scale(1.08); }
+}
+.pp-orb { animation: pp-orb 12s ease-in-out infinite; }
+
+/* section swap: the newly-selected section glides in as one piece */
+@keyframes pp-section-in {
+  from { opacity: 0; transform: translateY(16px) scale(0.995); }
+  to   { opacity: 1; transform: none; }
+}
+.pp-section-in { animation: pp-section-in 0.45s cubic-bezier(0.22, 0.61, 0.36, 1) both; }
+
 @media (prefers-reduced-motion: reduce) {
   .pp-lab { animation: none; }
   .pp-eq::after, .pp-provenance, .pp-float, .pp-ring { animation: none; }
+  .pp-hero::after, .pp-orb, .pp-section-in { animation: none !important; }
 }
