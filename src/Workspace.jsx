@@ -3417,92 +3417,105 @@ const GUIDE_TIPS = [
   { icon: Layers, text: "Flip the flashcards to make it stick." },
 ];
 
-// Fixed placement chosen by the designer. Not user-draggable — pinned in the
-// left margin, scaled up, always visible while scrolling.
-const GUIDE_LEFT = 11;
-const GUIDE_TOP = 330;
-const GUIDE_SCALE = 1.3;
-const GUIDE_W = 224;
+/* ---------------- app-shell navigation (single-section reading view) --------
+ * Every section is one click away and the current one is unmistakable: a
+ * persistent left sidebar on desktop, a sticky tab strip on mobile. The reader
+ * never hunts through a scroll wall — they pick a section and it's shown. */
 
-function GuideRail({ sections }) {
-  const [activeId, setActiveId] = useState(sections[0]?.id);
-
-  // Only show when the left margin is wide enough to hold the (scaled) rail
-  // without covering the centred ~1280px content column. Otherwise the sticky
-  // top nav handles navigation.
-  const fits = () => (typeof window !== "undefined") &&
-    ((window.innerWidth - 1280) / 2) >= (GUIDE_LEFT + GUIDE_W * GUIDE_SCALE + 10);
-  const [roomy, setRoomy] = useState(fits());
-  useEffect(() => {
-    const onResize = () => setRoomy(fits());
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
-
-  // Scroll-spy: highlight the section you're currently in. An IntersectionObserver
-  // is used only as a cheap trigger; on every fire we recompute the active section
-  // from ALL sections' live rects (the last whose top has passed a line ~130px
-  // down) — avoids the "only-changed-entries" staleness of a naive observer.
-  useEffect(() => {
-    const compute = () => {
-      let current = sections[0]?.id;
-      for (const s of sections) {
-        const el = document.querySelector(`[data-box="${s.boxId}"]`);
-        if (!el) continue;
-        if (el.getBoundingClientRect().top <= 130) current = s.id;
-        else break;
-      }
-      setActiveId(current);
-    };
-    compute();
-    const els = sections.map((s) => document.querySelector(`[data-box="${s.boxId}"]`)).filter(Boolean);
-    const io = new IntersectionObserver(compute, { threshold: [0, 0.5, 1], rootMargin: "-80px 0px 0px 0px" });
-    els.forEach((e) => io.observe(e));
-    window.addEventListener("resize", compute);
-    return () => { io.disconnect(); window.removeEventListener("resize", compute); };
-  }, [sections]);
-
-  const jump = (boxId) => document.querySelector(`[data-box="${boxId}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" });
-
-  if (!roomy) return null;
-
+/** Persistent desktop sidebar — the primary way to move around a paper. */
+function SideNav({ sections, activeId, onSelect }) {
   return (
-    <div style={{ position: "fixed", left: GUIDE_LEFT, top: GUIDE_TOP, width: GUIDE_W, transform: `scale(${GUIDE_SCALE})`, transformOrigin: "top left", zIndex: 40 }}
-      className="flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white/95 shadow-lg backdrop-blur">
-      <div className="flex flex-col gap-2.5 overflow-y-auto p-2.5" style={{ maxHeight: `calc((100vh - ${GUIDE_TOP + 16}px) / ${GUIDE_SCALE})` }}>
-        <div>
-          <div className="mb-1 text-[10px] font-bold uppercase tracking-wider text-blue-600">Your guide</div>
-          <ul className="flex flex-col gap-1.5">
-            {GUIDE_TIPS.map((t, i) => {
-              const Icon = t.icon;
-              return (
-                <li key={i} className="flex items-start gap-2 text-[11px] leading-snug text-slate-600">
-                  <Icon size={13} className="mt-0.5 shrink-0 text-indigo-500" /> {t.text}
-                </li>
-              );
-            })}
-          </ul>
-        </div>
-
-        <nav className="border-t border-slate-100 pt-2">
-          <div className="mb-0.5 px-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">On this page</div>
+    <aside className="hidden shrink-0 lg:block" style={{ width: "236px" }}>
+      <div className="sticky top-4 flex max-h-[calc(100vh-2rem)] flex-col overflow-y-auto pb-4 pr-1">
+        <div className="mb-1.5 px-2 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">Sections</div>
+        <nav className="flex flex-col gap-0.5">
           {sections.map((s, i) => {
             const t = SECTION_TONES[s.tone];
             const on = activeId === s.id;
             const Icon = s.icon;
             return (
-              <button key={s.id} onClick={() => jump(s.boxId)}
-                className={`flex w-full items-center gap-2 rounded-lg px-1.5 py-1 text-left text-[12px] transition ${
-                  on ? "bg-slate-100 font-semibold text-slate-800" : "text-slate-500 hover:bg-slate-50 hover:text-slate-700"
+              <button key={s.id} onClick={() => onSelect(s.id)}
+                className={`group flex items-center gap-2.5 rounded-xl px-2.5 py-2 text-left transition ${
+                  on ? "bg-slate-900 text-white shadow-sm" : "text-slate-600 hover:bg-slate-100"
                 }`}>
-                <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded text-[9px] font-bold text-white ${t.badge}`}>{i + 1}</span>
-                <Icon size={13} className={on ? t.text : "text-slate-400"} />
-                <span className="truncate">{s.navLabel}</span>
+                <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-lg ${on ? "bg-white/15 text-white" : `bg-slate-100 ${t.text}`}`}>
+                  <Icon size={14} />
+                </span>
+                <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{s.navLabel}</span>
+                <span className={`text-[10px] font-bold tabular-nums ${on ? "text-white/50" : "text-slate-300"}`}>{i + 1}</span>
               </button>
             );
           })}
         </nav>
+
+        <div className="mt-4 rounded-xl border border-slate-100 bg-slate-50/70 p-2.5">
+          <div className="mb-1.5 px-0.5 text-[9.5px] font-bold uppercase tracking-[0.12em] text-slate-400">Good to know</div>
+          <ul className="flex flex-col gap-1.5">
+            {GUIDE_TIPS.map((t, i) => {
+              const Icon = t.icon;
+              return (
+                <li key={i} className="flex items-start gap-2 text-[10.5px] leading-snug text-slate-500">
+                  <Icon size={12} className="mt-0.5 shrink-0 text-indigo-400" /> {t.text}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
       </div>
+    </aside>
+  );
+}
+
+/** Mobile / narrow-screen equivalent: a sticky horizontal tab strip. */
+function SectionTabBar({ sections, activeId, onSelect }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const el = ref.current?.querySelector('[data-on="1"]');
+    el?.scrollIntoView({ inline: "center", block: "nearest" });
+  }, [activeId]);
+  return (
+    <div className="sticky top-0 z-30 border-b border-slate-200/70 bg-white/95 shadow-sm backdrop-blur lg:hidden">
+      <div ref={ref} className="mx-auto flex gap-1 overflow-x-auto px-3 py-2">
+        {sections.map((s, i) => {
+          const t = SECTION_TONES[s.tone];
+          const on = activeId === s.id;
+          const Icon = s.icon;
+          return (
+            <button key={s.id} data-on={on ? "1" : "0"} onClick={() => onSelect(s.id)}
+              className={`flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[11px] font-medium transition ${
+                on ? "border-transparent bg-slate-900 text-white shadow-sm" : "border-slate-200 text-slate-600 hover:border-slate-300"
+              }`}>
+              <span className={`flex h-4 w-4 items-center justify-center rounded-full text-[9px] font-bold ${on ? "bg-white/20" : "bg-slate-100 text-slate-500"}`}>{i + 1}</span>
+              <Icon size={12} className={on ? "text-white" : t.text} />
+              {s.navLabel}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/** Prev / Next footer for linear reading through the paper. */
+function SectionPager({ sections, activeIdx, onSelect }) {
+  const prev = sections[activeIdx - 1];
+  const next = sections[activeIdx + 1];
+  return (
+    <div className="mt-10 flex items-stretch justify-between gap-3 border-t border-slate-100 pt-5">
+      {prev ? (
+        <button onClick={() => onSelect(prev.id)}
+          className="group flex min-w-0 flex-col items-start rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-left transition hover:border-slate-300 hover:bg-slate-50">
+          <span className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400"><ChevronLeft size={12} /> Previous</span>
+          <span className="mt-0.5 truncate text-[13px] font-semibold text-slate-700">{prev.navLabel}</span>
+        </button>
+      ) : <span />}
+      {next ? (
+        <button onClick={() => onSelect(next.id)}
+          className="group flex min-w-0 flex-col items-end rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-right transition hover:border-slate-300 hover:bg-slate-50">
+          <span className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">Next <ChevronRight size={12} /></span>
+          <span className="mt-0.5 truncate text-[13px] font-semibold text-slate-700">{next.navLabel}</span>
+        </button>
+      ) : <span />}
     </div>
   );
 }
@@ -3630,6 +3643,9 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
 
   const infoBlock = spec.blocks.find((b) => b.key === infoKey) || null;
 
+  // Which section is shown in the single-section reading view (normal mode).
+  const [activeSectionId, setActiveSectionId] = useState(null);
+
   // One list drives both the sticky jump-to nav and the actual sections
   // below, so a section that's off/empty just disappears from both places
   // instead of leaving a numbering gap or a dead nav entry.
@@ -3708,6 +3724,14 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
     },
   ].filter((s) => s.show);
 
+  // Single-section reading view: resolve the active section (fall back to first).
+  const activeIdx = Math.max(0, sections.findIndex((s) => s.id === activeSectionId));
+  const activeS = sections[activeIdx];
+  const selectSection = (id) => {
+    setActiveSectionId(id);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
   return (
     <div className="min-h-screen pb-16" style={{ fontFamily: "system-ui, -apple-system, 'Segoe UI', sans-serif", ...layoutStyle(layout) }}>
       {/* ===== header ===== */}
@@ -3780,50 +3804,56 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
         </div>
       </header>
 
-      {!free && <SectionNav sections={sections} conclusionLabel="Back to top" />}
-
       {free && (
         <div className="fixed bottom-4 left-1/2 z-40 -translate-x-1/2 rounded-full border border-blue-300 bg-blue-600/95 px-4 py-2 text-[11px] font-medium text-white shadow-lg backdrop-blur">
           Free layout · drag a box by its blue label · resize from the corner · A−/A+ scales text · saves automatically
         </div>
       )}
-      <main
-        ref={canvasRef}
-        className={free ? "relative w-full p-0" : "mx-auto pt-4"}
-        style={free
-          ? { height: canvasHeight, maxWidth: "none" }
-          : { maxWidth: "var(--content-max, 1280px)", paddingLeft: "var(--page-pad, 24px)", paddingRight: "var(--page-pad, 24px)" }}
-      >
-        <DesignBox id="conclusion" label="Conclusion" mode={free ? "free" : "flow"} rect={layout.boxes.conclusion} onRect={setBox} register={registerBox}>
-          <TakeawayBox
-            conclusion={spec.conclusion}
-            modifiedCount={modifiedCount}
-            onReset={() => { setParams(defaults); setPinnedT(null); }}
-          />
-          {active.error && (
-            <div className="mt-3 rounded-xl border-2 border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800">
-              <strong>Pipeline error:</strong> {active.error}
-            </div>
-          )}
-        </DesignBox>
 
-        {/* sections come from the `sections` list built above — a hidden or
-            empty one just disappears from the array, so numbering never
-            leaves a gap and the nav bar always matches what's on screen. */}
-        {sections.map((s, i) => (
-          <DesignBox key={s.id} id={s.boxId} label={s.boxLabel} mode={free ? "free" : "flow"} rect={layout.boxes[s.boxId]} onRect={setBox} register={registerBox}>
-            <section aria-label={s.ariaLabel} data-section-id={s.id} data-section-title={sec(s.id).title}>
-              <SectionHeader
-                num={i + 1} tone={s.tone} icon={s.icon} title={sec(s.id).title} sub={sec(s.id).sub}
-                onAsk={() => setChatSection({ sectionId: s.id, title: sec(s.id).title })}
-              />
-              {s.content}
-            </section>
+      {free ? (
+        /* ===== owner free-layout: the full canvas with every box at once ===== */
+        <main ref={canvasRef} className="relative w-full p-0" style={{ height: canvasHeight, maxWidth: "none" }}>
+          <DesignBox id="conclusion" label="Conclusion" mode="free" rect={layout.boxes.conclusion} onRect={setBox} register={registerBox}>
+            <TakeawayBox conclusion={spec.conclusion} modifiedCount={modifiedCount} onReset={() => { setParams(defaults); setPinnedT(null); }} />
+            {active.error && <div className="mt-3 rounded-xl border-2 border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800"><strong>Pipeline error:</strong> {active.error}</div>}
           </DesignBox>
-        ))}
-      </main>
+          {sections.map((s, i) => (
+            <DesignBox key={s.id} id={s.boxId} label={s.boxLabel} mode="free" rect={layout.boxes[s.boxId]} onRect={setBox} register={registerBox}>
+              <section aria-label={s.ariaLabel} data-section-id={s.id} data-section-title={sec(s.id).title}>
+                <SectionHeader num={i + 1} tone={s.tone} icon={s.icon} title={sec(s.id).title} sub={sec(s.id).sub}
+                  onAsk={() => setChatSection({ sectionId: s.id, title: sec(s.id).title })} />
+                {s.content}
+              </section>
+            </DesignBox>
+          ))}
+        </main>
+      ) : (
+        /* ===== reader view: pick a section from the sidebar, see just that one ===== */
+        <>
+          <SectionTabBar sections={sections} activeId={activeS?.id} onSelect={selectSection} />
+          <div className="mx-auto flex items-start gap-8 pt-4" style={{ maxWidth: "var(--content-max, 1360px)", paddingLeft: "var(--page-pad, 24px)", paddingRight: "var(--page-pad, 24px)" }}>
+            <SideNav sections={sections} activeId={activeS?.id} onSelect={selectSection} />
+            <main ref={canvasRef} className="min-w-0 flex-1">
+              <DesignBox id="conclusion" label="Conclusion" mode="flow" rect={layout.boxes.conclusion} onRect={setBox} register={registerBox}>
+                <TakeawayBox conclusion={spec.conclusion} modifiedCount={modifiedCount} onReset={() => { setParams(defaults); setPinnedT(null); }} />
+                {active.error && <div className="mt-3 rounded-xl border-2 border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800"><strong>Pipeline error:</strong> {active.error}</div>}
+              </DesignBox>
 
-      {!free && <GuideRail sections={sections} />}
+              {activeS && (
+                <DesignBox key={activeS.id} id={activeS.boxId} label={activeS.boxLabel} mode="flow" rect={layout.boxes[activeS.boxId]} onRect={setBox} register={registerBox}>
+                  <section aria-label={activeS.ariaLabel} data-section-id={activeS.id} data-section-title={sec(activeS.id).title}>
+                    <SectionHeader num={activeIdx + 1} tone={activeS.tone} icon={activeS.icon} title={sec(activeS.id).title} sub={sec(activeS.id).sub}
+                      onAsk={() => setChatSection({ sectionId: activeS.id, title: sec(activeS.id).title })} />
+                    {activeS.content}
+                  </section>
+                </DesignBox>
+              )}
+
+              <SectionPager sections={sections} activeIdx={activeIdx} onSelect={selectSection} />
+            </main>
+          </div>
+        </>
+      )}
 
       <SelectionExplain onAsk={setChatSection} />
       <SectionChat spec={spec} open={chatSection} onClose={() => setChatSection(null)} />
