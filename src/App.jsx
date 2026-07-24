@@ -250,94 +250,6 @@ function HintsPanel({ hints, onHints, codeFiles, onCodeFiles, disabled }) {
   );
 }
 
-/* ---------------- demo video showcase ---------------- */
-
-/** Timeline of the landing demo recording — each entry drives the dynamic
- *  explanation box while the video plays, and doubles as a seek button. */
-const DEMO_CHAPTERS = [
-  { at: 0,  short: "Overview",    title: "The finished workspace",
-    body: "This is what your paper becomes — a living, explorable analysis instead of a static PDF." },
-  { at: 1,  short: "References",  title: "Original references, one click away",
-    body: "Every source the paper cites, ready to open — no digging through the bibliography." },
-  { at: 5,  short: "The idea",    title: "1 · The idea in pictures",
-    body: "The paper's own concept figures, cropped out and explained in plain language." },
-  { at: 9,  short: "Background",  title: "2 · Background you need first",
-    body: "Each borrowed concept becomes a mini-lab: drag the sliders, watch the diagram react, toggle the formulas open when you're curious." },
-  { at: 30, short: "The method",  title: "3 · Learn the method by playing",
-    body: "Step through the method's stages — every coefficient is a slider, and the diagrams and plots reshape as you switch states." },
-  { at: 60, short: "Results",     title: "4 · Results, recreated live",
-    body: "The paper's real result figures rebuilt as live plots: tune the parameters, hover any curve to read the exact numbers." },
-];
-
-const fmtTime = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
-
-function VideoShowcase() {
-  const vidRef = useRef(null);
-  const [time, setTime] = useState(0);
-  const idx = DEMO_CHAPTERS.reduce((acc, c, i) => (time >= c.at ? i : acc), 0);
-  const ch = DEMO_CHAPTERS[idx];
-
-  const seek = (at) => {
-    const v = vidRef.current;
-    if (!v) return;
-    v.currentTime = at;
-    v.play?.().catch(() => { /* autoplay policies */ });
-  };
-
-  return (
-    <div className="w-full lg:flex lg:h-full lg:flex-col">
-      {/* framed like an app window — flexes to fill whatever height the
-          column has, so a tall/portrait recording never forces a scrollbar
-          inside its own box (it did before: w-full on a portrait video
-          made it taller than the fixed-height column around it). */}
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-slate-300/70 bg-slate-900 shadow-2xl">
-        <div className="flex shrink-0 items-center gap-1.5 border-b border-slate-700/60 bg-slate-800 px-4 py-2.5">
-          <span className="h-3 w-3 rounded-full bg-red-400" />
-          <span className="h-3 w-3 rounded-full bg-amber-400" />
-          <span className="h-3 w-3 rounded-full bg-emerald-400" />
-          <span className="ml-3 text-[11px] font-medium text-slate-300">
-            Watch a finished analysis in action
-          </span>
-        </div>
-        <video
-          ref={vidRef}
-          src={`${import.meta.env.BASE_URL}landing-demo.mp4`}
-          autoPlay muted loop playsInline controls
-          className="block w-full lg:min-h-0 lg:flex-1 lg:object-contain"
-          onTimeUpdate={(e) => setTime(e.currentTarget.currentTime)}
-        />
-      </div>
-
-      {/* dynamic explanation, synced to the timeline */}
-      <div key={idx} className="mt-3 shrink-0 rounded-xl border border-blue-200/70 bg-white/90 px-4 py-3 shadow-sm backdrop-blur">
-        <div className="flex items-baseline gap-2">
-          <span className="rounded bg-blue-600 px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-white">
-            {fmtTime(ch.at)}
-          </span>
-          <span className="text-xs font-bold text-blue-700">{ch.title}</span>
-        </div>
-        <p className="mt-1 text-xs leading-relaxed text-slate-600">{ch.body}</p>
-      </div>
-
-      {/* chapter buttons — click to jump */}
-      <div className="mt-3 flex shrink-0 flex-wrap gap-1.5">
-        {DEMO_CHAPTERS.map((c, i) => (
-          <button
-            key={c.at}
-            onClick={() => seek(c.at)}
-            className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition ${
-              i === idx
-                ? "border-blue-500 bg-blue-600 text-white shadow-sm"
-                : "border-slate-200 bg-white/80 text-slate-600 hover:border-blue-300 hover:text-blue-700"
-            }`}
-          >
-            {fmtTime(c.at)} · {c.short}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
 
 /* ---------------- site footer ---------------- */
 
@@ -672,29 +584,14 @@ function Landing({
           </div>
         </section>
 
-        {/* ===================== WATCH A FULL ANALYSIS ===================== */}
-        <section className="border-t border-slate-200/70 bg-slate-50/60">
-          <div className="mx-auto max-w-4xl px-5 py-16 sm:px-8">
-            <div className="mx-auto mb-8 max-w-2xl text-center">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-blue-600">Two minutes, one real paper</div>
-              <h2 className="mt-2 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl" style={{ fontFamily: "'Sora', system-ui, sans-serif" }}>
-                Watch a full analysis, chapter by chapter
-              </h2>
-            </div>
-            <VideoShowcase />
-          </div>
-        </section>
-
-        {/* ===================== TRY IT / EXAMPLES ===================== */}
+        {/* ===================== TRY IT ===================== */}
         <section id="examples" className="border-t border-slate-200/70 bg-white">
-          <div className="mx-auto max-w-6xl px-5 py-16 sm:px-8">
-            <div className="grid gap-10 lg:grid-cols-[minmax(0,340px)_1fr] lg:items-start">
-              {/* upload + options */}
-              <div className="lg:sticky lg:top-6">
-                <h2 className="text-2xl font-bold tracking-tight text-slate-900" style={{ fontFamily: "'Sora', system-ui, sans-serif" }}>Try it now</h2>
-                <p className="mt-1.5 text-[13.5px] leading-relaxed text-slate-500">
-                  Bring your own paper, or open a ready-made example on the right — no sign-in needed for those.
-                </p>
+          <div className="mx-auto max-w-3xl px-5 py-16 sm:px-8">
+            <div className="mx-auto max-w-xl">
+              <h2 className="text-2xl font-bold tracking-tight text-slate-900" style={{ fontFamily: "'Sora', system-ui, sans-serif" }}>Try it now</h2>
+              <p className="mt-1.5 text-[13.5px] leading-relaxed text-slate-500">
+                Bring your own paper, or open a ready-made example below — no sign-in needed for those.
+              </p>
 
                 <button
                   onClick={() => (requireAuthToUpload ? onSignUp() : fileRef.current?.click())}
@@ -749,41 +646,38 @@ function Landing({
                   <FileText size={12} className="mt-0.5 shrink-0" />
                   Your PDF isn't kept — only the finished interactive analysis is saved, privately, to your own library.
                 </p>
-              </div>
+            </div>
+          </div>
+        </section>
 
-              {/* ready-made gallery */}
-              <div>
-                <div className="mb-4 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
-                  <BookOpenCheck size={14} className="text-blue-600" /> Ready-made examples · no sign-in
-                </div>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  {[
-                    { spec: SAMPLE_SPEC_5, tag: "Nature Materials", title: "Phonon interference in one molecule", teaser: "Picowatt heat flow — every trace, histogram and spectrum replotted, interference physics you can play with." },
-                    { spec: SAMPLE_SPEC_4, tag: "Science Robotics", title: "Quadruped robots in the wild", teaser: "33 panels from the authors' source data — the tri-sector gait wheel, terrain runs and a 6 m/s stair-jump." },
-                    { spec: SAMPLE_SPEC_9, tag: "Cell Reports Sust.", title: "Decarbonized power-gas planning", teaser: "Annual & peak demand and system cost by scenario, reproduced point-for-point as interactive charts." },
-                    { spec: SAMPLE_SPEC_3, tag: "Supply-chain ML", title: "Hierarchical ML forecasting", teaser: "Every figure digitized in its original form — grouped bars, 10-curve lines, calendar heat-maps, radars." },
-                    { spec: SAMPLE_SPEC_2, tag: "Robotics", title: "Humanoid whole-body control", teaser: "Figs 3–11 recreated: 12-joint tracking, spiky error traces, CoM & ground forces across scenarios." },
-                    { spec: SAMPLE_SPEC_6, tag: "PRX Energy", title: "Zero-gap thermophotonics", teaser: "A live reduced model — LED voltage, spacer index and EQE on sliders, chasing the paper's own curves." },
-                    { spec: SAMPLE_SPEC_8, tag: "Automatica", title: "Compositional synthesis (AG contracts)", teaser: "Grounded background, narrated explainers, and the convex potential & scalability table on live sliders." },
-                    { spec: SAMPLE_SPEC_7, tag: "Autom. in Constr.", title: "Prefab checking with 3D scans + BIM", teaser: "Catch module mismatches before shipment — a live Table-6 confidence rebuilt from Eq. 3." },
-                    { spec: SAMPLE_SPEC, tag: "Signals · easy", title: "Multi-stage filtering & control", teaser: "A signal-conditioning + feedback example — the gentlest first look at how the labs work." },
-                  ].map((s) => (
-                    <button
-                      key={s.title}
-                      onClick={() => onSample(s.spec)}
-                      disabled={busy}
-                      className="group flex flex-col items-start rounded-2xl border border-slate-200 bg-white p-4 text-left transition hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-lg disabled:opacity-50"
-                    >
-                      <div className="flex w-full items-center justify-between gap-2">
-                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">{s.tag}</span>
-                        <LineChart size={14} className="text-slate-300 transition group-hover:text-blue-500" />
-                      </div>
-                      <span className="mt-2.5 text-[14px] font-bold leading-snug text-slate-900">{s.title}</span>
-                      <span className="mt-1 text-[12px] leading-relaxed text-slate-500">{s.teaser}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
+        {/* ===================== READY-MADE EXAMPLES ===================== */}
+        <section className="border-t border-slate-200/70 bg-slate-50/60">
+          <div className="mx-auto max-w-6xl px-5 py-14 sm:px-8">
+            <div className="mb-5 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
+              <BookOpenCheck size={14} className="text-blue-600" /> Ready-made examples · no sign-in
+            </div>
+            <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4">
+              {[
+                { spec: SAMPLE_SPEC_5, tag: "Nature Materials", title: "Phonon interference in one molecule" },
+                { spec: SAMPLE_SPEC_4, tag: "Science Robotics", title: "Quadruped robots in the wild" },
+                { spec: SAMPLE_SPEC_9, tag: "Cell Reports Sust.", title: "Decarbonized power-gas planning" },
+                { spec: SAMPLE_SPEC_3, tag: "Supply-chain ML", title: "Hierarchical ML forecasting" },
+                { spec: SAMPLE_SPEC_2, tag: "Robotics", title: "Humanoid whole-body control" },
+                { spec: SAMPLE_SPEC_6, tag: "PRX Energy", title: "Zero-gap thermophotonics" },
+                { spec: SAMPLE_SPEC_8, tag: "Automatica", title: "Compositional synthesis (AG contracts)" },
+                { spec: SAMPLE_SPEC_7, tag: "Autom. in Constr.", title: "Prefab checking with 3D scans + BIM" },
+                { spec: SAMPLE_SPEC, tag: "Signals · easy", title: "Multi-stage filtering & control" },
+              ].map((s) => (
+                <button
+                  key={s.title}
+                  onClick={() => onSample(s.spec)}
+                  disabled={busy}
+                  className="group flex flex-col items-start gap-1 rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-left transition hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-md disabled:opacity-50"
+                >
+                  <span className="text-[13px] font-semibold leading-snug text-slate-900">{s.title}</span>
+                  <span className="text-[10.5px] font-medium text-slate-400">{s.tag}</span>
+                </button>
+              ))}
             </div>
           </div>
         </section>
