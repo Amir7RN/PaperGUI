@@ -22,12 +22,13 @@ import {
   Landmark, Maximize2, Lightbulb, LineChart as LineChartIcon, LayoutTemplate, Move,
   Sparkles, BookMarked, Play, Pause, Puzzle, Rocket, Network, ChevronLeft, FileCode2, Crosshair,
   Shuffle, Wand2, Trophy, Bot, ListChecks, GraduationCap, Images, Link2,
-  ShieldCheck, Layers, RotateCw, Check as CheckIcon, GripVertical,
+  ShieldCheck, Layers, RotateCw, Check as CheckIcon, GripVertical, Volume2, VolumeX,
 } from "lucide-react";
 import SectionChat from "./SectionChat.jsx";
 import PdfReader from "./PdfReader.jsx";
 import ExplainerVideo from "./ExplainerVideo.jsx";
-import { buildExplainer } from "./narrate.js";
+import { buildExplainer, fetchSceneAudio } from "./narrate.js";
+import { useVoiceOutput } from "./useVoice.js";
 import LayoutEditor from "./LayoutEditor.jsx";
 import DigitizerEditor from "./DigitizerEditor.jsx";
 import { DigitizedPanel, isSpecialDigitized, PALETTE } from "./DigitizedPanels.jsx";
@@ -449,21 +450,87 @@ function StoryPlayer({ story }) {
   const [playing, setPlaying] = useState(false);
   const [cycle, setCycle] = useState(0); // bumps to restart the bar animation on replay
 
+  /* ---- read the story aloud ----
+   * Same narration path as the Background and Model explainers (the `narrate`
+   * edge function's studio voice, cached per line), but it falls back to the
+   * browser's own free voice when that isn't available — so the story reads
+   * itself even signed out. While narrating, the beat advances when the voice
+   * finishes rather than on the fixed timer. */
+  const [narrating, setNarrating] = useState(false);
+  const [voiceNote, setVoiceNote] = useState(null);   // "using the browser voice" etc.
+  const audioRef = useRef(null);
+  // Destructured: the hook returns a fresh object each render, and these
+  // callbacks are what the effects below must actually depend on.
+  const { supported: ttsSupported, speak: ttsSpeak, cancel: ttsCancel } = useVoiceOutput();
+  const speakReq = useRef(0);
+
+  const beatSpeech = useCallback((b) =>
+    b ? `${b.kicker}. ${b.headline ? b.headline + ". " : ""}${b.text}` : "", []);
+
+  const stopVoice = useCallback(() => {
+    speakReq.current++;
+    const a = audioRef.current;
+    if (a) { a.pause(); a.removeAttribute("src"); }
+    ttsCancel();
+  }, [ttsCancel]);
+
+  // Speak the current beat whenever narration is on and the beat changes.
   useEffect(() => {
-    if (!playing || beats.length < 2) return;
+    if (!narrating || !beats.length) return undefined;
+    const my = ++speakReq.current;
+    const b = beats[Math.min(idx, beats.length - 1)];
+    const text = beatSpeech(b);
+    const done = () => {
+      if (speakReq.current !== my) return;      // superseded by a jump/stop
+      setIdx((i) => {
+        if (i + 1 < beats.length) return i + 1;
+        setNarrating(false);
+        setPlaying(false);
+        return i;
+      });
+    };
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const src = await fetchSceneAudio(text, story?.voice || "onyx");
+        if (cancelled || speakReq.current !== my) return;
+        const a = audioRef.current;
+        if (!a) return;
+        a.src = src;
+        a.onended = done;
+        await a.play();
+      } catch (e) {
+        if (cancelled || speakReq.current !== my) return;
+        // No studio voice (not signed in / not configured) — use the free one.
+        if (!ttsSupported) { setVoiceNote(e?.message || "Narration isn't available here."); setNarrating(false); return; }
+        setVoiceNote("Reading with your browser's own voice.");
+        ttsSpeak(text, done);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [narrating, idx, beats, beatSpeech, story?.voice, ttsSupported, ttsSpeak]);
+
+  // Never keep talking after the reader leaves the section.
+  useEffect(() => () => { speakReq.current++; ttsCancel(); }, [ttsCancel]);
+
+  useEffect(() => {
+    if (!playing || narrating || beats.length < 2) return;
     const t = setTimeout(() => {
       setIdx((i) => (i + 1 < beats.length ? i + 1 : (setPlaying(false), i)));
     }, DUR);
     return () => clearTimeout(t);
-  }, [idx, playing, beats.length, cycle]);
+  }, [idx, playing, narrating, beats.length, cycle]);
 
   if (!beats.length) return null;
   const beat = beats[Math.min(idx, beats.length - 1)];
   const hue = BEAT_HUES[beat.kind];
   const BeatIcon = beat.Icon;
   // Manual navigation pauses the slideshow — clicking "next" means the reader
-  // wants to drive, not to restart the timer.
-  const jump = (i) => { setIdx(i); setPlaying(false); setCycle((c) => c + 1); };
+  // wants to drive, not to restart the timer. If the story is being read
+  // aloud, the voice follows them to the new beat instead of stopping.
+  const jump = (i) => { stopVoice(); setIdx(i); setPlaying(false); setCycle((c) => c + 1); };
 
   return (
     <div className={`relative overflow-hidden rounded-2xl bg-gradient-to-br ${hue.bg} shadow-lg`}>
@@ -557,7 +624,31 @@ function StoryPlayer({ story }) {
         </button>
         <button onClick={() => jump(Math.min(beats.length - 1, idx + 1))} aria-label="Next"
           className="rounded-full bg-white/10 p-2 text-white hover:bg-white/25"><ChevronRight size={15} /></button>
+
+        {/* read the story aloud */}
+        <button
+          onClick={() => {
+            if (narrating) { stopVoice(); setNarrating(false); return; }
+            setVoiceNote(null);
+            setPlaying(false);                                   // the voice sets the pace now
+            if (idx === beats.length - 1) { setIdx(0); setCycle((c) => c + 1); }
+            setNarrating(true);
+          }}
+          aria-label={narrating ? "Stop reading aloud" : "Read the story aloud"}
+          title={narrating ? "Stop reading aloud" : "Read the story aloud"}
+          className={`ml-1 flex items-center gap-1.5 rounded-full px-3 py-2 text-[11.5px] font-semibold transition ${
+            narrating ? "bg-white text-slate-900" : "bg-white/10 text-white hover:bg-white/25"
+          }`}
+        >
+          {narrating ? <VolumeX size={15} /> : <Volume2 size={15} />}
+          {narrating ? "Stop" : "Read aloud"}
+        </button>
       </div>
+
+      {voiceNote && (
+        <div className="relative z-10 pb-3 text-center text-[10.5px] text-white/60">{voiceNote}</div>
+      )}
+      <audio ref={audioRef} preload="none" className="hidden" />
     </div>
   );
 }
