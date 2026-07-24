@@ -458,269 +458,191 @@ function Landing({
        * Text/options at x:5% y:32px w:47.5% h:944px, video at x:59.5% y:72px
        * w:38% h:832px, both absolutely placed at lg+; single stacked column
        * below that (no arrange UI — this is now the permanent layout). */}
-      <main className="relative flex w-full flex-col gap-10 px-4 py-10 sm:px-8 lg:block lg:h-[1020px] lg:px-10">
-        <div className="w-full lg:absolute lg:left-[5%] lg:top-[32px] lg:h-[944px] lg:w-[47.5%] lg:overflow-y-auto">
-        <div className="flex w-full max-w-none flex-col items-start">
-        <div className="mb-3 flex items-center gap-2 rounded-full border border-blue-200/60 bg-white/70 px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-blue-700 shadow-sm backdrop-blur">
-          <Sparkles size={13} /> Leave the PDF aside — work with the paper
-        </div>
-        <h1 className="max-w-none text-left text-3xl font-extrabold leading-tight tracking-tight text-slate-900 sm:text-4xl">
-          Turn any scientific paper into a{" "}
-          <span className="bg-gradient-to-r from-blue-600 via-violet-600 to-emerald-600 bg-clip-text text-transparent">
-            living, interactive lab
-          </span>
-        </h1>
-        <p className="mt-4 max-w-none text-left text-sm leading-relaxed text-slate-600">
-          The analyzer walks you through a paper the way a good colleague would: the idea in
-          pictures, the prior work it stands on, its own method with every coefficient on a
-          slider, and its real result figures — recreated and reshaping live as you explore.
-        </p>
-
-        <div className="mt-5 flex flex-wrap items-center justify-start gap-2">
-          {[
-            { icon: ImageIcon, label: "1 · Idea in pictures", cls: "text-violet-700 bg-violet-50 border-violet-200/70" },
-            { icon: Landmark, label: "2 · Prior foundations", cls: "text-amber-700 bg-amber-50 border-amber-200/70" },
-            { icon: SlidersHorizontal, label: "3 · Method, interactive", cls: "text-blue-700 bg-blue-50 border-blue-200/70" },
-            { icon: LineChart, label: "4 · Results, recreated", cls: "text-emerald-700 bg-emerald-50 border-emerald-200/70" },
-          ].map(({ icon: Icon, label, cls }) => (
-            <span key={label} className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-medium shadow-sm ${cls}`}>
-              <Icon size={12} /> {label}
-            </span>
-          ))}
-        </div>
-
-        {/* how it works */}
-        <div className={`mt-8 grid w-full max-w-none grid-cols-1 gap-3 sm:grid-cols-3`}>
-          {[
-            {
-              n: "1",
-              title: "Drop in a paper",
-              body: "Any scientific PDF — engineering, biology, economics, physics…",
-            },
-            {
-              n: "2",
-              title: "AI rebuilds it",
-              body: "Figures explained, method on sliders, result plots recreated as code.",
-            },
-            {
-              n: "3",
-              title: "Explore & perturb",
-              body: "Drag any coefficient and watch the paper's own figures reshape live.",
-            },
-          ].map((s) => (
-            <div key={s.n} className="flex items-start gap-3 rounded-2xl border border-slate-200/70 bg-white/80 px-4 py-3 shadow-sm backdrop-blur">
-              <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-900 text-[11px] font-bold text-white">
-                {s.n}
+      {/* ===================== HERO ===================== */}
+      <main className="w-full">
+        <section className="border-b border-slate-200/70 bg-white">
+          <div className="mx-auto grid max-w-6xl items-center gap-12 px-5 py-14 sm:px-8 lg:grid-cols-[1.04fr_1fr] lg:py-20">
+            <div>
+              <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                <FlaskConical size={13} className="text-blue-600" /> Interactive Paper Playground
               </span>
-              <span>
-                <span className="block text-xs font-semibold text-slate-800">{s.title}</span>
-                <span className="mt-0.5 block text-[11px] leading-relaxed text-slate-500">{s.body}</span>
-              </span>
+              <h1 className="mt-5 text-4xl font-extrabold leading-[1.05] tracking-tight text-slate-900 sm:text-5xl">
+                The paper, rebuilt<br className="hidden sm:block" /> as something you can <span className="text-blue-600">play with.</span>
+              </h1>
+              <p className="mt-5 max-w-xl text-[15px] leading-relaxed text-slate-600">
+                Upload a scientific PDF and get its <strong className="text-slate-800">real figures recreated and reshaping under your cursor</strong>, its
+                method on sliders, and a tutor for every section. A chatbot gives you paragraphs about a
+                paper. This hands you the paper itself — visual, interactive, and grounded in its own numbers.
+              </p>
+
+              <div className="mt-7 flex flex-wrap items-center gap-3">
+                <button
+                  onClick={() => (requireAuthToUpload ? onSignUp() : fileRef.current?.click())}
+                  disabled={busy || (signedIn && balance !== null && balance <= 0)}
+                  className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:opacity-50"
+                >
+                  <Upload size={16} /> Analyze a paper
+                </button>
+                <button
+                  onClick={() => document.getElementById("examples")?.scrollIntoView({ behavior: "smooth" })}
+                  className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+                >
+                  <BookOpenCheck size={16} className="text-blue-600" /> Open a live example
+                </button>
+              </div>
+              <p className="mt-4 text-[12px] text-slate-400">
+                Free to try — new accounts get $1.00 of analysis credit. Ready-made examples need no sign-in.
+              </p>
             </div>
-          ))}
-        </div>
 
-        <div className={`mt-8 grid w-full max-w-none gap-4 sm:grid-cols-2`}>
-          <div className="flex flex-col gap-3">
-            <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-              <BookOpenCheck size={14} className="text-blue-600" /> Try a ready-made example (no key needed)
+            <div className="lg:pl-4">
+              <VideoShowcase />
             </div>
-            <button
-              onClick={() => onSample(SAMPLE_SPEC_2)}
-              disabled={busy}
-              className="group flex flex-col items-start gap-1 rounded-2xl border border-slate-200/80 bg-white/90 p-4 text-left shadow-sm backdrop-blur transition hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-xl disabled:opacity-50"
-            >
-              <span className="text-sm font-semibold text-slate-800">Humanoid repetitive-learning control</span>
-              <span className="text-xs leading-relaxed text-slate-500">
-                All of Figs 3–11 recreated: 12-joint tracking with each joint's own waveform,
-                spiky error traces, CoM &amp; ground forces, indoor / disturbance / outdoor scenarios.
-              </span>
-            </button>
-            <button
-              onClick={() => onSample(SAMPLE_SPEC)}
-              disabled={busy}
-              className="group flex flex-col items-start gap-1 rounded-2xl border border-slate-200/80 bg-white/90 p-4 text-left shadow-sm backdrop-blur transition hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-xl disabled:opacity-50"
-            >
-              <span className="text-sm font-semibold text-slate-800">Multi-stage filtering &amp; control</span>
-              <span className="text-xs leading-relaxed text-slate-500">
-                A signal-conditioning + feedback-regulation example — simpler, good for a first look.
-              </span>
-            </button>
-            <button
-              onClick={() => onSample(SAMPLE_SPEC_3)}
-              disabled={busy}
-              className="group flex flex-col items-start gap-1 rounded-2xl border border-slate-200/80 bg-white/90 p-4 text-left shadow-sm backdrop-blur transition hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-xl disabled:opacity-50"
-            >
-              <span className="text-sm font-semibold text-slate-800">Multi-phase hierarchical ML forecasting</span>
-              <span className="text-xs leading-relaxed text-slate-500">
-                A supply-chain machine-learning paper — every figure digitized in its original form
-                (grouped bars, 10-curve lines, three calendar heat-maps, radars), tuning made
-                interactive, method drawn as animated flow diagrams.
-              </span>
-            </button>
-            <button
-              onClick={() => onSample(SAMPLE_SPEC_4)}
-              disabled={busy}
-              className="group flex flex-col items-start gap-1 rounded-2xl border border-slate-200/80 bg-white/90 p-4 text-left shadow-sm backdrop-blur transition hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-xl disabled:opacity-50"
-            >
-              <span className="text-sm font-semibold text-slate-800">Quadruped robots in the wild (Science Robotics)</span>
-              <span className="text-xs leading-relaxed text-slate-500">
-                APT-RL multiskill locomotion — 33 panels of the authors' own source data: the
-                tri-sector gait wheel, urban/forest/indoor runs, torque decompositions, learning
-                curves and the 6 m/s stair-jump trace.
-              </span>
-            </button>
-            <button
-              onClick={() => onSample(SAMPLE_SPEC_5)}
-              disabled={busy}
-              className="group flex flex-col items-start gap-1 rounded-2xl border border-slate-200/80 bg-white/90 p-4 text-left shadow-sm backdrop-blur transition hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-xl disabled:opacity-50"
-            >
-              <span className="text-sm font-semibold text-slate-800">Phonon interference in single molecules (Nature Materials)</span>
-              <span className="text-xs leading-relaxed text-slate-500">
-                Picowatt heat flow through ONE molecule — every trace, histogram and phonon
-                spectrum replotted from the authors' own Source Data, with interference
-                physics you can play with.
-              </span>
-            </button>
-            <button
-              onClick={() => onSample(SAMPLE_SPEC_6)}
-              disabled={busy}
-              className="group flex flex-col items-start gap-1 rounded-2xl border border-slate-200/80 bg-white/90 p-4 text-left shadow-sm backdrop-blur transition hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-xl disabled:opacity-50"
-            >
-              <span className="text-sm font-semibold text-slate-800">Zero-vacuum-gap thermophotonics (PRX Energy)</span>
-              <span className="text-xs leading-relaxed text-slate-500">
-                A device-physics theory paper with a LIVE reduced model: LED voltage, spacer
-                index, EQE and spacer length on sliders, chasing the paper's digitized
-                power &amp; efficiency curves.
-              </span>
-            </button>
-            <button
-              onClick={() => onSample(SAMPLE_SPEC_7)}
-              disabled={busy}
-              className="group flex flex-col items-start gap-1 rounded-2xl border border-slate-200/80 bg-white/90 p-4 text-left shadow-sm backdrop-blur transition hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-xl disabled:opacity-50"
-            >
-              <span className="text-sm font-semibold text-slate-800">Prefab compatibility checking with 3D scans &amp; BIM (Automation in Construction)</span>
-              <span className="text-xs leading-relaxed text-slate-500">
-                Catch module-to-module mismatches before shipment: cross-section minimum
-                distance and a live Table-6 confidence rebuilt from Eq. 3, plus the paper's
-                own registration, noise and runtime tables.
-              </span>
-            </button>
-            <button
-              onClick={() => onSample(SAMPLE_SPEC_8)}
-              disabled={busy}
-              className="group flex flex-col items-start gap-1 rounded-2xl border border-slate-200/80 bg-white/90 p-4 text-left shadow-sm backdrop-blur transition hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-xl disabled:opacity-50"
-            >
-              <span className="text-sm font-semibold text-slate-800">Compositional synthesis via convex AG contracts (Automatica)</span>
-              <span className="text-xs leading-relaxed text-slate-500">
-                Control theory, with fully grounded Background &amp; Model sections: narrated
-                explainers, the paper's own figures beside every plot, and the convex potential
-                function &amp; scalability table on live sliders.
-              </span>
-            </button>
-            <button
-              onClick={() => onSample(SAMPLE_SPEC_9)}
-              disabled={busy}
-              className="group flex flex-col items-start gap-1 rounded-2xl border border-slate-200/80 bg-white/90 p-4 text-left shadow-sm backdrop-blur transition hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-xl disabled:opacity-50"
-            >
-              <span className="text-sm font-semibold text-slate-800">Decarbonized power-gas planning under heating electrification (Cell Reports Sustainability)</span>
-              <span className="text-xs leading-relaxed text-slate-500">
-                Energy-systems planning with grounded Background &amp; Model sections, narrated
-                explainers, and the paper's headline figures — annual/peak demand and system cost
-                by scenario — reproduced point-for-point as interactive digitized charts.
-              </span>
-            </button>
+          </div>
+        </section>
+
+        {/* ===================== DIFFERENTIATION ===================== */}
+        <section className="mx-auto max-w-6xl px-5 py-16 sm:px-8">
+          <div className="mx-auto max-w-2xl text-center">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-blue-600">Why not just ask a chatbot?</div>
+            <h2 className="mt-2 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
+              Because a paper isn't text. It's figures, methods and numbers.
+            </h2>
+            <p className="mt-3 text-[14px] leading-relaxed text-slate-500">
+              Ask a chatbot and you get more paragraphs to read. Here you get the paper's own figures back —
+              live, tunable, and honest about what it actually shows.
+            </p>
           </div>
 
-          <button
-            onClick={() => (requireAuthToUpload ? onSignUp() : fileRef.current?.click())}
-            disabled={busy || (signedIn && balance !== null && balance <= 0)}
-            className="group relative flex flex-col items-start gap-2 overflow-hidden rounded-2xl border-2 border-dashed border-blue-300/70 bg-gradient-to-br from-white/95 to-blue-50/80 p-5 text-left shadow-sm backdrop-blur transition hover:-translate-y-0.5 hover:border-blue-400 hover:shadow-xl disabled:opacity-50"
-          >
-            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-white shadow-md transition group-hover:scale-105">
-              <Upload size={18} />
-            </span>
-            <span className="text-sm font-semibold text-slate-800">Analyze a new paper (PDF)</span>
-            <span className="text-xs leading-relaxed text-slate-500">
-              {requireAuthToUpload ? (
-                <>
-                  <strong>Sign up free</strong> to analyze your own PDF — new accounts get
-                  $1.00 of analysis credit, and every paper you analyze is saved to your
-                  library so reopening it never costs credit again.
-                </>
-              ) : signedIn && balance !== null && balance <= 0 ? (
-                "You're out of analysis credit — use the Add credit button above, or try the ready-made examples."
-              ) : (
-                <>
-                  Pick a PDF from your local drive — synced OneDrive / Google Drive folders work too.
-                  The analyzer builds the full four-chapter walkthrough at the{" "}
-                  <strong>{tier.label}</strong> level selected below.
-                </>
-              )}
-            </span>
-          </button>
-          <input
-            ref={fileRef}
-            type="file"
-            accept=".pdf,application/pdf"
-            className="hidden"
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              e.target.value = "";
-              if (f) onUpload(f);
-            }}
-          />
-        </div>
+          <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {[
+              { icon: LineChart, tone: "text-emerald-600 bg-emerald-50", title: "The real figures, recreated", body: "Digitized point-for-point off the PDF and made interactive — hover, compare, read exact values. Not a description of the figure. The figure." },
+              { icon: SlidersHorizontal, tone: "text-blue-600 bg-blue-50", title: "The method on knobs", body: "Every coefficient the paper reports becomes a slider. Turn it and the reproduced figures reshape live, so you feel what each parameter does." },
+              { icon: Wand2, tone: "text-violet-600 bg-violet-50", title: "A tutor for every section", body: "Ask, get Socratically quizzed, or talk by voice — grounded only in this paper's own content, section by section." },
+              { icon: FileText, tone: "text-amber-600 bg-amber-50", title: "Trust by construction", body: "Every number traces to a figure, table or equation, and claims are tagged shown vs asserted. Nothing invented." },
+            ].map(({ icon: Icon, tone, title, body }) => (
+              <div key={title} className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+                <span className={`flex h-10 w-10 items-center justify-center rounded-xl ${tone}`}><Icon size={18} /></span>
+                <h3 className="mt-4 text-[15px] font-bold text-slate-900">{title}</h3>
+                <p className="mt-1.5 text-[12.5px] leading-relaxed text-slate-500">{body}</p>
+              </div>
+            ))}
+          </div>
 
-        <TierPicker tier={tier} onTier={onTier} disabled={busy} />
+          <div className="mx-auto mt-8 flex max-w-3xl flex-col gap-px overflow-hidden rounded-2xl border border-slate-200 sm:flex-row">
+            <div className="flex-1 bg-slate-50 px-5 py-4">
+              <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">A chatbot</div>
+              <div className="mt-1 text-[13px] text-slate-600">Paragraphs of text about the paper — that you still have to read, and can't verify.</div>
+            </div>
+            <div className="flex-1 bg-slate-900 px-5 py-4">
+              <div className="text-[11px] font-semibold uppercase tracking-wider text-blue-300">This playground</div>
+              <div className="mt-1 text-[13px] text-white">The paper's figures, live and tunable, with a tutor and the numbers in your hands.</div>
+            </div>
+          </div>
+        </section>
 
-        <HintsPanel hints={hints} onHints={onHints} codeFiles={codeFiles} onCodeFiles={onCodeFiles} disabled={busy} />
+        {/* ===================== TRY IT / EXAMPLES ===================== */}
+        <section id="examples" className="border-t border-slate-200/70 bg-white">
+          <div className="mx-auto max-w-6xl px-5 py-16 sm:px-8">
+            <div className="grid gap-10 lg:grid-cols-[minmax(0,340px)_1fr] lg:items-start">
+              {/* upload + options */}
+              <div className="lg:sticky lg:top-6">
+                <h2 className="text-2xl font-bold tracking-tight text-slate-900">Try it now</h2>
+                <p className="mt-1.5 text-[13.5px] leading-relaxed text-slate-500">
+                  Bring your own paper, or open a ready-made example on the right — no sign-in needed for those.
+                </p>
 
-        {busy && (
-          <div className={`mt-6 w-full max-w-none rounded-xl border border-blue-200 bg-white/90 px-4 py-4 shadow-sm backdrop-blur`}>
-            <div className="flex items-center gap-3 text-sm text-blue-900">
-              <Loader2 size={18} className="shrink-0 animate-spin" />
-              <div className="min-w-0 flex-1">
-                <div className="font-medium">{progress?.label || "Working…"}</div>
-                <div className="text-xs text-slate-500">
-                  Deep analysis can take a few minutes for dense papers — keep this tab open.
+                <button
+                  onClick={() => (requireAuthToUpload ? onSignUp() : fileRef.current?.click())}
+                  disabled={busy || (signedIn && balance !== null && balance <= 0)}
+                  className="group mt-5 flex w-full flex-col items-start gap-2 rounded-2xl border-2 border-dashed border-blue-300 bg-blue-50/40 p-5 text-left transition hover:border-blue-400 hover:bg-blue-50 disabled:opacity-50"
+                >
+                  <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-600 text-white shadow-sm transition group-hover:scale-105">
+                    <Upload size={19} />
+                  </span>
+                  <span className="text-[15px] font-semibold text-slate-900">Analyze your own PDF</span>
+                  <span className="text-[12.5px] leading-relaxed text-slate-500">
+                    {requireAuthToUpload
+                      ? "Sign up free — new accounts get $1.00 of analysis credit, and every paper you analyze is saved to your library."
+                      : signedIn && balance !== null && balance <= 0
+                        ? "You're out of analysis credit — add credit above, or open a ready-made example."
+                        : <>Local drive or synced OneDrive / Google Drive. Built at the <strong>{tier.label}</strong> level below.</>}
+                  </span>
+                </button>
+                <input
+                  ref={fileRef} type="file" accept=".pdf,application/pdf" className="hidden"
+                  onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) onUpload(f); }}
+                />
+
+                <div className="mt-4 space-y-3">
+                  <TierPicker tier={tier} onTier={onTier} disabled={busy} />
+                  <HintsPanel hints={hints} onHints={onHints} codeFiles={codeFiles} onCodeFiles={onCodeFiles} disabled={busy} />
+                </div>
+
+                {busy && (
+                  <div className="mt-4 rounded-xl border border-blue-200 bg-white px-4 py-4 shadow-sm">
+                    <div className="flex items-center gap-3 text-sm text-blue-900">
+                      <Loader2 size={18} className="shrink-0 animate-spin" />
+                      <div className="min-w-0 flex-1">
+                        <div className="font-medium">{progress?.label || "Working…"}</div>
+                        <div className="text-xs text-slate-500">Deep analysis can take a few minutes — keep this tab open.</div>
+                      </div>
+                      <span className="shrink-0 text-sm font-semibold tabular-nums text-blue-700">{Math.round(progress?.pct || 0)}%</span>
+                    </div>
+                    <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-slate-200">
+                      <div className="h-full rounded-full bg-blue-600 transition-all duration-500 ease-out" style={{ width: `${Math.max(3, Math.min(100, progress?.pct || 0))}%` }} />
+                    </div>
+                  </div>
+                )}
+                {error && !busy && (
+                  <div className="mt-4 flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+                    <TriangleAlert size={18} className="mt-0.5 shrink-0" />
+                    <div><div className="font-medium">Analysis failed</div><div className="mt-0.5 text-xs leading-relaxed">{error}</div></div>
+                  </div>
+                )}
+
+                <p className="mt-4 flex items-start gap-1.5 text-[11px] leading-relaxed text-slate-400">
+                  <FileText size={12} className="mt-0.5 shrink-0" />
+                  Your PDF isn't kept — only the finished interactive analysis is saved, privately, to your own library.
+                </p>
+              </div>
+
+              {/* ready-made gallery */}
+              <div>
+                <div className="mb-4 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
+                  <BookOpenCheck size={14} className="text-blue-600" /> Ready-made examples · no sign-in
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {[
+                    { spec: SAMPLE_SPEC_5, tag: "Nature Materials", title: "Phonon interference in one molecule", teaser: "Picowatt heat flow — every trace, histogram and spectrum replotted, interference physics you can play with." },
+                    { spec: SAMPLE_SPEC_4, tag: "Science Robotics", title: "Quadruped robots in the wild", teaser: "33 panels from the authors' source data — the tri-sector gait wheel, terrain runs and a 6 m/s stair-jump." },
+                    { spec: SAMPLE_SPEC_9, tag: "Cell Reports Sust.", title: "Decarbonized power-gas planning", teaser: "Annual & peak demand and system cost by scenario, reproduced point-for-point as interactive charts." },
+                    { spec: SAMPLE_SPEC_3, tag: "Supply-chain ML", title: "Hierarchical ML forecasting", teaser: "Every figure digitized in its original form — grouped bars, 10-curve lines, calendar heat-maps, radars." },
+                    { spec: SAMPLE_SPEC_2, tag: "Robotics", title: "Humanoid whole-body control", teaser: "Figs 3–11 recreated: 12-joint tracking, spiky error traces, CoM & ground forces across scenarios." },
+                    { spec: SAMPLE_SPEC_6, tag: "PRX Energy", title: "Zero-gap thermophotonics", teaser: "A live reduced model — LED voltage, spacer index and EQE on sliders, chasing the paper's own curves." },
+                    { spec: SAMPLE_SPEC_8, tag: "Automatica", title: "Compositional synthesis (AG contracts)", teaser: "Grounded background, narrated explainers, and the convex potential & scalability table on live sliders." },
+                    { spec: SAMPLE_SPEC_7, tag: "Autom. in Constr.", title: "Prefab checking with 3D scans + BIM", teaser: "Catch module mismatches before shipment — a live Table-6 confidence rebuilt from Eq. 3." },
+                    { spec: SAMPLE_SPEC, tag: "Signals · easy", title: "Multi-stage filtering & control", teaser: "A signal-conditioning + feedback example — the gentlest first look at how the labs work." },
+                  ].map((s) => (
+                    <button
+                      key={s.title}
+                      onClick={() => onSample(s.spec)}
+                      disabled={busy}
+                      className="group flex flex-col items-start rounded-2xl border border-slate-200 bg-white p-4 text-left transition hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-lg disabled:opacity-50"
+                    >
+                      <div className="flex w-full items-center justify-between gap-2">
+                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">{s.tag}</span>
+                        <LineChart size={14} className="text-slate-300 transition group-hover:text-blue-500" />
+                      </div>
+                      <span className="mt-2.5 text-[14px] font-bold leading-snug text-slate-900">{s.title}</span>
+                      <span className="mt-1 text-[12px] leading-relaxed text-slate-500">{s.teaser}</span>
+                    </button>
+                  ))}
                 </div>
               </div>
-              <span className="shrink-0 text-sm font-semibold tabular-nums text-blue-700">
-                {Math.round(progress?.pct || 0)}%
-              </span>
-            </div>
-            <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-slate-200">
-              <div
-                className="h-full rounded-full bg-blue-600 transition-all duration-500 ease-out"
-                style={{ width: `${Math.max(3, Math.min(100, progress?.pct || 0))}%` }}
-              />
             </div>
           </div>
-        )}
-
-        {error && !busy && (
-          <div className={`mt-6 flex w-full max-w-none items-start gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800`}>
-            <TriangleAlert size={18} className="mt-0.5 shrink-0" />
-            <div>
-              <div className="font-medium">Analysis failed</div>
-              <div className="mt-0.5 text-xs leading-relaxed">{error}</div>
-            </div>
-          </div>
-        )}
-
-        <p className="mt-8 flex max-w-none items-center gap-1.5 text-left text-[11px] text-slate-400">
-          <FileText size={12} className="shrink-0" />
-          Your PDF passes through our AI analysis service and is not kept; only the
-          finished interactive analysis is saved — privately, to your own library.
-        </p>
-        </div>
-        </div>
-
-        {/* ---------- demo video (fixed position/size at lg+) ---------- */}
-        <div className="w-full lg:absolute lg:left-[59.5%] lg:top-[72px] lg:h-[832px] lg:w-[38%] lg:overflow-hidden">
-          <VideoShowcase />
-        </div>
+        </section>
       </main>
 
       <SiteFooter onContact={onContact} />
