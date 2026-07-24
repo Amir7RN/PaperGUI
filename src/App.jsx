@@ -379,6 +379,103 @@ function SiteFooter({ onContact }) {
   );
 }
 
+/* ---------------- live hero demo ----------------
+ * The landing's proof-of-product: a real interactive "paper figure" the
+ * visitor can drag within 3 seconds of arriving. A second-order step response
+ * (the classic control-paper figure) — dashed = the paper's reported values,
+ * solid = yours, reshaping live. Pure SVG, no charting lib needed. */
+
+const HERO_BASE = { wn: 2.2, z: 0.35 };
+
+function LiveHeroDemo() {
+  const [wn, setWn] = useState(HERO_BASE.wn);
+  const [z, setZ] = useState(HERO_BASE.z);
+  const [touched, setTouched] = useState(false);
+
+  const W = 560, H = 264, padL = 42, padR = 14, padT = 14, padB = 30;
+  const T = 8, yMax = 1.75;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const px = (t) => padL + (plotW * t) / T;
+  const py = (y) => padT + plotH * (1 - Math.max(0, Math.min(yMax, y)) / yMax);
+
+  const stepPath = (wnV, zV) => {
+    const zc = Math.min(0.985, Math.max(0.05, zV));
+    const wd = wnV * Math.sqrt(1 - zc * zc);
+    let d = "";
+    for (let i = 0; i < 170; i++) {
+      const t = (T * i) / 169;
+      const y = 1 - Math.exp(-zc * wnV * t) * (Math.cos(wd * t) + (zc / Math.sqrt(1 - zc * zc)) * Math.sin(wd * t));
+      d += `${i ? "L" : "M"}${px(t).toFixed(1)},${py(y).toFixed(1)}`;
+    }
+    return d;
+  };
+
+  const overshoot = Math.exp((-Math.PI * z) / Math.sqrt(1 - Math.min(0.985, z) ** 2)) * 100;
+  const settle = Math.min(99, 4 / (z * wn));
+  const modified = Math.abs(wn - HERO_BASE.wn) > 1e-9 || Math.abs(z - HERO_BASE.z) > 1e-9;
+
+  return (
+    <div className="overflow-hidden rounded-2xl border border-white/10 bg-slate-900/80 shadow-2xl backdrop-blur">
+      {/* window chrome */}
+      <div className="flex items-center gap-1.5 border-b border-white/10 bg-white/5 px-4 py-2.5">
+        <span className="h-2.5 w-2.5 rounded-full bg-red-400/80" />
+        <span className="h-2.5 w-2.5 rounded-full bg-amber-400/80" />
+        <span className="h-2.5 w-2.5 rounded-full bg-emerald-400/80" />
+        <span className="ml-2 truncate text-[11px] font-medium text-slate-400">Fig. 3 — closed-loop step response</span>
+        <span className={`ml-auto flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[9.5px] font-bold uppercase tracking-wider ${touched ? "bg-emerald-400/15 text-emerald-300" : "animate-pulse bg-sky-400/15 text-sky-300"}`}>
+          <SlidersHorizontal size={10} /> {touched ? "that's the whole idea" : "live — drag the dials"}
+        </span>
+      </div>
+
+      <svg viewBox={`0 0 ${W} ${H}`} className="block w-full">
+        {/* grid + axes */}
+        {[0.5, 1.0, 1.5].map((v) => (
+          <g key={v}>
+            <line x1={padL} y1={py(v)} x2={W - padR} y2={py(v)} stroke="rgba(148,163,184,0.14)" strokeWidth="1" />
+            <text x={padL - 6} y={py(v) + 3} textAnchor="end" fontSize="9" fill="#64748b">{v.toFixed(1)}</text>
+          </g>
+        ))}
+        {[2, 4, 6, 8].map((t) => (
+          <text key={t} x={px(t)} y={H - 10} textAnchor="middle" fontSize="9" fill="#64748b">{t}</text>
+        ))}
+        <text x={padL + plotW / 2} y={H - 1} textAnchor="middle" fontSize="8.5" fill="#475569">time (s)</text>
+        {/* target line */}
+        <line x1={padL} y1={py(1)} x2={W - padR} y2={py(1)} stroke="rgba(52,211,153,0.5)" strokeWidth="1" strokeDasharray="2 4" />
+        <text x={W - padR - 2} y={py(1) - 4} textAnchor="end" fontSize="8.5" fill="#34d399">target</text>
+        {/* paper's curve (baseline, dashed) */}
+        <path d={stepPath(HERO_BASE.wn, HERO_BASE.z)} fill="none" stroke="rgba(148,163,184,0.55)" strokeWidth="1.6" strokeDasharray="5 4" />
+        {/* your curve (live) */}
+        <path d={stepPath(wn, z)} fill="none" stroke="#38bdf8" strokeWidth="2.4" strokeLinejoin="round" />
+      </svg>
+
+      <div className="grid grid-cols-2 gap-x-5 gap-y-1 border-t border-white/10 bg-white/5 px-4 py-3">
+        {[
+          { key: "wn", sym: "ωn", label: "response speed", min: 0.8, max: 6, step: 0.05, val: wn, set: setWn },
+          { key: "z", sym: "ζ", label: "damping", min: 0.08, max: 0.95, step: 0.01, val: z, set: setZ },
+        ].map((s) => (
+          <label key={s.key} className="block">
+            <span className="flex items-baseline justify-between text-[10.5px]">
+              <span className="font-semibold text-slate-300"><span className="text-sky-400">{s.sym}</span> · {s.label}</span>
+              <span className="tabular-nums text-slate-400">{s.val.toFixed(2)}</span>
+            </span>
+            <input
+              type="range" min={s.min} max={s.max} step={s.step} value={s.val}
+              onChange={(e) => { s.set(+e.target.value); setTouched(true); }}
+              className="mt-1 w-full accent-sky-400"
+            />
+          </label>
+        ))}
+        <p className="col-span-2 mt-1 text-[11px] leading-snug text-slate-400">
+          {overshoot.toFixed(0)}% overshoot · settles in ~{settle.toFixed(1)} s
+          {modified
+            ? <> — dashed = the paper's reported tuning. <button onClick={() => { setWn(HERO_BASE.wn); setZ(HERO_BASE.z); }} className="font-semibold text-sky-400 hover:text-sky-300">reset</button></>
+            : " at the paper's own reported tuning. Every figure in every analysis works like this."}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 /* ---------------- landing page ---------------- */
 
 function Landing({
@@ -391,23 +488,23 @@ function Landing({
 
   return (
     <div className="flex min-h-screen flex-col" style={{ fontFamily: "system-ui, -apple-system, 'Segoe UI', sans-serif" }}>
-      <header className="border-b border-slate-200/70 bg-white/80 backdrop-blur">
-        <div className="mx-auto flex max-w-5xl items-center justify-between gap-2 px-4 py-4 sm:px-6">
-          <div className="flex items-center gap-2 text-sm font-semibold text-slate-800">
-            <FlaskConical size={18} className="text-blue-600" />
+      <header className="border-b border-white/10 bg-slate-950">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-2 px-4 py-4 sm:px-6">
+          <div className="flex items-center gap-2 text-sm font-semibold text-white" style={{ fontFamily: "'Sora', system-ui, sans-serif" }}>
+            <FlaskConical size={18} className="text-sky-400" />
             Interactive Paper Playground
           </div>
           <div className="flex items-center gap-2">
             <button
               onClick={onContact}
-              className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white/80 px-3 py-1.5 text-xs font-medium text-slate-600 hover:border-blue-300 hover:text-blue-700"
+              className="flex items-center gap-1.5 rounded-lg border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-medium text-slate-300 hover:border-white/30 hover:text-white"
             >
               <Mail size={14} /> Contact
             </button>
             {signedIn ? (
               <>
                 {owner ? (
-                  <span className="flex items-center gap-1.5 rounded-lg border border-violet-300 bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-700">
+                  <span className="flex items-center gap-1.5 rounded-lg border border-violet-400/40 bg-violet-500/15 px-3 py-1.5 text-xs font-semibold text-violet-200">
                     <Wallet size={14} /> Owner · unlimited
                   </span>
                 ) : (
@@ -415,7 +512,7 @@ function Landing({
                     <BalanceBadge balance={balance} />
                     <button
                       onClick={onBuyCredits}
-                      className="flex items-center gap-1.5 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 hover:border-emerald-400"
+                      className="flex items-center gap-1.5 rounded-lg border border-emerald-400/40 bg-emerald-500/15 px-3 py-1.5 text-xs font-medium text-emerald-200 hover:border-emerald-300/60"
                     >
                       <Wallet size={14} /> Add credit
                     </button>
@@ -423,13 +520,13 @@ function Landing({
                 )}
                 <button
                   onClick={onOpenLibrary}
-                  className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white/80 px-3 py-1.5 text-xs font-medium text-slate-600 hover:border-blue-300 hover:text-blue-700"
+                  className="flex items-center gap-1.5 rounded-lg border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-medium text-slate-300 hover:border-white/30 hover:text-white"
                 >
                   <BookMarked size={14} /> My papers
                 </button>
                 <button
                   onClick={onSignOut}
-                  className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white/80 px-3 py-1.5 text-xs font-medium text-slate-600 hover:border-slate-300"
+                  className="flex items-center gap-1.5 rounded-lg border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-medium text-slate-300 hover:border-white/30 hover:text-white"
                 >
                   <LogOut size={14} /> Sign out
                 </button>
@@ -438,13 +535,13 @@ function Landing({
               <>
                 <button
                   onClick={onSignIn}
-                  className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white/80 px-3 py-1.5 text-xs font-medium text-slate-600 hover:border-slate-300"
+                  className="flex items-center gap-1.5 rounded-lg border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-medium text-slate-300 hover:border-white/30 hover:text-white"
                 >
                   <LogIn size={14} /> Sign in
                 </button>
                 <button
                   onClick={onSignUp}
-                  className="flex items-center gap-1.5 rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-800"
+                  className="flex items-center gap-1.5 rounded-lg bg-white px-3.5 py-1.5 text-xs font-semibold text-slate-900 hover:bg-slate-200"
                 >
                   Sign up
                 </button>
@@ -458,45 +555,79 @@ function Landing({
        * Text/options at x:5% y:32px w:47.5% h:944px, video at x:59.5% y:72px
        * w:38% h:832px, both absolutely placed at lg+; single stacked column
        * below that (no arrange UI — this is now the permanent layout). */}
-      {/* ===================== HERO ===================== */}
+      {/* ===================== HERO — the product, live ===================== */}
       <main className="w-full">
-        <section className="border-b border-slate-200/70 bg-white">
-          <div className="mx-auto grid max-w-6xl items-center gap-12 px-5 py-14 sm:px-8 lg:grid-cols-[1.04fr_1fr] lg:py-20">
+        <section
+          className="relative overflow-hidden bg-slate-950"
+          style={{
+            backgroundImage:
+              "linear-gradient(rgba(148,163,184,0.055) 1px, transparent 1px), linear-gradient(90deg, rgba(148,163,184,0.055) 1px, transparent 1px)",
+            backgroundSize: "34px 34px",
+          }}
+        >
+          {/* ambient glows */}
+          <div aria-hidden className="pointer-events-none absolute -top-32 right-[8%] h-96 w-96 rounded-full bg-sky-500/15 blur-3xl" />
+          <div aria-hidden className="pointer-events-none absolute -bottom-40 left-[4%] h-96 w-96 rounded-full bg-violet-500/10 blur-3xl" />
+
+          <div className="relative mx-auto grid max-w-6xl items-center gap-12 px-5 pb-16 pt-14 sm:px-8 lg:grid-cols-[1fr_1.02fr] lg:pb-20 lg:pt-20">
             <div>
-              <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
-                <FlaskConical size={13} className="text-blue-600" /> Interactive Paper Playground
+              <span className="inline-flex items-center gap-2 rounded-full border border-sky-400/30 bg-sky-400/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-sky-300">
+                <Sparkles size={12} /> Not another chat window
               </span>
-              <h1 className="mt-5 text-4xl font-extrabold leading-[1.05] tracking-tight text-slate-900 sm:text-5xl">
-                The paper, rebuilt<br className="hidden sm:block" /> as something you can <span className="text-blue-600">play with.</span>
+              <h1
+                className="mt-6 text-[42px] font-extrabold leading-[1.02] tracking-tight text-white sm:text-6xl"
+                style={{ fontFamily: "'Sora', system-ui, sans-serif" }}
+              >
+                Stop reading<br />papers.<br />
+                <span className="bg-gradient-to-r from-sky-400 via-cyan-300 to-emerald-400 bg-clip-text text-transparent">Start playing them.</span>
               </h1>
-              <p className="mt-5 max-w-xl text-[15px] leading-relaxed text-slate-600">
-                Upload a scientific PDF and get its <strong className="text-slate-800">real figures recreated and reshaping under your cursor</strong>, its
-                method on sliders, and a tutor for every section. A chatbot gives you paragraphs about a
-                paper. This hands you the paper itself — visual, interactive, and grounded in its own numbers.
+              <p className="mt-6 max-w-md text-[15.5px] leading-relaxed text-slate-400">
+                Drop in a scientific PDF. Get back its <strong className="font-semibold text-slate-200">real figures — live and tunable</strong>,
+                its method on dials, a voice tutor on every section, and quizzes that make it stick.
+                That figure on the right isn't a picture. <strong className="font-semibold text-sky-300">Drag it.</strong>
               </p>
 
-              <div className="mt-7 flex flex-wrap items-center gap-3">
+              <div className="mt-8 flex flex-wrap items-center gap-3">
                 <button
                   onClick={() => (requireAuthToUpload ? onSignUp() : fileRef.current?.click())}
                   disabled={busy || (signedIn && balance !== null && balance <= 0)}
-                  className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:opacity-50"
+                  className="inline-flex items-center gap-2 rounded-xl bg-white px-6 py-3.5 text-sm font-bold text-slate-950 shadow-lg shadow-sky-500/10 transition hover:bg-sky-100 disabled:opacity-50"
                 >
                   <Upload size={16} /> Analyze a paper
                 </button>
                 <button
                   onClick={() => document.getElementById("examples")?.scrollIntoView({ behavior: "smooth" })}
-                  className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+                  className="inline-flex items-center gap-2 rounded-xl border border-white/20 bg-white/5 px-6 py-3.5 text-sm font-semibold text-white transition hover:border-white/40 hover:bg-white/10"
                 >
-                  <BookOpenCheck size={16} className="text-blue-600" /> Open a live example
+                  <BookOpenCheck size={16} className="text-sky-400" /> Open a live example
                 </button>
               </div>
-              <p className="mt-4 text-[12px] text-slate-400">
-                Free to try — new accounts get $1.00 of analysis credit. Ready-made examples need no sign-in.
+              <p className="mt-4 text-[12px] text-slate-500">
+                Free to try — $1.00 of analysis credit on signup · live examples need no account.
               </p>
             </div>
 
-            <div className="lg:pl-4">
-              <VideoShowcase />
+            <LiveHeroDemo />
+          </div>
+
+          {/* what your PDF becomes — transformation strip */}
+          <div className="relative border-t border-white/10 bg-white/[0.03]">
+            <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-center gap-x-2 gap-y-2 px-5 py-4 sm:px-8">
+              <span className="flex items-center gap-1.5 rounded-lg border border-white/15 bg-white/5 px-2.5 py-1.5 text-[11px] font-semibold text-slate-300">
+                <FileText size={12} className="text-slate-400" /> your PDF
+              </span>
+              <span className="px-1 text-slate-600">→</span>
+              {[
+                { icon: Sparkles, label: "the story, animated" },
+                { icon: LineChart, label: "figures, recreated live" },
+                { icon: SlidersHorizontal, label: "method on dials" },
+                { icon: Wand2, label: "voice tutor & quizzes" },
+                { icon: BookMarked, label: "flashcards that stick" },
+              ].map(({ icon: Icon, label }) => (
+                <span key={label} className="flex items-center gap-1.5 rounded-lg border border-sky-400/20 bg-sky-400/5 px-2.5 py-1.5 text-[11px] font-medium text-sky-200">
+                  <Icon size={12} className="text-sky-400" /> {label}
+                </span>
+              ))}
             </div>
           </div>
         </section>
@@ -505,7 +636,7 @@ function Landing({
         <section className="mx-auto max-w-6xl px-5 py-16 sm:px-8">
           <div className="mx-auto max-w-2xl text-center">
             <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-blue-600">Why not just ask a chatbot?</div>
-            <h2 className="mt-2 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
+            <h2 className="mt-2 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl" style={{ fontFamily: "'Sora', system-ui, sans-serif" }}>
               Because a paper isn't text. It's figures, methods and numbers.
             </h2>
             <p className="mt-3 text-[14px] leading-relaxed text-slate-500">
@@ -541,13 +672,26 @@ function Landing({
           </div>
         </section>
 
+        {/* ===================== WATCH A FULL ANALYSIS ===================== */}
+        <section className="border-t border-slate-200/70 bg-slate-50/60">
+          <div className="mx-auto max-w-4xl px-5 py-16 sm:px-8">
+            <div className="mx-auto mb-8 max-w-2xl text-center">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-blue-600">Two minutes, one real paper</div>
+              <h2 className="mt-2 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl" style={{ fontFamily: "'Sora', system-ui, sans-serif" }}>
+                Watch a full analysis, chapter by chapter
+              </h2>
+            </div>
+            <VideoShowcase />
+          </div>
+        </section>
+
         {/* ===================== TRY IT / EXAMPLES ===================== */}
         <section id="examples" className="border-t border-slate-200/70 bg-white">
           <div className="mx-auto max-w-6xl px-5 py-16 sm:px-8">
             <div className="grid gap-10 lg:grid-cols-[minmax(0,340px)_1fr] lg:items-start">
               {/* upload + options */}
               <div className="lg:sticky lg:top-6">
-                <h2 className="text-2xl font-bold tracking-tight text-slate-900">Try it now</h2>
+                <h2 className="text-2xl font-bold tracking-tight text-slate-900" style={{ fontFamily: "'Sora', system-ui, sans-serif" }}>Try it now</h2>
                 <p className="mt-1.5 text-[13.5px] leading-relaxed text-slate-500">
                   Bring your own paper, or open a ready-made example on the right — no sign-in needed for those.
                 </p>
