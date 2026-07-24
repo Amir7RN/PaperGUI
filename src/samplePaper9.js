@@ -45,6 +45,9 @@ const COST_COLORS = {
 };
 
 export const SAMPLE_SPEC_9 = {
+  // The paper's actual PDF, served from public/papers, so the reader can open
+  // the real document beside the interactive analysis (fancy in-app viewer).
+  paperPdf: `${BASE}papers/cost-power-gas.pdf`,
   meta: {
     title: "Cost-effective planning of decarbonized power-gas infrastructure to meet the challenges of heating electrification",
     authors: "R. Khorramfar, M. Santoni-Colvin, S. Amin, L. K. Norford, A. Botterud, D. Mallapragada",

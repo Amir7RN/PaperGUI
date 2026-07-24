@@ -122,3 +122,45 @@
   .pp-eq::after, .pp-provenance, .pp-float, .pp-ring { animation: none; }
   .pp-hero::after, .pp-orb, .pp-section-in { animation: none !important; }
 }
+
+/* ---- fancy PDF reader: real book-style page turn ----
+ * The stage keeps the destination page underneath; a single "leaf" (the page
+ * being turned) rotates around the spine. `--next` flips the outgoing page
+ * away to the left; `--prev` flips the incoming page in from the left. A soft
+ * gloss sweeps across the turning leaf to sell the paper curl. */
+.pdfr-perspective { perspective: 2200px; }
+.pdfr-shadow {
+  border-radius: 3px;
+  box-shadow: 0 24px 60px -18px rgba(0, 0, 0, 0.75), 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+.pdfr-leaf {
+  transform-origin: left center;
+  transform-style: preserve-3d;
+  backface-visibility: hidden;
+  will-change: transform;
+  overflow: hidden;
+}
+.pdfr-leaf--next { animation: pdfr-turn-next 0.62s cubic-bezier(0.4, 0.05, 0.3, 1) forwards; }
+.pdfr-leaf--prev { animation: pdfr-turn-prev 0.62s cubic-bezier(0.4, 0.05, 0.3, 1) forwards; }
+@keyframes pdfr-turn-next {
+  from { transform: rotateY(0deg); }
+  to   { transform: rotateY(-168deg); }
+}
+@keyframes pdfr-turn-prev {
+  from { transform: rotateY(-168deg); }
+  to   { transform: rotateY(0deg); }
+}
+/* moving gloss on the turning leaf */
+.pdfr-gloss {
+  position: absolute; inset: 0;
+  background: linear-gradient(105deg, rgba(0,0,0,0.28) 0%, rgba(255,255,255,0.12) 45%, rgba(0,0,0,0.0) 70%);
+  animation: pdfr-gloss 0.62s ease-out forwards;
+  pointer-events: none;
+}
+@keyframes pdfr-gloss {
+  from { opacity: 0.9; }
+  to   { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pdfr-leaf--next, .pdfr-leaf--prev, .pdfr-gloss { animation-duration: 0.01s; }
+}

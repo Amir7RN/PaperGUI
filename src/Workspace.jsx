@@ -25,6 +25,7 @@ import {
   ShieldCheck, Layers, RotateCw, Check as CheckIcon, GripVertical,
 } from "lucide-react";
 import SectionChat from "./SectionChat.jsx";
+import PdfReader from "./PdfReader.jsx";
 import ExplainerVideo from "./ExplainerVideo.jsx";
 import { buildExplainer } from "./narrate.js";
 import LayoutEditor from "./LayoutEditor.jsx";
@@ -252,7 +253,7 @@ const TONE_GRAD = {
   fuchsia: "from-fuchsia-500 to-purple-600",
 };
 
-function SectionHeader({ num, tone, icon: IconCmp, title, sub, onAsk }) {
+function SectionHeader({ num, tone, icon: IconCmp, title, sub, onAsk, onReadPaper }) {
   const t = SECTION_TONES[tone];
   const grad = TONE_GRAD[tone];
   return (
@@ -273,15 +274,26 @@ function SectionHeader({ num, tone, icon: IconCmp, title, sub, onAsk }) {
         <span className={`mt-1 block h-[3px] w-14 rounded-full bg-gradient-to-r ${grad}`} aria-hidden="true" />
         <p className="mt-1.5 leading-relaxed text-slate-500" style={{ fontSize: "calc(var(--sec-sub, 12px) * var(--box-font-scale, 1))" }}>{sub}</p>
       </div>
-      {onAsk && (
-        <button
-          onClick={onAsk}
-          title="Ask questions, get Socratically tutored, quiz yourself, or talk by voice — all about this section"
-          className="group mt-0.5 flex shrink-0 items-center gap-1.5 rounded-full bg-gradient-to-r from-indigo-500 to-violet-600 px-3.5 py-1.5 text-[11px] font-semibold text-white shadow-md transition hover:shadow-lg hover:brightness-110"
-        >
-          <GraduationCap size={13} className="transition-transform group-hover:-rotate-6" /> Tutor &amp; quiz
-        </button>
-      )}
+      <div className="flex shrink-0 items-center gap-2">
+        {onReadPaper && (
+          <button
+            onClick={onReadPaper}
+            title="Read the paper's own PDF alongside this section — page through the real document"
+            className="group mt-0.5 flex items-center gap-1.5 rounded-full border border-slate-300 bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-600 shadow-sm transition hover:border-slate-400 hover:text-slate-900"
+          >
+            <BookOpen size={13} className="text-cyan-600 transition-transform group-hover:scale-110" /> In the paper
+          </button>
+        )}
+        {onAsk && (
+          <button
+            onClick={onAsk}
+            title="Ask questions, get Socratically tutored, quiz yourself, or talk by voice — all about this section"
+            className="group mt-0.5 flex items-center gap-1.5 rounded-full bg-gradient-to-r from-indigo-500 to-violet-600 px-3.5 py-1.5 text-[11px] font-semibold text-white shadow-md transition hover:shadow-lg hover:brightness-110"
+          >
+            <GraduationCap size={13} className="transition-transform group-hover:-rotate-6" /> Tutor &amp; quiz
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -3614,6 +3626,8 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
   const [layout, setLayout] = useState(loadLayout);
   const [editorOpen, setEditorOpen] = useState(false);
   const [chatSection, setChatSection] = useState(null); // {sectionId, title} | null
+  const [pdfOpen, setPdfOpen] = useState(false);        // fancy real-PDF reader
+  const hasPdf = !!spec.paperPdf;
   const sec = useCallback((k) => sectionByKey(layout, k), [layout]);
 
   // free-form canvas ("PowerPoint mode")
@@ -3807,7 +3821,7 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
       const el = document.activeElement;
       const tag = el?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el?.isContentEditable) return;
-      if (free || chatSection || lightbox || infoKey || refsOpen || editorOpen || inspect || traceTarget != null) return;
+      if (free || chatSection || lightbox || infoKey || refsOpen || editorOpen || inspect || pdfOpen || traceTarget != null) return;
       const target = e.key === "ArrowRight" ? sections[activeIdx + 1] : sections[activeIdx - 1];
       if (target) { e.preventDefault(); selectSection(target.id); }
     };
@@ -3881,6 +3895,14 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
               >
                 <ArrowLeft size={14} /> Analyze another paper
               </button>
+              {hasPdf && (
+                <button
+                  onClick={() => setPdfOpen(true)}
+                  className="flex items-center gap-2 rounded-lg border border-cyan-400/40 bg-cyan-400/10 px-3 py-2 text-xs font-semibold text-cyan-200 shadow-sm backdrop-blur transition hover:border-cyan-300/70 hover:bg-cyan-400/20 hover:text-white"
+                >
+                  <BookOpen size={14} /> Read the full paper
+                </button>
+              )}
               <button
                 onClick={() => setRefsOpen(true)}
                 className="flex items-center gap-2 rounded-lg border border-white/12 bg-white/5 px-3 py-2 text-xs font-medium text-slate-200 shadow-sm backdrop-blur transition hover:border-cyan-400/40 hover:bg-white/10 hover:text-white"
@@ -3943,7 +3965,8 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
             <DesignBox key={s.id} id={s.boxId} label={s.boxLabel} mode="free" rect={layout.boxes[s.boxId]} onRect={setBox} register={registerBox}>
               <section aria-label={s.ariaLabel} data-section-id={s.id} data-section-title={sec(s.id).title}>
                 <SectionHeader num={i + 1} tone={s.tone} icon={s.icon} title={sec(s.id).title} sub={sec(s.id).sub}
-                  onAsk={() => setChatSection({ sectionId: s.id, title: sec(s.id).title })} />
+                  onAsk={() => setChatSection({ sectionId: s.id, title: sec(s.id).title })}
+                  onReadPaper={hasPdf ? () => setPdfOpen(true) : undefined} />
                 {s.content}
               </section>
             </DesignBox>
@@ -3965,7 +3988,8 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
                 <DesignBox key={activeS.id} id={activeS.boxId} label={activeS.boxLabel} mode="flow" rect={layout.boxes[activeS.boxId]} onRect={setBox} register={registerBox}>
                   <section className="pp-section-in" aria-label={activeS.ariaLabel} data-section-id={activeS.id} data-section-title={sec(activeS.id).title}>
                     <SectionHeader num={activeIdx + 1} tone={activeS.tone} icon={activeS.icon} title={sec(activeS.id).title} sub={sec(activeS.id).sub}
-                      onAsk={() => setChatSection({ sectionId: activeS.id, title: sec(activeS.id).title })} />
+                      onAsk={() => setChatSection({ sectionId: activeS.id, title: sec(activeS.id).title })}
+                      onReadPaper={hasPdf ? () => setPdfOpen(true) : undefined} />
                     {activeS.content}
                   </section>
                 </DesignBox>
@@ -3979,6 +4003,9 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
 
       <SelectionExplain onAsk={setChatSection} />
       <SectionChat spec={spec} open={chatSection} onClose={() => setChatSection(null)} />
+      {hasPdf && (
+        <PdfReader url={spec.paperPdf} title={spec.meta?.title} open={pdfOpen} onClose={() => setPdfOpen(false)} />
+      )}
 
       <InfoModal block={infoBlock} onClose={() => setInfoKey(null)} />
       <ReferencesDrawer references={spec.references} open={refsOpen} onClose={() => setRefsOpen(false)} />

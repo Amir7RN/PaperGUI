@@ -24,6 +24,29 @@ export async function fileToBase64(file) {
 const clamp01 = (v) => Math.max(0, Math.min(1, v));
 
 /**
+ * Open a PDF for the in-app reader. `src` is a URL string (served asset) or an
+ * ArrayBuffer. Returns the pdf.js document proxy (has `.numPages`).
+ */
+export async function loadPdfDoc(src) {
+  const params = typeof src === "string" ? { url: src } : { data: src };
+  return pdfjsLib.getDocument(params).promise;
+}
+
+/**
+ * Render one page of an already-opened document to a JPEG data URL at the given
+ * scale. Returns { dataUrl, width, height } (pixel size of the rendered image).
+ */
+export async function renderPdfPage(doc, pageNo, scale = 1.5) {
+  const page = await doc.getPage(pageNo);
+  const viewport = page.getViewport({ scale });
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.ceil(viewport.width);
+  canvas.height = Math.ceil(viewport.height);
+  await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
+  return { dataUrl: canvas.toDataURL("image/jpeg", 0.9), width: canvas.width, height: canvas.height };
+}
+
+/**
  * Render figure regions out of a PDF.
  * items: [{ page (1-indexed), bbox?: {x,y,w,h} in page fractions, top-left origin }]
  * Returns an array of dataURL|null aligned with items. A valid bbox yields a

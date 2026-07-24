@@ -14,3 +14,9 @@ playground/
 
 # local paper source folders (PDFs + raw supplementary data; crops and extracted data are committed instead)
 papers/
+
+# …except sample papers served to the reader (fancy in-app PDF viewer).
+# Both the directory and the *.pdf rule above must be negated for git to
+# re-include a file whose parent dir is otherwise ignored.
+!public/papers/
+!public/papers/*.pdf
