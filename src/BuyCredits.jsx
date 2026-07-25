@@ -1,15 +1,23 @@
 /**
- * "Add credit" modal — manual Venmo / Cash App / card top-up.
+ * "Add credit" modal — buy papers, not dollars.
+ *
+ * A dollar amount tells a reader nothing; "2 Advanced + 1 Standard = $7.50"
+ * tells them exactly what they're buying. They pick how many papers of each
+ * analysis level they want, see the price update live, and pay.
  *
  * Buttons deep-link to the owner's hosted pay pages; the handle lives only in
- * the link URL, never shown as text. The buyer puts their ACCOUNT EMAIL in the
- * payment note so the owner can match the payment and add credit manually
- * (one SQL statement, see README). No card data or payment API touches this site.
+ * the link URL, never shown as text. The buyer puts their ACCOUNT EMAIL plus a
+ * short pack code (e.g. "ADV2-STD1") in the payment note, so the owner can
+ * match the payment and grant the matching balance (one SQL statement, see
+ * README). No card data or payment API touches this site.
  */
 
-import React, { useState } from "react";
-import { X, Wallet, Copy, Check, CircleDollarSign, CreditCard } from "lucide-react";
-import { PAYMENT, paymentsConfigured, venmoLink, cashappLink, cardLink } from "./payments.js";
+import React, { useMemo, useState } from "react";
+import { X, Wallet, Copy, Check, CircleDollarSign, CreditCard, Minus, Plus, Mic, Bot } from "lucide-react";
+import {
+  PAYMENT, paymentsConfigured, venmoLink, cashappLink, cardLink,
+  PAPER_PACKS, MIN_TOPUP, packTotals, packNote,
+} from "./payments.js";
 
 function EmailChip({ text }) {
   const [copied, setCopied] = useState(false);
@@ -38,9 +46,15 @@ const CashMark = () => (
 );
 
 export default function BuyCredits({ onClose, email }) {
-  const [amount, setAmount] = useState(PAYMENT.amounts?.[1] ?? 10);
+  const [counts, setCounts] = useState({ advanced: 1, standard: 0, basic: 0, fast: 0 });
+  const totals = useMemo(() => packTotals(counts), [counts]);
+  const code = packNote(counts);
+  const amount = totals.charge;
 
-  const note = email || "";
+  const bump = (id, d) =>
+    setCounts((c) => ({ ...c, [id]: Math.max(0, Math.min(20, (c[id] || 0) + d)) }));
+
+  const note = [email, code].filter(Boolean).join(" · ");
   const venmo = venmoLink(amount, note);
   const cash = cashappLink(amount);
   const card = cardLink(amount);
@@ -75,7 +89,7 @@ export default function BuyCredits({ onClose, email }) {
           </div>
           <div>
             <h2 className="text-base font-bold text-slate-900">Add analysis credit</h2>
-            <p className="text-xs text-slate-500">$1 ≈ one Advanced paper.</p>
+            <p className="text-xs text-slate-500">Buy papers, not dollars — pick what you need.</p>
           </div>
         </div>
 
@@ -86,37 +100,75 @@ export default function BuyCredits({ onClose, email }) {
         ) : (
           <>
             <div className="mb-4">
-              <div className="mb-1.5 text-xs font-semibold text-slate-600">1 · Choose an amount</div>
-              <div className="flex gap-2">
-                {(PAYMENT.amounts || [5, 10, 20]).map((a) => (
-                  <button
-                    key={a}
-                    onClick={() => setAmount(a)}
-                    className={`flex-1 rounded-xl border-2 px-3 py-2 text-sm font-bold transition ${
-                      amount === a
-                        ? "border-emerald-500 bg-emerald-50 text-emerald-700"
-                        : "border-slate-200 bg-white text-slate-600 hover:border-emerald-300"
-                    }`}
-                  >
-                    ${a}
-                  </button>
-                ))}
+              <div className="mb-1.5 text-xs font-semibold text-slate-600">1 · How many papers, at which level?</div>
+              <div className="space-y-1.5">
+                {PAPER_PACKS.map((p) => {
+                  const n = counts[p.id] || 0;
+                  return (
+                    <div key={p.id}
+                      className={`flex items-center gap-3 rounded-xl border-2 px-3 py-2 transition ${
+                        n > 0 ? "border-emerald-400 bg-emerald-50/60" : "border-slate-200 bg-white"
+                      }`}>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-baseline gap-1.5">
+                          <span className="text-[13px] font-bold text-slate-900">{p.label}</span>
+                          <span className="text-[11px] font-semibold text-slate-400">${p.price.toFixed(2)} / paper</span>
+                        </div>
+                        <div className="truncate text-[11px] text-slate-500">{p.blurb}</div>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-1">
+                        <button onClick={() => bump(p.id, -1)} disabled={n === 0} aria-label={`One fewer ${p.label} paper`}
+                          className="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition hover:border-slate-400 disabled:opacity-30">
+                          <Minus size={13} />
+                        </button>
+                        <span className="w-6 text-center text-[14px] font-bold tabular-nums text-slate-900">{n}</span>
+                        <button onClick={() => bump(p.id, 1)} aria-label={`One more ${p.label} paper`}
+                          className="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition hover:border-emerald-400 hover:text-emerald-600">
+                          <Plus size={13} />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
+
+              <div className="mt-2.5 flex items-baseline justify-between rounded-xl bg-slate-900 px-3.5 py-2.5">
+                <span className="text-[12px] font-medium text-slate-300">
+                  {totals.papers > 0
+                    ? <>{totals.papers} paper{totals.papers === 1 ? "" : "s"}{totals.extra > 0 ? <span className="text-slate-500"> · ${MIN_TOPUP} minimum</span> : null}</>
+                    : "Pick at least one paper"}
+                </span>
+                <span className="text-[19px] font-extrabold tabular-nums text-white">${totals.charge.toFixed(2)}</span>
+              </div>
+              {totals.extra > 0 && totals.papers > 0 && (
+                <p className="mt-1.5 text-[10.5px] leading-relaxed text-slate-500">
+                  Card and app fees make smaller top-ups uneconomic, so ${MIN_TOPUP} is the minimum —
+                  the extra ${totals.extra.toFixed(2)} isn't lost, it stays on your account as credit.
+                </p>
+              )}
+              <p className="mt-1.5 flex items-start gap-1.5 text-[10.5px] leading-relaxed text-slate-500">
+                <Mic size={11} className="mt-0.5 shrink-0 text-slate-400" />
+                <span>
+                  Each paper includes its narrated walkthroughs
+                  <Bot size={11} className="mx-1 inline-block -translate-y-px text-slate-400" />
+                  and the section tutor &amp; quizzes. Credit is metered against real usage and never expires.
+                </span>
+              </p>
             </div>
 
             <div className="mb-4">
               <div className="mb-1.5 text-xs font-semibold text-slate-600">
-                2 · Add your account email as the payment note
+                2 · Put this in the payment note
               </div>
-              <div className="flex items-center justify-between gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2.5">
-                <span className="text-[11px] text-blue-800">This is how your payment finds your account</span>
-                {email ? <EmailChip text={email} /> : <span className="text-xs text-blue-800">your sign-in email</span>}
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2.5">
+                <span className="text-[11px] text-blue-800">How your payment finds your account</span>
+                {note ? <EmailChip text={note} /> : <span className="text-xs text-blue-800">your sign-in email</span>}
               </div>
             </div>
 
             <div className="mb-3">
-              <div className="mb-1.5 text-xs font-semibold text-slate-600">3 · Pay</div>
-              <div className="space-y-2">
+              <div className="mb-1.5 text-xs font-semibold text-slate-600">3 · Pay ${totals.charge.toFixed(2)}</div>
+              <div className={`space-y-2 ${totals.papers === 0 ? "pointer-events-none opacity-40" : ""}`}>
                 {methods.map((m) => (
                   <a
                     key={m.key}
@@ -134,9 +186,9 @@ export default function BuyCredits({ onClose, email }) {
             <div className="flex items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-[11px] leading-relaxed text-emerald-800">
               <CircleDollarSign size={14} className="mt-0.5 shrink-0" />
               <span>
-                Your <strong>${amount}.00</strong> of credit is applied manually,
+                Credit for <strong>{totals.papers || 0} paper{totals.papers === 1 ? "" : "s"}</strong> is applied manually,
                 usually {PAYMENT.turnaround} — it appears in the balance badge on this page.
-                Make sure your account email is in the note.
+                Make sure your account email{code ? <> and <strong>{code}</strong></> : null} are in the note.
               </span>
             </div>
           </>

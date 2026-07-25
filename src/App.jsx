@@ -612,8 +612,12 @@ function Landing({
         </section>
 
         {/* ===================== TRY IT ===================== */}
+        {/* This is the page's job — bring a paper, or open one. It's rendered a
+            third larger than everything else so it reads as the main event.
+            `zoom` (not transform: scale) so the block still reflows and can't
+            overflow the viewport on a phone. */}
         <section id="examples" className="pp-scene border-t border-slate-200/70 bg-white">
-          <div className="mx-auto max-w-3xl px-5 py-16 sm:px-8">
+          <div className="mx-auto max-w-3xl px-5 py-16 sm:px-8" style={{ zoom: 1.3 }}>
             <div className="mx-auto max-w-xl">
               <h2 className="pp-text-depth text-2xl font-bold tracking-tight text-slate-900" style={{ fontFamily: "'Sora', system-ui, sans-serif" }}>Try it now</h2>
               <p className="mt-1.5 text-[13.5px] leading-relaxed text-slate-500">
