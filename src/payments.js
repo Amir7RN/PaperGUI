@@ -1,12 +1,22 @@
 /**
- * Manual top-up configuration.
+ * Buying credit.
  *
- * Venmo / Cash App / PayPal have no public API a static site could safely use,
- * so top-ups are manual: the buyer pays via a deep link (their handle is only
- * ever inside the link URL, never shown on the page) and puts their account
- * email in the payment note, then the owner adds credit with one SQL statement
+ * Card payments go through Stripe Checkout: `startCheckout` asks the
+ * create-checkout edge function to price the basket and open a hosted Stripe
+ * page, and credit lands automatically when Stripe confirms the payment.
+ * No card details, and no price the buyer could tamper with, exist on this
+ * site — the server prices the basket from the same shared table the UI
+ * renders (supabase/functions/_shared/packs.js).
+ *
+ * Venmo / Cash App / PayPal remain as a manual fallback for anyone who'd
+ * rather not use a card: the buyer pays via a deep link (the handle lives only
+ * inside the link URL, never as visible text) and puts their account email and
+ * pack code in the payment note, then the owner grants the credit by hand
  * (README → Operational notes → "Selling credit").
  */
+import { getAccessToken, functionsUrl, supabaseAnonKey } from "./supabase.js";
+import { PAPER_PACKS, MIN_TOPUP, packTotals, packNote, packDescription } from "../supabase/functions/_shared/packs.js";
+
 export const PAYMENT = {
   // Handles are used ONLY to build the pay links below — never rendered as
   // visible text. Leave a field "" to hide that button.
@@ -19,65 +29,7 @@ export const PAYMENT = {
   turnaround: "within a few hours",
 };
 
-/**
- * Credit is sold in PAPERS, not dollars — "$10" tells a reader nothing, "3
- * Advanced papers" tells them exactly what they get.
- *
- *  price — what the buyer pays for one paper at that level.
- *  grant — USD of analysis balance to put on the account per paper. The
- *          balance is metered against REAL model usage (see
- *          analyze-paper/index.ts), so this is a measured typical cost with
- *          headroom for a long paper plus that paper's narration and tutor
- *          chat. Measured mid-2026 on ~12–20 page papers:
- *            Advanced (Opus 4.8, 3 phases)  ≈ $1.20   → grant 1.60
- *            Standard (Sonnet 5)            ≈ $0.60   → grant 0.85
- *            Basic    (Sonnet 4.6)          ≈ $0.40   → grant 0.55
- *            Fast     (Haiku 4.5)           ≈ $0.15   → grant 0.25
- *          Voice-over (OpenAI tts-1, $15/M chars, cached per line) adds
- *          ≈ $0.03–0.18 per paper; tutor chat (Haiku 4.5, capped context and
- *          700-token replies) ≈ $0.01 per exchange. Both are inside the grant.
- */
-export const PAPER_PACKS = [
-  { id: "advanced", label: "Advanced", price: 3.0, grant: 1.6,  code: "ADV", blurb: "dense, math-heavy papers" },
-  { id: "standard", label: "Standard", price: 1.5, grant: 0.85, code: "STD", blurb: "the recommended default" },
-  { id: "basic",    label: "Basic",    price: 1.0, grant: 0.55, code: "BAS", blurb: "straightforward papers" },
-  { id: "fast",     label: "Fast",     price: 0.5, grant: 0.25, code: "FST", blurb: "quick skim, long PDFs" },
-];
-
-/** Card/Venmo fees make anything under this uneconomic to process. */
-export const MIN_TOPUP = 5;
-
-/** counts: { advanced: 2, standard: 1, … } → what to charge and what to grant. */
-export function packTotals(counts) {
-  let papers = 0, list = 0, grant = 0;
-  for (const p of PAPER_PACKS) {
-    const n = Math.max(0, Math.floor(counts?.[p.id] || 0));
-    if (!n) continue;
-    papers += n;
-    list += n * p.price;
-    grant += n * p.grant;
-  }
-  // Below the minimum the buyer still pays MIN_TOPUP; the difference isn't
-  // pocketed — it rides along as extra balance.
-  const charge = papers === 0 ? 0 : Math.max(MIN_TOPUP, Math.ceil(list * 2) / 2);
-  const extra = charge - list;
-  return {
-    papers,
-    list: +list.toFixed(2),
-    charge: +charge.toFixed(2),
-    // Extra paid over the list price is granted too, at the Standard rate.
-    grant: +(grant + (extra > 0 ? (extra / 1.5) * 0.85 : 0)).toFixed(2),
-    extra: +extra.toFixed(2),
-  };
-}
-
-/** Short code for the payment note, e.g. "ADV2-STD1" — tells the owner what to grant. */
-export function packNote(counts) {
-  return PAPER_PACKS
-    .map((p) => { const n = Math.max(0, Math.floor(counts?.[p.id] || 0)); return n ? `${p.code}${n}` : null; })
-    .filter(Boolean)
-    .join("-");
-}
+export { PAPER_PACKS, MIN_TOPUP, packTotals, packNote, packDescription };
 
 export const paymentsConfigured = Boolean(PAYMENT.venmo || PAYMENT.cashapp || PAYMENT.paypal);
 
@@ -99,8 +51,47 @@ export function cashappLink(amount) {
   return `https://cash.app/$${PAYMENT.cashapp}/${amount}`;
 }
 
-/** PayPal.me link — the debit/credit-card route (guest checkout, no account). */
+/** PayPal.me link — the manual debit/credit-card fallback (guest checkout). */
 export function cardLink(amount) {
   if (!PAYMENT.paypal) return null;
   return `https://www.paypal.com/paypalme/${PAYMENT.paypal}/${amount}`;
+}
+
+/* ---------------- Stripe Checkout (the primary path) ---------------- */
+
+/** Card checkout is available when the site has a backend to price it. */
+export const stripeConfigured = Boolean(functionsUrl);
+
+/**
+ * Hand the basket to the server, get back a Stripe-hosted checkout URL, go
+ * there. The amount is decided server-side; this only says WHAT was picked.
+ * Throws an Error with a user-readable message on failure.
+ */
+export async function startCheckout(counts) {
+  if (!functionsUrl) throw new Error("Card payments aren't configured on this deployment.");
+
+  const token = await getAccessToken();
+  if (!token) {
+    const e = new Error("Sign in (free) to add credit.");
+    e.code = "auth";
+    throw e;
+  }
+
+  const res = await fetch(`${functionsUrl}/create-checkout`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+      apikey: supabaseAnonKey,
+    },
+    body: JSON.stringify({ counts }),
+  });
+
+  let data = null;
+  try { data = await res.json(); } catch { /* non-JSON error body */ }
+  if (!res.ok || !data?.url) {
+    throw new Error(data?.error || `Could not start checkout (${res.status}).`);
+  }
+  window.location.assign(data.url);
+  return data;
 }

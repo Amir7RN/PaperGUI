@@ -744,7 +744,11 @@ export default function App() {
   const [authReady, setAuthReady] = useState(!authEnabled);
   const [authOpen, setAuthOpen] = useState(null); // null | "signin" | "signup"
   const [libraryOpen, setLibraryOpen] = useState(false);
-  const [buyOpen, setBuyOpen] = useState(false);
+  // ?buy=1 opens the top-up modal directly — dev only, so the money path can be
+  // worked on without signing in and spending a real balance.
+  const [buyOpen, setBuyOpen] = useState(
+    () => import.meta.env.DEV && new URLSearchParams(window.location.search).get("buy") === "1"
+  );
   const [contactOpen, setContactOpen] = useState(false);
   useEffect(() => {
     if (!authEnabled) return;
@@ -760,6 +764,30 @@ export default function App() {
     if (!session) { setBalance(null); return; }
     getBalance().then(setBalance);
   }, [session]);
+
+  // Back from Stripe. The credit is granted by the webhook, which can land a
+  // second or two after the browser returns — so poll the balance briefly
+  // rather than showing a stale number, and clean the marker out of the URL.
+  const [paidNote, setPaidNote] = useState(null);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const paid = params.get("paid");
+    if (paid === null) return;
+    window.history.replaceState({}, "", window.location.pathname);
+    if (paid !== "1") return;
+    setPaidNote("Payment received — adding your credit…");
+    let tries = 0;
+    const tick = async () => {
+      const b = await getBalance();
+      setBalance(b);
+      if (++tries >= 6) { setPaidNote(null); return; }
+      window.setTimeout(tick, 1500);
+    };
+    tick();
+    const done = window.setTimeout(() => setPaidNote("Credit added — you're ready to analyze."), 3000);
+    const hide = window.setTimeout(() => setPaidNote(null), 9000);
+    return () => { window.clearTimeout(done); window.clearTimeout(hide); };
+  }, []);
 
   const handleTier = useCallback((t) => {
     setTier(t);
@@ -917,6 +945,14 @@ export default function App() {
   const contactModal = contactOpen && (
     <ContactModal onClose={() => setContactOpen(false)} prefillEmail={session?.user?.email} />
   );
+  // Back-from-Stripe confirmation — shown over whatever the reader is on.
+  const paidToast = paidNote && (
+    <div className="pp-rise fixed bottom-5 left-1/2 z-[90] -translate-x-1/2">
+      <div className="flex items-center gap-2 rounded-full border border-emerald-300 bg-emerald-600 px-4 py-2.5 text-[12.5px] font-semibold text-white shadow-2xl">
+        <Wallet size={14} /> {paidNote}
+      </div>
+    </div>
+  );
 
   if (spec) {
     return (
@@ -932,6 +968,7 @@ export default function App() {
         {libraryModal}
         {buyModal}
         {contactModal}
+        {paidToast}
       </>
     );
   }
@@ -966,6 +1003,7 @@ export default function App() {
       {libraryModal}
       {buyModal}
       {contactModal}
+      {paidToast}
     </>
   );
 }

@@ -152,19 +152,66 @@ The analyzer already splits each run into three shorter phases to fit, but the
   Anthropic org has fast-mode access; without it the API returns a 429
   (`0 fast mode input tokens per minute`). It is not enabled here.
 
+### 5. Card payments (Stripe Checkout)
+
+Credit is sold in **papers**, not dollars. Prices and the balance each paper
+grants live in one place — `supabase/functions/_shared/packs.js` — imported by
+both the browser (to render) and the checkout function (to charge). A tampered
+client cannot change the price.
+
+```bash
+supabase functions deploy create-checkout
+supabase functions deploy stripe-webhook --no-verify-jwt   # Stripe has no Supabase JWT
+
+supabase secrets set STRIPE_SECRET_KEY=sk_test_...        # sk_live_... when you go live
+supabase secrets set SITE_URL=https://<your-site>          # where Stripe returns the buyer
+```
+
+Then in the **Stripe dashboard → Developers → Webhooks → Add endpoint**:
+
+- URL: `https://<project-ref>.supabase.co/functions/v1/stripe-webhook`
+- Event: `checkout.session.completed`
+- Copy the signing secret (`whsec_…`) and set it:
+  ```bash
+  supabase secrets set STRIPE_WEBHOOK_SECRET=whsec_...
+  ```
+
+Also apply `supabase/migrations/20260725000000_purchases.sql` (the `purchases`
+ledger and the atomic `add_credit` function).
+
+**How it hangs together.** The browser says *what* it wants (2 Advanced + 1
+Standard); `create-checkout` prices it, creates a Stripe Checkout Session with
+`metadata.grant_usd`, and returns Stripe's hosted URL. Card details are entered
+on Stripe's page and never touch this site (PCI SAQ-A). When the payment
+confirms, Stripe calls `stripe-webhook`, which verifies the HMAC signature,
+records the session id in `purchases` (unique — so Stripe's at-least-once
+retries can't grant twice), and calls `add_credit`. **Credit is only ever
+granted by that webhook** — never by the browser, so closing the tab mid-payment
+can't self-grant.
+
+Test end-to-end before going live: `stripe listen --forward-to
+https://<project-ref>.supabase.co/functions/v1/stripe-webhook`, pay with card
+`4242 4242 4242 4242`, any future expiry, any CVC.
+
+Stripe takes **2.9% + $0.30** per card charge — the reason `MIN_TOPUP` is $5
+(that fixed 30¢ is 20% of a $1.50 sale). Payouts to your bank start after Stripe
+onboarding (business details, tax ID, bank account) and run on a rolling ~2-day
+schedule.
+
 ### Operational notes
 
-- **Selling credit (manual Venmo / Cash App flow):** fill in your handles in
-  `src/payments.js` (they're empty by default, which hides the option) and push.
-  The **Add credit** button then shows buyers your handle and tells them to put
-  their account email in the payment note. When a payment arrives, apply it:
+- **Manual top-ups (Venmo / Cash App / PayPal)** stay as a fallback for anyone
+  who'd rather not use a card — the modal folds them away under the card button.
+  Handles live in `src/payments.js` (blank hides the option). The buyer puts
+  their account email and a pack code (e.g. `ADV2-STD1`) in the payment note;
+  apply it with:
   ```sql
-  update public.credits set balance_usd = balance_usd + 10.00
+  update public.credits set balance_usd = balance_usd + 4.05
   where user_id = (select id from auth.users where email = 'buyer@example.com');
   ```
-  Price your margin into the amounts (e.g. sell $10 of "credit" that costs you
-  ~$7 of Anthropic usage). Later, replace with Stripe Payment Links if you want
-  it automated.
+  The amount to grant is the pack's `grant` total from `_shared/packs.js`
+  (`ADV2-STD1` = 2×1.60 + 1×0.85 = 4.05), not what they paid — the balance is
+  metered against real model spend, and the difference is the margin.
 - **Top up or reset a user's balance:** in the SQL Editor,
   `update public.credits set balance_usd = 1.00 where user_id = '<uuid>';`
   (find the uuid via `select id, email from auth.users where email = '...';`).

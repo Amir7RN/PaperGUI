@@ -13,10 +13,13 @@
  */
 
 import React, { useMemo, useState } from "react";
-import { X, Wallet, Copy, Check, CircleDollarSign, CreditCard, Minus, Plus, Mic, Bot } from "lucide-react";
+import {
+  X, Wallet, Copy, Check, CircleDollarSign, CreditCard, Minus, Plus, Mic, Bot,
+  Loader2, ShieldCheck, ChevronDown,
+} from "lucide-react";
 import {
   PAYMENT, paymentsConfigured, venmoLink, cashappLink, cardLink,
-  PAPER_PACKS, MIN_TOPUP, packTotals, packNote,
+  PAPER_PACKS, MIN_TOPUP, packTotals, packNote, startCheckout, stripeConfigured,
 } from "./payments.js";
 
 function EmailChip({ text }) {
@@ -51,8 +54,26 @@ export default function BuyCredits({ onClose, email }) {
   const code = packNote(counts);
   const amount = totals.charge;
 
+  const [payErr, setPayErr] = useState(null);
+  const [redirecting, setRedirecting] = useState(false);
+  // With no backend configured (local dev, or a static deploy) card checkout
+  // can't work — so lead with the manual routes instead of an empty step.
+  const [showManual, setShowManual] = useState(!stripeConfigured);
+
   const bump = (id, d) =>
     setCounts((c) => ({ ...c, [id]: Math.max(0, Math.min(20, (c[id] || 0) + d)) }));
+
+  const payByCard = async () => {
+    if (!totals.papers || redirecting) return;
+    setPayErr(null);
+    setRedirecting(true);
+    try {
+      await startCheckout(counts);   // navigates away on success
+    } catch (e) {
+      setPayErr(e?.message || "Could not start checkout.");
+      setRedirecting(false);
+    }
+  };
 
   const note = [email, code].filter(Boolean).join(" · ");
   const venmo = venmoLink(amount, note);
@@ -62,7 +83,7 @@ export default function BuyCredits({ onClose, email }) {
   const methods = [
     venmo && { key: "venmo", label: "Pay with Venmo", href: venmo, cls: "border-[#008CFF] bg-[#008CFF] text-white hover:brightness-95", icon: <VenmoMark /> },
     cash && { key: "cashapp", label: "Pay with Cash App", href: cash, cls: "border-[#00D632] bg-[#00D632] text-white hover:brightness-95", icon: <CashMark /> },
-    card && { key: "card", label: "Pay with debit / credit card", href: card, cls: "border-slate-300 bg-white text-slate-800 hover:border-slate-400", icon: <CreditCard size={16} /> },
+    card && { key: "card", label: "Pay with PayPal", href: card, cls: "border-slate-300 bg-white text-slate-800 hover:border-slate-400", icon: <CreditCard size={16} /> },
   ].filter(Boolean);
 
   return (
@@ -93,7 +114,7 @@ export default function BuyCredits({ onClose, email }) {
           </div>
         </div>
 
-        {!paymentsConfigured ? (
+        {!paymentsConfigured && !stripeConfigured ? (
           <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-6 text-center text-sm text-amber-800">
             Payments aren't set up yet — contact the site owner to add credit to your account.
           </div>
@@ -156,41 +177,82 @@ export default function BuyCredits({ onClose, email }) {
               </p>
             </div>
 
-            <div className="mb-4">
-              <div className="mb-1.5 text-xs font-semibold text-slate-600">
-                2 · Put this in the payment note
-              </div>
-              <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2.5">
-                <span className="text-[11px] text-blue-800">How your payment finds your account</span>
-                {note ? <EmailChip text={note} /> : <span className="text-xs text-blue-800">your sign-in email</span>}
-              </div>
-            </div>
-
+            {/* Card is the whole flow: Stripe's hosted page, credit granted
+                the moment the payment confirms. */}
             <div className="mb-3">
-              <div className="mb-1.5 text-xs font-semibold text-slate-600">3 · Pay ${totals.charge.toFixed(2)}</div>
-              <div className={`space-y-2 ${totals.papers === 0 ? "pointer-events-none opacity-40" : ""}`}>
-                {methods.map((m) => (
-                  <a
-                    key={m.key}
-                    href={m.href}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className={`flex items-center justify-center gap-2 rounded-xl border-2 px-4 py-2.5 text-sm font-semibold shadow-sm transition ${m.cls}`}
+              <div className="mb-1.5 text-xs font-semibold text-slate-600">2 · Pay</div>
+              {stripeConfigured ? (
+                <>
+                  <button
+                    onClick={payByCard}
+                    disabled={!totals.papers || redirecting}
+                    className="flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-3 text-sm font-bold text-white shadow-lg shadow-indigo-600/25 transition hover:bg-indigo-500 disabled:opacity-40"
                   >
-                    {m.icon} {m.label}
-                  </a>
-                ))}
-              </div>
+                    {redirecting
+                      ? <><Loader2 size={16} className="animate-spin" /> Opening secure checkout…</>
+                      : <><CreditCard size={16} /> Pay ${totals.charge.toFixed(2)} by card</>}
+                  </button>
+                  <p className="mt-1.5 flex items-start gap-1.5 text-[10.5px] leading-relaxed text-slate-500">
+                    <ShieldCheck size={11} className="mt-0.5 shrink-0 text-slate-400" />
+                    <span>
+                      Card details are entered on Stripe's own page — they never reach this site.
+                      Credit lands on your account as soon as the payment confirms.
+                    </span>
+                  </p>
+                </>
+              ) : (
+                <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-[11.5px] leading-relaxed text-slate-600">
+                  Card checkout isn't available on this deployment — use one of the options below.
+                </div>
+              )}
+              {payErr && (
+                <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11.5px] leading-snug text-amber-800">
+                  {payErr}
+                </div>
+              )}
             </div>
 
-            <div className="flex items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-[11px] leading-relaxed text-emerald-800">
-              <CircleDollarSign size={14} className="mt-0.5 shrink-0" />
-              <span>
-                Credit for <strong>{totals.papers || 0} paper{totals.papers === 1 ? "" : "s"}</strong> is applied manually,
-                usually {PAYMENT.turnaround} — it appears in the balance badge on this page.
-                Make sure your account email{code ? <> and <strong>{code}</strong></> : null} are in the note.
-              </span>
-            </div>
+            {/* Manual routes, folded away — they need the owner in the loop. */}
+            {methods.length > 0 && (
+              <div className="border-t border-slate-100 pt-3">
+                <button
+                  onClick={() => setShowManual((s) => !s)}
+                  className="flex w-full items-center justify-between text-[11.5px] font-semibold text-slate-500 hover:text-slate-700"
+                >
+                  <span>Rather not use a card? Venmo, Cash App or PayPal</span>
+                  <ChevronDown size={14} className={`transition ${showManual ? "rotate-180" : ""}`} />
+                </button>
+
+                {showManual && (
+                  <div className="mt-2.5 space-y-2.5">
+                    <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2.5">
+                      <span className="text-[11px] text-blue-800">Put this in the payment note</span>
+                      {note ? <EmailChip text={note} /> : <span className="text-xs text-blue-800">your sign-in email</span>}
+                    </div>
+                    <div className={`space-y-2 ${totals.papers === 0 ? "pointer-events-none opacity-40" : ""}`}>
+                      {methods.map((m) => (
+                        <a
+                          key={m.key}
+                          href={m.href}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className={`flex items-center justify-center gap-2 rounded-xl border-2 px-4 py-2.5 text-sm font-semibold shadow-sm transition ${m.cls}`}
+                        >
+                          {m.icon} {m.label} · ${totals.charge.toFixed(2)}
+                        </a>
+                      ))}
+                    </div>
+                    <div className="flex items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-[11px] leading-relaxed text-emerald-800">
+                      <CircleDollarSign size={14} className="mt-0.5 shrink-0" />
+                      <span>
+                        These are applied by hand, usually {PAYMENT.turnaround}. Make sure your
+                        account email{code ? <> and <strong>{code}</strong></> : null} are in the note.
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </>
         )}
       </div>
