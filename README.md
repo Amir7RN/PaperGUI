@@ -193,10 +193,12 @@ Test end-to-end before going live: `stripe listen --forward-to
 https://<project-ref>.supabase.co/functions/v1/stripe-webhook`, pay with card
 `4242 4242 4242 4242`, any future expiry, any CVC.
 
-Stripe takes **2.9% + $0.30** per card charge — the reason `MIN_TOPUP` is $5
-(that fixed 30¢ is 20% of a $1.50 sale). Payouts to your bank start after Stripe
-onboarding (business details, tax ID, bank account) and run on a rolling ~2-day
-schedule.
+Stripe takes **2.9% + $0.30** per card charge, so a small sale keeps less of its
+margin (30¢ of a $3.00 Advanced paper). That's priced into `PAPER_PACKS` rather
+than pushed onto the buyer as a minimum top-up — someone who has to buy $5 of
+credit to read one paper usually buys nothing. The only floor is Stripe's own
+$0.50 per-charge minimum. Payouts to your bank start after Stripe onboarding
+(business details, tax ID, bank account) and run on a rolling ~2-day schedule.
 
 ### Operational notes
 

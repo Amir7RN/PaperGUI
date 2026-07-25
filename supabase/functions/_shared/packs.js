@@ -29,8 +29,14 @@ export const PAPER_PACKS = [
   { id: "fast",     label: "Fast",     price: 0.5, grant: 0.25, code: "FST", blurb: "quick skim, long PDFs" },
 ];
 
-/** Card fees (2.9% + $0.30) make anything under this uneconomic to process. */
-export const MIN_TOPUP = 5;
+/**
+ * The only floor is Stripe's own: it rejects charges under $0.50. There is no
+ * business minimum — buying a single paper is the point, and a reader who has
+ * to buy $5 of credit to read one paper mostly buys nothing. Card fees
+ * (2.9% + $0.30) eat more of a small sale; that's priced in above, not
+ * pushed onto the buyer as a minimum.
+ */
+export const STRIPE_MIN_CHARGE = 0.5;
 
 /** Sanity cap so one session can't be built into an absurd charge. */
 export const MAX_PER_LEVEL = 20;
@@ -56,14 +62,14 @@ export function packTotals(counts) {
     list += n * p.price;
     grant += n * p.grant;
   }
-  // Below the processing minimum the buyer still pays MIN_TOPUP; the difference
-  // isn't pocketed — it rides along as extra balance at the Standard rate.
-  const charge = papers === 0 ? 0 : Math.max(MIN_TOPUP, Math.ceil(list * 2) / 2);
+  // You pay for exactly what you picked. One Advanced paper is $3.00.
+  const charge = papers === 0 ? 0 : Math.max(STRIPE_MIN_CHARGE, list);
   const extra = charge - list;
   return {
     papers,
     list: +list.toFixed(2),
     charge: +charge.toFixed(2),
+    // Any forced top-up to Stripe's floor is granted too, at the Standard rate.
     grant: +(grant + (extra > 0 ? (extra / 1.5) * 0.85 : 0)).toFixed(2),
     extra: +extra.toFixed(2),
   };

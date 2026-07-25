@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 import {
   PAYMENT, paymentsConfigured, venmoLink, cashappLink, cardLink,
-  PAPER_PACKS, MIN_TOPUP, packTotals, packNote, startCheckout, stripeConfigured,
+  PAPER_PACKS, packTotals, packNote, startCheckout, stripeConfigured,
 } from "./payments.js";
 
 function EmailChip({ text }) {
@@ -156,15 +156,15 @@ export default function BuyCredits({ onClose, email }) {
               <div className="mt-2.5 flex items-baseline justify-between rounded-xl bg-slate-900 px-3.5 py-2.5">
                 <span className="text-[12px] font-medium text-slate-300">
                   {totals.papers > 0
-                    ? <>{totals.papers} paper{totals.papers === 1 ? "" : "s"}{totals.extra > 0 ? <span className="text-slate-500"> · ${MIN_TOPUP} minimum</span> : null}</>
+                    ? <>{totals.papers} paper{totals.papers === 1 ? "" : "s"}</>
                     : "Pick at least one paper"}
                 </span>
                 <span className="text-[19px] font-extrabold tabular-nums text-white">${totals.charge.toFixed(2)}</span>
               </div>
               {totals.extra > 0 && totals.papers > 0 && (
                 <p className="mt-1.5 text-[10.5px] leading-relaxed text-slate-500">
-                  Card and app fees make smaller top-ups uneconomic, so ${MIN_TOPUP} is the minimum —
-                  the extra ${totals.extra.toFixed(2)} isn't lost, it stays on your account as credit.
+                  Card networks won't process a charge under $0.50, so that's the floor — the extra
+                  ${totals.extra.toFixed(2)} stays on your account as credit.
                 </p>
               )}
               <p className="mt-1.5 flex items-start gap-1.5 text-[10.5px] leading-relaxed text-slate-500">

@@ -15,7 +15,7 @@
  * (README → Operational notes → "Selling credit").
  */
 import { getAccessToken, functionsUrl, supabaseAnonKey } from "./supabase.js";
-import { PAPER_PACKS, MIN_TOPUP, packTotals, packNote, packDescription } from "../supabase/functions/_shared/packs.js";
+import { PAPER_PACKS, STRIPE_MIN_CHARGE, packTotals, packNote, packDescription } from "../supabase/functions/_shared/packs.js";
 
 export const PAYMENT = {
   // Handles are used ONLY to build the pay links below — never rendered as
@@ -29,7 +29,7 @@ export const PAYMENT = {
   turnaround: "within a few hours",
 };
 
-export { PAPER_PACKS, MIN_TOPUP, packTotals, packNote, packDescription };
+export { PAPER_PACKS, STRIPE_MIN_CHARGE, packTotals, packNote, packDescription };
 
 export const paymentsConfigured = Boolean(PAYMENT.venmo || PAYMENT.cashapp || PAYMENT.paypal);
 
