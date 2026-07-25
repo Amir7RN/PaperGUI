@@ -92,6 +92,10 @@ export async function startCheckout(counts) {
   if (!res.ok || !data?.url) {
     throw new Error(data?.error || `Could not start checkout (${res.status}).`);
   }
-  window.location.assign(data.url);
+  // Checkout opens in its own tab so the reader doesn't lose the page they were
+  // on — including an analysis in progress. If the browser blocks the popup,
+  // fall back to navigating this tab rather than silently doing nothing.
+  const tab = window.open(data.url, "_blank", "noopener,noreferrer");
+  if (!tab) window.location.assign(data.url);
   return data;
 }

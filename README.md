@@ -200,6 +200,30 @@ credit to read one paper usually buys nothing. The only floor is Stripe's own
 $0.50 per-charge minimum. Payouts to your bank start after Stripe onboarding
 (business details, tax ID, bank account) and run on a rolling ~2-day schedule.
 
+### 6. DOI lookup (optional)
+
+Lets a reader paste a DOI, arXiv ID or article link instead of finding the PDF.
+
+```bash
+supabase functions deploy resolve-doi
+supabase secrets set UNPAYWALL_EMAIL=you@example.com   # Unpaywall asks callers to identify themselves
+```
+
+The function resolves metadata from **Crossref**, then looks for a legitimately
+open-access full text via **Unpaywall**, **PubMed Central** and **arXiv**. If one
+exists it hands the browser a short-lived HMAC-signed ticket, and a second call
+streams that PDF back with CORS headers (publishers send none, so the browser
+can't fetch it itself). The signature plus a host allowlist stop the endpoint
+being usable as an open proxy.
+
+**Paywalled papers stop there, deliberately.** No institutional credentials, no
+library proxy driven from the server, no publisher session. The reader gets the
+article's page and an "open through my library" link built from their *own*
+EZproxy prefix (kept in their browser), authenticates themselves, and drops the
+PDF in. Automating that route breaches publisher terms and gets a university's
+whole IP range blocked — the sanctioned path for full text at scale is a
+publisher TDM API (Elsevier, Springer Nature, Wiley), negotiated per institution.
+
 ### Operational notes
 
 - **Manual top-ups (Venmo / Cash App / PayPal)** stay as a fallback for anyone

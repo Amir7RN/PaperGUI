@@ -19,6 +19,7 @@ import Library from "./Library.jsx";
 import BuyCredits from "./BuyCredits.jsx";
 import ContactModal from "./ContactModal.jsx";
 import Tilt3D, { Reveal } from "./Tilt3D.jsx";
+import DoiBox from "./DoiBox.jsx";
 import { SAMPLE_SPEC } from "./samplePaper.js";
 import { SAMPLE_SPEC_2 } from "./samplePaper2.js";
 import { SAMPLE_SPEC_3 } from "./samplePaper3.js";
@@ -648,6 +649,9 @@ function Landing({
                   onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) onUpload(f); }}
                 />
 
+                {/* Don't have the PDF to hand? Give us the DOI. */}
+                <DoiBox onPdf={onUpload} disabled={busy || requireAuthToUpload || (signedIn && balance !== null && balance <= 0)} />
+
                 <div className="mt-4 space-y-3">
                   <TierPicker tier={tier} onTier={onTier} disabled={busy} />
                   <HintsPanel hints={hints} onHints={onHints} codeFiles={codeFiles} onCodeFiles={onCodeFiles} disabled={busy} />
@@ -759,10 +763,14 @@ export default function App() {
   // Close the sign-in modal automatically once a session is established.
   useEffect(() => { if (session) setAuthOpen(null); }, [session]);
 
-  // Refresh the credit balance whenever we get a session.
+  // Refresh the credit balance whenever we get a session — and again whenever
+  // the tab regains focus, since checkout happens in a second tab.
   useEffect(() => {
-    if (!session) { setBalance(null); return; }
-    getBalance().then(setBalance);
+    if (!session) { setBalance(null); return undefined; }
+    const refresh = () => getBalance().then(setBalance);
+    refresh();
+    window.addEventListener("focus", refresh);
+    return () => window.removeEventListener("focus", refresh);
   }, [session]);
 
   // Back from Stripe. The credit is granted by the webhook, which can land a
