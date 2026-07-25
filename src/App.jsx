@@ -18,6 +18,7 @@ import Auth from "./Auth.jsx";
 import Library from "./Library.jsx";
 import BuyCredits from "./BuyCredits.jsx";
 import ContactModal from "./ContactModal.jsx";
+import Tilt3D, { Reveal } from "./Tilt3D.jsx";
 import { SAMPLE_SPEC } from "./samplePaper.js";
 import { SAMPLE_SPEC_2 } from "./samplePaper2.js";
 import { SAMPLE_SPEC_3 } from "./samplePaper3.js";
@@ -327,14 +328,19 @@ function LiveHeroDemo() {
   const modified = Math.abs(wn - HERO_BASE.wn) > 1e-9 || Math.abs(z - HERO_BASE.z) > 1e-9;
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-white/10 bg-slate-900/80 shadow-2xl backdrop-blur">
+    // The showcase is the page's hero object: ghost sheets stacked behind it,
+    // a slow gradient rim, and a real perspective tilt toward the pointer.
+    // No overflow-hidden anywhere on this subtree — a clipped ancestor would
+    // flatten the 3D and kill the standing-off-the-surface chips.
+    <Tilt3D className="pp-stack rounded-2xl" max={5} lift={26} perspective={1400}>
+    <div className="pp-3d-card pp-glow-frame relative rounded-2xl border border-white/10 bg-slate-900/80 shadow-2xl backdrop-blur">
       {/* window chrome */}
-      <div className="flex items-center gap-1.5 border-b border-white/10 bg-white/5 px-4 py-2.5">
+      <div className="flex items-center gap-1.5 rounded-t-2xl border-b border-white/10 bg-white/5 px-4 py-2.5">
         <span className="h-2.5 w-2.5 rounded-full bg-red-400/80" />
         <span className="h-2.5 w-2.5 rounded-full bg-amber-400/80" />
         <span className="h-2.5 w-2.5 rounded-full bg-emerald-400/80" />
         <span className="ml-2 truncate text-[11px] font-medium text-slate-400">Fig. 3 — closed-loop step response</span>
-        <span className={`ml-auto flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[9.5px] font-bold uppercase tracking-wider ${touched ? "bg-emerald-400/15 text-emerald-300" : "animate-pulse bg-sky-400/15 text-sky-300"}`}>
+        <span className={`pp-pop ml-auto flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[9.5px] font-bold uppercase tracking-wider ring-1 ${touched ? "bg-emerald-400/15 text-emerald-300 ring-emerald-400/30" : "animate-pulse bg-sky-400/15 text-sky-300 ring-sky-400/30"}`}>
           <SlidersHorizontal size={10} /> {touched ? "that's the whole idea" : "live — drag the dials"}
         </span>
       </div>
@@ -360,7 +366,7 @@ function LiveHeroDemo() {
         <path d={stepPath(wn, z)} fill="none" stroke="#38bdf8" strokeWidth="2.4" strokeLinejoin="round" />
       </svg>
 
-      <div className="grid grid-cols-2 gap-x-5 gap-y-1 border-t border-white/10 bg-white/5 px-4 py-3">
+      <div className="pp-pop-sm grid grid-cols-2 gap-x-5 gap-y-1 rounded-b-2xl border-t border-white/10 bg-white/5 px-4 py-3">
         {[
           { key: "wn", sym: "ωn", label: "response speed", min: 0.8, max: 6, step: 0.05, val: wn, set: setWn },
           { key: "z", sym: "ζ", label: "damping", min: 0.08, max: 0.95, step: 0.01, val: z, set: setZ },
@@ -385,6 +391,7 @@ function LiveHeroDemo() {
         </p>
       </div>
     </div>
+    </Tilt3D>
   );
 }
 
@@ -470,7 +477,7 @@ function Landing({
       {/* ===================== HERO — the product, live ===================== */}
       <main className="w-full">
         <section
-          className="relative overflow-hidden bg-slate-950"
+          className="pp-scene relative overflow-hidden bg-slate-950"
           style={{
             backgroundImage:
               "linear-gradient(rgba(148,163,184,0.055) 1px, transparent 1px), linear-gradient(90deg, rgba(148,163,184,0.055) 1px, transparent 1px)",
@@ -480,6 +487,18 @@ function Landing({
           {/* ambient glows */}
           <div aria-hidden className="pointer-events-none absolute -top-32 right-[8%] h-96 w-96 rounded-full bg-sky-500/15 blur-3xl" />
           <div aria-hidden className="pointer-events-none absolute -bottom-40 left-[4%] h-96 w-96 rounded-full bg-violet-500/10 blur-3xl" />
+
+          {/* Depth stage: a grid floor receding to a lit horizon, with glass
+              slabs drifting in Z behind the content — so the hero reads as
+              sitting IN a space rather than on a page. Decorative only. */}
+          <div aria-hidden className="pointer-events-none absolute inset-0 z-0">
+            <div className="pp-slab left-[2%] top-[16%] hidden h-56 w-40 lg:block" style={{ animationDelay: "-3s" }} />
+            <div className="pp-slab right-[3%] top-[9%] hidden h-72 w-44 lg:block" style={{ animationDelay: "-9s" }} />
+            <div className="pp-floor-wrap">
+              <div className="pp-floor" />
+              <div className="pp-horizon" />
+            </div>
+          </div>
 
           <div className="relative mx-auto grid max-w-6xl items-center gap-12 px-5 pb-16 pt-14 sm:px-8 lg:grid-cols-[1fr_1.02fr] lg:pb-20 lg:pt-20">
             <div>
@@ -545,17 +564,17 @@ function Landing({
         </section>
 
         {/* ===================== DIFFERENTIATION ===================== */}
-        <section className="mx-auto max-w-6xl px-5 py-16 sm:px-8">
-          <div className="mx-auto max-w-2xl text-center">
+        <section className="pp-scene mx-auto max-w-6xl px-5 py-16 sm:px-8">
+          <Reveal className="mx-auto max-w-2xl text-center">
             <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-blue-600">Why not just ask a chatbot?</div>
-            <h2 className="mt-2 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl" style={{ fontFamily: "'Sora', system-ui, sans-serif" }}>
+            <h2 className="pp-text-depth mt-2 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl" style={{ fontFamily: "'Sora', system-ui, sans-serif" }}>
               Because a paper isn't text. It's figures, methods and numbers.
             </h2>
             <p className="mt-3 text-[14px] leading-relaxed text-slate-500">
               Ask a chatbot and you get more paragraphs to read. Here you get the paper's own figures back —
               live, tunable, and honest about what it actually shows.
             </p>
-          </div>
+          </Reveal>
 
           <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {[
@@ -563,53 +582,63 @@ function Landing({
               { icon: SlidersHorizontal, tone: "text-blue-600 bg-blue-50", title: "The method on knobs", body: "Every coefficient the paper reports becomes a slider. Turn it and the reproduced figures reshape live, so you feel what each parameter does." },
               { icon: Wand2, tone: "text-violet-600 bg-violet-50", title: "A tutor for every section", body: "Ask, get Socratically quizzed, or talk by voice — grounded only in this paper's own content, section by section." },
               { icon: FileText, tone: "text-amber-600 bg-amber-50", title: "Trust by construction", body: "Every number traces to a figure, table or equation, and claims are tagged shown vs asserted. Nothing invented." },
-            ].map(({ icon: Icon, tone, title, body }) => (
-              <div key={title} className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
-                <span className={`flex h-10 w-10 items-center justify-center rounded-xl ${tone}`}><Icon size={18} /></span>
-                <h3 className="mt-4 text-[15px] font-bold text-slate-900">{title}</h3>
-                <p className="mt-1.5 text-[12.5px] leading-relaxed text-slate-500">{body}</p>
-              </div>
+            ].map(({ icon: Icon, tone, title, body }, i) => (
+              <Reveal key={title} delay={i * 70} className="h-full">
+                <Tilt3D className="h-full rounded-2xl" max={9} lift={28}>
+                  <div className="pp-3d-card group h-full rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm transition hover:shadow-[0_36px_70px_-40px_rgba(15,23,42,0.5)]">
+                    <span className={`pp-pop flex h-10 w-10 items-center justify-center rounded-xl ${tone} shadow-lg shadow-slate-900/10 transition group-hover:scale-110`}><Icon size={18} /></span>
+                    <h3 className="pp-pop-sm mt-4 text-[15px] font-bold text-slate-900">{title}</h3>
+                    <p className="mt-1.5 text-[12.5px] leading-relaxed text-slate-500">{body}</p>
+                  </div>
+                </Tilt3D>
+              </Reveal>
             ))}
           </div>
 
-          <div className="mx-auto mt-8 flex max-w-3xl flex-col gap-px overflow-hidden rounded-2xl border border-slate-200 sm:flex-row">
-            <div className="flex-1 bg-slate-50 px-5 py-4">
-              <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">A chatbot</div>
-              <div className="mt-1 text-[13px] text-slate-600">Paragraphs of text about the paper — that you still have to read, and can't verify.</div>
-            </div>
-            <div className="flex-1 bg-slate-900 px-5 py-4">
-              <div className="text-[11px] font-semibold uppercase tracking-wider text-blue-300">This playground</div>
-              <div className="mt-1 text-[13px] text-white">The paper's figures, live and tunable, with a tutor and the numbers in your hands.</div>
-            </div>
-          </div>
+          <Reveal delay={120} className="mx-auto mt-8 max-w-3xl">
+            <Tilt3D className="rounded-2xl" max={5} lift={16} glare={false}>
+              <div className="flex flex-col gap-px overflow-hidden rounded-2xl border border-slate-200 shadow-sm sm:flex-row">
+                <div className="flex-1 bg-slate-50 px-5 py-4">
+                  <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">A chatbot</div>
+                  <div className="mt-1 text-[13px] text-slate-600">Paragraphs of text about the paper — that you still have to read, and can't verify.</div>
+                </div>
+                <div className="flex-1 bg-slate-900 px-5 py-4">
+                  <div className="text-[11px] font-semibold uppercase tracking-wider text-blue-300">This playground</div>
+                  <div className="mt-1 text-[13px] text-white">The paper's figures, live and tunable, with a tutor and the numbers in your hands.</div>
+                </div>
+              </div>
+            </Tilt3D>
+          </Reveal>
         </section>
 
         {/* ===================== TRY IT ===================== */}
-        <section id="examples" className="border-t border-slate-200/70 bg-white">
+        <section id="examples" className="pp-scene border-t border-slate-200/70 bg-white">
           <div className="mx-auto max-w-3xl px-5 py-16 sm:px-8">
             <div className="mx-auto max-w-xl">
-              <h2 className="text-2xl font-bold tracking-tight text-slate-900" style={{ fontFamily: "'Sora', system-ui, sans-serif" }}>Try it now</h2>
+              <h2 className="pp-text-depth text-2xl font-bold tracking-tight text-slate-900" style={{ fontFamily: "'Sora', system-ui, sans-serif" }}>Try it now</h2>
               <p className="mt-1.5 text-[13.5px] leading-relaxed text-slate-500">
                 Bring your own paper, or open a ready-made example below — no sign-in needed for those.
               </p>
 
-                <button
-                  onClick={() => (requireAuthToUpload ? onSignUp() : fileRef.current?.click())}
-                  disabled={busy || (signedIn && balance !== null && balance <= 0)}
-                  className="group mt-5 flex w-full flex-col items-start gap-2 rounded-2xl border-2 border-dashed border-blue-300 bg-blue-50/40 p-5 text-left transition hover:border-blue-400 hover:bg-blue-50 disabled:opacity-50"
-                >
-                  <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-600 text-white shadow-sm transition group-hover:scale-105">
-                    <Upload size={19} />
-                  </span>
-                  <span className="text-[15px] font-semibold text-slate-900">Analyze your own PDF</span>
-                  <span className="text-[12.5px] leading-relaxed text-slate-500">
-                    {requireAuthToUpload
-                      ? "Sign up free — new accounts get $1.00 of analysis credit, and every paper you analyze is saved to your library."
-                      : signedIn && balance !== null && balance <= 0
-                        ? "You're out of analysis credit — add credit above, or open a ready-made example."
-                        : <>Local drive or synced OneDrive / Google Drive. Built at the <strong>{tier.label}</strong> level below.</>}
-                  </span>
-                </button>
+                <Tilt3D className="mt-5 rounded-2xl" max={7} lift={22}>
+                  <button
+                    onClick={() => (requireAuthToUpload ? onSignUp() : fileRef.current?.click())}
+                    disabled={busy || (signedIn && balance !== null && balance <= 0)}
+                    className="pp-3d-card group flex w-full flex-col items-start gap-2 rounded-2xl border-2 border-dashed border-blue-300 bg-blue-50/40 p-5 text-left transition hover:border-blue-400 hover:bg-blue-50 disabled:opacity-50"
+                  >
+                    <span className="pp-pop flex h-11 w-11 items-center justify-center rounded-xl bg-blue-600 text-white shadow-lg shadow-blue-600/25 transition group-hover:scale-105">
+                      <Upload size={19} />
+                    </span>
+                    <span className="pp-pop-sm text-[15px] font-semibold text-slate-900">Analyze your own PDF</span>
+                    <span className="text-[12.5px] leading-relaxed text-slate-500">
+                      {requireAuthToUpload
+                        ? "Sign up free — new accounts get $1.00 of analysis credit, and every paper you analyze is saved to your library."
+                        : signedIn && balance !== null && balance <= 0
+                          ? "You're out of analysis credit — add credit above, or open a ready-made example."
+                          : <>Local drive or synced OneDrive / Google Drive. Built at the <strong>{tier.label}</strong> level below.</>}
+                    </span>
+                  </button>
+                </Tilt3D>
                 <input
                   ref={fileRef} type="file" accept=".pdf,application/pdf" className="hidden"
                   onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) onUpload(f); }}
@@ -651,7 +680,7 @@ function Landing({
         </section>
 
         {/* ===================== READY-MADE EXAMPLES ===================== */}
-        <section className="border-t border-slate-200/70 bg-slate-50/60">
+        <section className="pp-scene border-t border-slate-200/70 bg-slate-50/60">
           <div className="mx-auto max-w-6xl px-5 py-14 sm:px-8">
             <div className="mb-5 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
               <BookOpenCheck size={14} className="text-blue-600" /> Ready-made examples · no sign-in
@@ -667,16 +696,19 @@ function Landing({
                 { spec: SAMPLE_SPEC_8, tag: "Automatica", title: "Compositional synthesis (AG contracts)" },
                 { spec: SAMPLE_SPEC_7, tag: "Autom. in Constr.", title: "Prefab checking with 3D scans + BIM" },
                 { spec: SAMPLE_SPEC, tag: "Signals · easy", title: "Multi-stage filtering & control" },
-              ].map((s) => (
-                <button
-                  key={s.title}
-                  onClick={() => onSample(s.spec)}
-                  disabled={busy}
-                  className="group flex flex-col items-start gap-1 rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-left transition hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-md disabled:opacity-50"
-                >
-                  <span className="text-[13px] font-semibold leading-snug text-slate-900">{s.title}</span>
-                  <span className="text-[10.5px] font-medium text-slate-400">{s.tag}</span>
-                </button>
+              ].map((s, i) => (
+                <Reveal key={s.title} delay={(i % 4) * 60} className="h-full">
+                  <Tilt3D className="h-full rounded-xl" max={11} lift={24}>
+                    <button
+                      onClick={() => onSample(s.spec)}
+                      disabled={busy}
+                      className="pp-3d-card group flex h-full w-full flex-col items-start gap-1 rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-left shadow-sm transition hover:border-blue-300 hover:shadow-[0_28px_50px_-30px_rgba(15,23,42,0.55)] disabled:opacity-50"
+                    >
+                      <span className="pp-pop-sm text-[13px] font-semibold leading-snug text-slate-900">{s.title}</span>
+                      <span className="text-[10.5px] font-medium text-slate-400">{s.tag}</span>
+                    </button>
+                  </Tilt3D>
+                </Reveal>
               ))}
             </div>
           </div>
