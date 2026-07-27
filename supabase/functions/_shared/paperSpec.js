@@ -80,10 +80,15 @@ export function tierById(id) {
 
 /**
  * Actual USD cost of one Anthropic response given its `usage` block.
- * cache_creation is billed at ~1.25x the input price (5-minute TTL write),
- * cache_read at ~0.1x — this app doesn't use prompt caching today, but the
- * math is included so cost tracking stays correct if that changes.
+ *
+ * The analyzer caches the PDF with a ONE-HOUR TTL (a run spans four phases and
+ * outlives the 5-minute default), and a 1h cache write bills at 2x the input
+ * price — not the 1.25x a 5-minute write costs. Metering the cheaper rate
+ * would quietly under-charge every analysis. Cache reads are 0.1x either way.
  */
+const CACHE_WRITE_MULTIPLIER = 2.0; // 1h TTL; a 5-minute write would be 1.25
+const CACHE_READ_MULTIPLIER = 0.1;
+
 export function usageCostUsd(tier, usage) {
   if (!usage) return 0;
   const inTok = usage.input_tokens || 0;
@@ -93,8 +98,8 @@ export function usageCostUsd(tier, usage) {
   const cost =
     (inTok * tier.priceIn) / 1e6 +
     (outTok * tier.priceOut) / 1e6 +
-    (cacheWrite * tier.priceIn * 1.25) / 1e6 +
-    (cacheRead * tier.priceIn * 0.1) / 1e6;
+    (cacheWrite * tier.priceIn * CACHE_WRITE_MULTIPLIER) / 1e6 +
+    (cacheRead * tier.priceIn * CACHE_READ_MULTIPLIER) / 1e6;
   return cost;
 }
 

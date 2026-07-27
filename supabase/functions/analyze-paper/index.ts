@@ -53,6 +53,18 @@ const WALL_MS = Math.min(590_000, Math.max(30_000, Number(Deno.env.get("EDGE_WAL
 /** Above this budget there's room for the tier's full-quality effort setting. */
 const LONG_WINDOW_MS = 300_000;
 
+/**
+ * Prompt cache with a ONE-HOUR TTL, not the 5-minute default.
+ *
+ * A run is four sequential phases, each allowed up to WALL_MS, plus any
+ * quality-gate regenerations — routinely more than five minutes end to end.
+ * With the default TTL the cache had expired by the later phases, so each one
+ * re-sent the whole PDF at full input price AND paid to write the cache again.
+ * A 1h write costs 2x input instead of 1.25x, which pays for itself after
+ * three reads; we make at least four.
+ */
+const CACHE = { type: "ephemeral", ttl: "1h" };
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: CORS_HEADERS });
@@ -195,9 +207,10 @@ Deno.serve(async (req) => {
               "Flat or constant output is a hard failure."
             : "";
 
-        const prompt =
-          SYSTEM_PROMPT +
-          hintsBlock(hints) +
+        // Everything identical across the four phases goes in one cached
+        // block; only what actually varies per phase is left uncached.
+        const sharedPrompt = SYSTEM_PROMPT + hintsBlock(hints);
+        const phasePrompt =
           (phase ? phaseInstruction(phase, contextSpec) : "") +
           repairBlock +
           schemaBlock;
@@ -214,9 +227,11 @@ Deno.serve(async (req) => {
                 {
                   type: "document",
                   source: { type: "base64", media_type: "application/pdf", data: pdfBase64 },
-                  // Cache the PDF so the later phases of the same analysis
-                  // re-read it at ~10% of the input price (5-minute TTL).
-                  cache_control: { type: "ephemeral" },
+                  // The PDF dominates the input bill — a paper is re-sent on
+                  // every phase, and each page costs both text and image
+                  // tokens. Cached, later phases re-read it at ~10% of the
+                  // input price.
+                  cache_control: CACHE,
                 },
                 // The paper's real code, when the reader provided it — cached
                 // alongside the PDF for the same reason, and placed BEFORE the
@@ -228,10 +243,14 @@ Deno.serve(async (req) => {
                         "THE PAPER'S ACTUAL CODE (uploaded by the reader — this is the METHOD'S GROUND TRUTH; " +
                         "derive every computeJs kernel, constant and update rule from it rather than guessing " +
                         "from the paper's prose):\n\n" + code,
-                      cache_control: { type: "ephemeral" },
+                      cache_control: CACHE,
                     }]
                   : []),
-                { type: "text", text: prompt },
+                // The system prompt is byte-identical on all four phases, so
+                // it caches too — it was previously concatenated onto the
+                // phase-specific text and re-billed at full price every call.
+                { type: "text", text: sharedPrompt, cache_control: CACHE },
+                { type: "text", text: phasePrompt },
               ],
             },
           ],
@@ -339,6 +358,25 @@ Deno.serve(async (req) => {
 
         // --- 5. Meter and deduct the real cost (owner is never charged) ----
         const cost = usageCostUsd(tier, response.usage);
+
+        // Where the money actually went, per phase. Without this the only
+        // visible number is one total for the whole run, which isn't enough
+        // to tell an input problem (cache misses) from an output problem
+        // (too many generated tokens) — and they have opposite fixes.
+        const u = response.usage || {};
+        console.log("phase cost", JSON.stringify({
+          phase: phase || "full",
+          tier: tier.id,
+          effort,
+          costUsd: +cost.toFixed(4),
+          inputTokens: u.input_tokens || 0,
+          outputTokens: u.output_tokens || 0,
+          cacheWriteTokens: u.cache_creation_input_tokens || 0,
+          cacheReadTokens: u.cache_read_input_tokens || 0,
+          // If this is 0 on phases 2-4, the PDF cache is not being hit and
+          // the run is paying full input price four times over.
+          cacheHit: (u.cache_read_input_tokens || 0) > 0,
+        }));
         let newBalance = null;
         if (!isOwner && credit) {
           newBalance = Number(credit.balance_usd) - cost;
