@@ -12,13 +12,13 @@
  * README). No card data or payment API touches this site.
  */
 
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import {
   X, Wallet, Copy, Check, CircleDollarSign, CreditCard, Minus, Plus, Mic, Bot,
   Loader2, ShieldCheck, ChevronDown,
 } from "lucide-react";
 import {
-  PAYMENT, paymentsConfigured, venmoLink, cashappLink, cardLink,
+  PAYMENT, paymentsConfigured, venmoLink,
   PAPER_PACKS, packTotals, packNote, startCheckout, stripeConfigured,
 } from "./payments.js";
 
@@ -40,12 +40,9 @@ function EmailChip({ text }) {
   );
 }
 
-/* Simple brand marks (inline SVG so nothing loads from a CDN). */
+/* Simple brand mark (inline SVG so nothing loads from a CDN). */
 const VenmoMark = () => (
   <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M19.5 3c.66 1.09.96 2.2.96 3.61 0 4.49-3.83 10.33-6.94 14.43H6.4L3.6 4.02l6.28-.6 1.48 11.9c1.38-2.25 3.08-5.78 3.08-8.19 0-1.32-.23-2.22-.58-2.96L19.5 3z"/></svg>
-);
-const CashMark = () => (
-  <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M12 2c5.52 0 10 4.48 10 10s-4.48 10-10 10S2 17.52 2 12 6.48 2 12 2zm.9 4.2h-1.6v1.1c-1.6.2-2.7 1.2-2.7 2.7 0 1.7 1.4 2.4 3 2.9 1.2.4 1.6.7 1.6 1.2 0 .5-.5.9-1.3.9-1 0-2-.5-2.7-1.1l-1 1.4c.7.7 1.7 1.1 2.8 1.3v1.1h1.6v-1.1c1.7-.2 2.8-1.3 2.8-2.8 0-1.7-1.4-2.4-3.1-2.9-1.1-.3-1.5-.6-1.5-1.1 0-.4.4-.8 1.2-.8.9 0 1.7.4 2.3.9l1-1.4c-.6-.5-1.4-.9-2.3-1v-1z"/></svg>
 );
 
 export default function BuyCredits({ onClose, email }) {
@@ -59,31 +56,39 @@ export default function BuyCredits({ onClose, email }) {
   // With no backend configured (local dev, or a static deploy) card checkout
   // can't work — so lead with the manual routes instead of an empty step.
   const [showManual, setShowManual] = useState(!stripeConfigured);
+  // setRedirecting(true) doesn't block a second click that lands before React
+  // re-renders — this ref is checked synchronously so a fast double-click
+  // can't open checkout (and a second tab) twice.
+  const submittingRef = useRef(false);
 
   const bump = (id, d) =>
     setCounts((c) => ({ ...c, [id]: Math.max(0, Math.min(20, (c[id] || 0) + d)) }));
 
   const payByCard = async () => {
-    if (!totals.papers || redirecting) return;
+    if (!totals.papers || submittingRef.current) return;
+    submittingRef.current = true;
     setPayErr(null);
     setRedirecting(true);
+    // Opened synchronously, inside the click handler, so the browser still
+    // trusts this as user-initiated and won't block it — startCheckout only
+    // navigates it once the Stripe URL comes back.
+    const tab = window.open("", "_blank", "noopener,noreferrer");
     try {
-      await startCheckout(counts);   // navigates away on success
+      await startCheckout(counts, tab);
     } catch (e) {
+      if (tab && !tab.closed) tab.close();
       setPayErr(e?.message || "Could not start checkout.");
       setRedirecting(false);
+    } finally {
+      submittingRef.current = false;
     }
   };
 
   const note = [email, code].filter(Boolean).join(" · ");
   const venmo = venmoLink(amount, note);
-  const cash = cashappLink(amount);
-  const card = cardLink(amount);
 
   const methods = [
     venmo && { key: "venmo", label: "Pay with Venmo", href: venmo, cls: "border-[#008CFF] bg-[#008CFF] text-white hover:brightness-95", icon: <VenmoMark /> },
-    cash && { key: "cashapp", label: "Pay with Cash App", href: cash, cls: "border-[#00D632] bg-[#00D632] text-white hover:brightness-95", icon: <CashMark /> },
-    card && { key: "card", label: "Pay with PayPal", href: card, cls: "border-slate-300 bg-white text-slate-800 hover:border-slate-400", icon: <CreditCard size={16} /> },
   ].filter(Boolean);
 
   return (
@@ -219,7 +224,7 @@ export default function BuyCredits({ onClose, email }) {
                   onClick={() => setShowManual((s) => !s)}
                   className="flex w-full items-center justify-between text-[11.5px] font-semibold text-slate-500 hover:text-slate-700"
                 >
-                  <span>Rather not use a card? Venmo, Cash App or PayPal</span>
+                  <span>Rather not use a card? Pay with Venmo</span>
                   <ChevronDown size={14} className={`transition ${showManual ? "rotate-180" : ""}`} />
                 </button>
 

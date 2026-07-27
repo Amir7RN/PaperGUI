@@ -226,9 +226,9 @@ publisher TDM API (Elsevier, Springer Nature, Wiley), negotiated per institution
 
 ### Operational notes
 
-- **Manual top-ups (Venmo / Cash App / PayPal)** stay as a fallback for anyone
-  who'd rather not use a card — the modal folds them away under the card button.
-  Handles live in `src/payments.js` (blank hides the option). The buyer puts
+- **Manual top-ups (Venmo)** stay as a fallback for anyone who'd rather not use
+  a card — the modal folds it away under the card button. Handle lives in
+  `src/payments.js` (blank hides the option). The buyer puts
   their account email and a pack code (e.g. `ADV2-STD1`) in the payment note;
   apply it with:
   ```sql

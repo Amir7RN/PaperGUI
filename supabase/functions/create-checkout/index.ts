@@ -52,6 +52,7 @@ Deno.serve(async (req) => {
   if (!totals.papers) return json(400, { error: "Pick at least one paper." });
 
   const code = packNote(counts);
+  const itemsLabel = packDescription(counts);
   const siteUrl = (Deno.env.get("SITE_URL") || req.headers.get("origin") || "").replace(/\/+$/, "");
 
   // Stripe's REST API takes form encoding; using it directly keeps this
@@ -66,7 +67,10 @@ Deno.serve(async (req) => {
       "Interactive Paper Playground — analysis credit, including narrated walkthroughs and the section tutor.",
     customer_email: user.email || "",
     client_reference_id: user.id,
-    success_url: `${siteUrl}/?paid=1`,
+    // The success page shows what was bought (papers), not the dollar amount —
+    // a dollar figure doesn't match the credit balance shown in-app (that's
+    // metered against real usage, not a 1:1 mirror of what was paid).
+    success_url: `${siteUrl}/?paid=1&items=${encodeURIComponent(itemsLabel)}`,
     cancel_url: `${siteUrl}/?paid=0`,
     // The webhook reads these back — it must not have to trust anything the
     // browser says about what was bought.

@@ -780,10 +780,12 @@ export default function App() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const paid = params.get("paid");
+    const items = params.get("items");
     if (paid === null) return;
     window.history.replaceState({}, "", window.location.pathname);
     if (paid !== "1") return;
-    setPaidNote("Payment received — adding your credit…");
+    const label = items || "your credit";
+    setPaidNote(`Payment received — adding ${label}…`);
     let tries = 0;
     const tick = async () => {
       const b = await getBalance();
@@ -792,7 +794,7 @@ export default function App() {
       window.setTimeout(tick, 1500);
     };
     tick();
-    const done = window.setTimeout(() => setPaidNote("Credit added — you're ready to analyze."), 3000);
+    const done = window.setTimeout(() => setPaidNote(`Added: ${label} — you're ready to analyze.`), 3000);
     const hide = window.setTimeout(() => setPaidNote(null), 9000);
     return () => { window.clearTimeout(done); window.clearTimeout(hide); };
   }, []);
