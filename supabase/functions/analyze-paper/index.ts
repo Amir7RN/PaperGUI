@@ -303,14 +303,38 @@ Deno.serve(async (req) => {
         }
 
         send({ type: "progress", pct: 82, label: "Parsing the extracted methodology…" });
-        const textBlock = response.content.find((b) => b.type === "text" && b.text);
-        if (!textBlock) throw new Error("Empty response from the analyzer.");
+        // ALL text blocks, joined — not just the first. With adaptive thinking
+        // the model sometimes emits a short lead-in block before the block
+        // holding the JSON, and taking `find` gave us the lead-in alone.
+        const answer = response.content
+          .filter((b) => b.type === "text" && b.text)
+          .map((b) => b.text)
+          .join("")
+          .trim();
+        if (!answer) throw new Error("Empty response from the analyzer.");
 
         let spec;
         try {
-          spec = parseSpecJson(textBlock.text);
-        } catch {
-          throw new Error("The analyzer's response could not be parsed. Try again.");
+          spec = parseSpecJson(answer);
+        } catch (parseErr) {
+          // Log the whole thing for the function logs, and hand the client a
+          // description of what actually arrived — "could not be parsed" alone
+          // made this impossible to diagnose from a bug report.
+          console.error("spec parse failed", {
+            phase: phase || "full",
+            tier: tier.id,
+            stopReason: response.stop_reason,
+            length: answer.length,
+            head: answer.slice(0, 400),
+            tail: answer.slice(-400),
+            reason: parseErr?.message,
+          });
+          const e = new Error(
+            `The analyzer's response wasn't valid JSON (${answer.length} chars, ` +
+            `stop reason "${response.stop_reason}"). Retrying usually fixes it.`
+          );
+          e.code = "parse";
+          throw e;
         }
 
         // --- 5. Meter and deduct the real cost (owner is never charged) ----
@@ -347,21 +371,46 @@ function json(status, body) {
 
 /** Lenient JSON extraction: without structured outputs the model may wrap the
  *  object in ```json fences, add a stray sentence, or emit slightly invalid
- *  JSON (unescaped newlines, trailing commas). Try direct parse, then strip
- *  fences, then the outermost {...} span, then jsonrepair as the last resort. */
+ *  JSON (unescaped newlines, trailing commas), and a response cut short by the
+ *  output budget simply stops mid-structure. Each step below is a real failure
+ *  mode seen in production, ordered cheapest first. */
 function parseSpecJson(text) {
   const raw = text.trim();
   try { return JSON.parse(raw); } catch { /* fall through */ }
 
-  const unfenced = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
+  const unfenced = raw
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```\s*$/, "")
+    .trim();
   try { return JSON.parse(unfenced); } catch { /* fall through */ }
 
-  const start = raw.indexOf("{");
-  const end = raw.lastIndexOf("}");
-  const sliced = start !== -1 && end > start ? raw.slice(start, end + 1) : unfenced;
-  try { return JSON.parse(sliced); } catch { /* fall through */ }
+  // From the first "{", walk the text tracking string/escape state so braces
+  // inside string values don't count. `lastIndexOf("}")` used here instead,
+  // which swallows any prose after the object AND mis-spans if the model
+  // emits two objects.
+  const from = unfenced.indexOf("{");
+  if (from === -1) throw new Error("no JSON object in the response");
+  const body = unfenced.slice(from);
 
-  // jsonrepair fixes the common LLM syntax slips: literal newlines inside
-  // strings, trailing commas, single quotes, missing closing braces.
-  return JSON.parse(jsonrepair(sliced));
+  let depth = 0, inStr = false, esc = false, endedAt = -1;
+  for (let i = 0; i < body.length; i++) {
+    const c = body[i];
+    if (esc) { esc = false; continue; }
+    if (c === "\\") { esc = true; continue; }
+    if (c === '"') { inStr = !inStr; continue; }
+    if (inStr) continue;
+    if (c === "{") depth++;
+    else if (c === "}") { depth--; if (depth === 0) { endedAt = i; break; } }
+  }
+
+  // Balanced object found: parse exactly it, ignoring anything either side.
+  if (endedAt !== -1) {
+    const balanced = body.slice(0, endedAt + 1);
+    try { return JSON.parse(balanced); } catch { /* fall through */ }
+    return JSON.parse(jsonrepair(balanced));
+  }
+
+  // Never closed — the response was truncated. jsonrepair closes the open
+  // structures, which keeps everything the model did finish saying.
+  return JSON.parse(jsonrepair(body));
 }

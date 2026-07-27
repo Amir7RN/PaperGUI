@@ -147,27 +147,54 @@ async function runPhase(pdfBase64, tier, hints, phase, contextSpec, token, repor
   return result;
 }
 
+/** Cap on total model calls for one phase, across retries and tier steps.
+ *  Every attempt costs real money even when it fails, so a phase that simply
+ *  cannot succeed must give up rather than grind down the whole ladder. */
+const MAX_PHASE_ATTEMPTS = 4;
+
 /**
- * Run one phase, stepping DOWN the tier ladder for as long as it keeps timing
- * out. Previously this fell back exactly once, so a paper heavy enough to
- * time out twice escaped as an error and halted the run half-finished — the
- * failure readers actually hit. Now the run always reaches a tier fast enough
- * to finish, and only a non-timeout error (or running out of tiers) stops it.
+ * Run one phase, recovering from the two failures that otherwise abandon a
+ * half-finished (and already paid for) run:
+ *
+ *  - `timeout` — the stage outran the hosting window. Step DOWN to a faster
+ *    tier. This used to fall back exactly once, so a paper heavy enough to
+ *    time out twice still escaped as an error.
+ *  - `parse` — the model's reply wasn't valid JSON. Almost always transient,
+ *    so ask the same tier again before giving up any quality.
  *
  * Returns { result, tier } — the tier that succeeded, so a follow-up quality
  * retry doesn't jump back to one we already know is too slow for this paper.
  */
 async function runPhaseWithFallback(pdfBase64, tier, hints, phase, contextSpec, token, report, codeText) {
   let attempt = tier;
-  for (;;) {
+  let retriedThisTier = false;
+  for (let calls = 1; ; calls++) {
     try {
       const result = await runPhase(pdfBase64, attempt, hints, phase, contextSpec, token, report, null, codeText);
       return { result, tier: attempt };
     } catch (err) {
-      const next = err?.code === "timeout" ? fallbackTier(attempt) : null;
+      const code = err?.code;
+      if (code !== "timeout" && code !== "parse") throw err;
+      if (calls >= MAX_PHASE_ATTEMPTS) throw err;
+
+      // A malformed reply is worth one more go at the SAME level before
+      // trading quality away for reliability.
+      if (code === "parse" && !retriedThisTier) {
+        retriedThisTier = true;
+        report(phase.from, `${phase.title} — the analyzer's reply came back malformed, asking again…`);
+        continue;
+      }
+
+      const next = fallbackTier(attempt);
       if (!next) throw err;
-      report(phase.from, `${phase.title} — took too long, retrying on the ${next.label} level…`);
+      report(
+        phase.from,
+        code === "timeout"
+          ? `${phase.title} — took too long, retrying on the ${next.label} level…`
+          : `${phase.title} — couldn't read the reply, retrying on the ${next.label} level…`,
+      );
       attempt = next;
+      retriedThisTier = false;
     }
   }
 }
