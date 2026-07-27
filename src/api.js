@@ -30,18 +30,25 @@ export function setModelTier(id) {
 }
 
 /**
- * The analysis runs as THREE sequential edge-function calls — the hosting
- * platform kills any single function at 150s of wall clock, which a full
- * one-shot analysis always exceeds on real papers. Each phase returns a
- * slice of the PaperSpec; the PDF is prompt-cached server-side so phases
- * 2 and 3 re-read it at ~10% of the input price.
+ * The analysis runs as FOUR sequential edge-function calls — the hosting
+ * platform kills any single function at 150s of wall clock (400s on Pro),
+ * which a full one-shot analysis always exceeds on real papers. Each phase
+ * returns a slice of the PaperSpec; the PDF is prompt-cached server-side so
+ * later phases re-read it at ~10% of the input price.
+ *
+ * `foundations` is split out of `overview` deliberately: emitting the slider
+ * demos, the governing equations AND two narrated walkthroughs on top of the
+ * paper's framing was what pushed the first call past the kill window on the
+ * Advanced (Opus) tier, halting runs mid-way.
  */
 const PHASES = [
-  { id: "overview", title: "Story & foundations", from: 3,  to: 34,
-    keys: ["meta", "archetype", "story", "mindmap", "conclusion", "references", "conceptFigures", "foundations", "model"] },
-  { id: "method",   title: "Interactive method layer", from: 34, to: 67,
+  { id: "overview",    title: "Story & framing", from: 3,  to: 26,
+    keys: ["meta", "archetype", "story", "mindmap", "conclusion", "references", "conceptFigures"] },
+  { id: "foundations", title: "Background & model", from: 26, to: 50,
+    keys: ["foundations", "model", "explainer"] },
+  { id: "method",      title: "Interactive method layer", from: 50, to: 75,
     keys: ["protocol", "blocks", "explorables"] },
-  { id: "results",  title: "Result figures",      from: 67, to: 99,
+  { id: "results",     title: "Result figures", from: 75, to: 99,
     keys: ["resultFigures", "checkpoints", "claims", "flashcards"] },
 ];
 
@@ -129,7 +136,7 @@ async function runPhase(pdfBase64, tier, hints, phase, contextSpec, token, repor
     throw e;
   }
   if (!result) {
-    // A silent disconnect is almost always the platform's 150s kill —
+    // A silent disconnect is almost always the platform's wall-clock kill —
     // treat it like a timeout so the caller's fallback retry kicks in.
     const e = new Error(
       `The connection dropped during the "${phase.title}" stage — the server hit its time limit.`
@@ -138,6 +145,31 @@ async function runPhase(pdfBase64, tier, hints, phase, contextSpec, token, repor
     throw e;
   }
   return result;
+}
+
+/**
+ * Run one phase, stepping DOWN the tier ladder for as long as it keeps timing
+ * out. Previously this fell back exactly once, so a paper heavy enough to
+ * time out twice escaped as an error and halted the run half-finished — the
+ * failure readers actually hit. Now the run always reaches a tier fast enough
+ * to finish, and only a non-timeout error (or running out of tiers) stops it.
+ *
+ * Returns { result, tier } — the tier that succeeded, so a follow-up quality
+ * retry doesn't jump back to one we already know is too slow for this paper.
+ */
+async function runPhaseWithFallback(pdfBase64, tier, hints, phase, contextSpec, token, report, codeText) {
+  let attempt = tier;
+  for (;;) {
+    try {
+      const result = await runPhase(pdfBase64, attempt, hints, phase, contextSpec, token, report, null, codeText);
+      return { result, tier: attempt };
+    } catch (err) {
+      const next = err?.code === "timeout" ? fallbackTier(attempt) : null;
+      if (!next) throw err;
+      report(phase.from, `${phase.title} — took too long, retrying on the ${next.label} level…`);
+      attempt = next;
+    }
+  }
 }
 
 /**
@@ -183,19 +215,16 @@ export async function analyzePaper(pdfBase64, onProgress, tier = getModelTier(),
       const contextSpec =
         phase.id === "results"
           ? { protocol: spec.protocol, blocks: spec.blocks, archetype: spec.archetype, field: spec.meta?.field }
-          : phase.id === "method"
+          : phase.id === "method" || phase.id === "foundations"
             ? { archetype: spec.archetype }
             : null;
-      try {
-        result = await runPhase(pdfBase64, tier, hints, phase, contextSpec, token, report, null, codeText);
-      } catch (err) {
-        // A timed-out stage automatically retries once on the next-faster
-        // level, so one slow stage doesn't waste the whole (paid) run.
-        const fb = err?.code === "timeout" ? fallbackTier(tier) : null;
-        if (!fb) throw err;
-        report(phase.from, `${phase.title} — took too long, retrying on the ${fb.label} level…`);
-        result = await runPhase(pdfBase64, fb, hints, phase, contextSpec, token, report, null, codeText);
-      }
+      // A timed-out stage retries down the tier ladder, so one slow stage
+      // never wastes the whole (paid) run.
+      const attempt = await runPhaseWithFallback(
+        pdfBase64, tier, hints, phase, contextSpec, token, report, codeText,
+      );
+      result = attempt.result;
+      const ranOn = attempt.tier;
 
       // Quality gate: test-run the generated code. If it produces flat lines,
       // dead sliders, or broken panels, regenerate this phase ONCE with the
@@ -211,7 +240,10 @@ export async function analyzePaper(pdfBase64, onProgress, tier = getModelTier(),
         if (problems) {
           report(phase.from, `${phase.title} — failed the quality check, regenerating…`);
           try {
-            const retry = await runPhase(pdfBase64, tier, hints, phase, contextSpec, token, report, problems, codeText);
+            // `ranOn`, not `tier`: if this phase already had to drop to a
+            // faster level to finish, the regeneration must not climb back to
+            // one that just timed out on this paper.
+            const retry = await runPhase(pdfBase64, ranOn, hints, phase, contextSpec, token, report, problems, codeText);
             const candidate2 = { ...spec };
             for (const k of phase.keys) {
               if (retry.spec?.[k] !== undefined) candidate2[k] = retry.spec[k];

@@ -396,6 +396,21 @@ function LiveHeroDemo() {
   );
 }
 
+/**
+ * Scroll a section into view.
+ *
+ * The re-aim is not superstition: the Reveal animations between the hero and
+ * the target mount as they cross the viewport, growing the document while the
+ * scroll is still running, which lands it past the section. Aiming a second
+ * time once that has settled corrects it.
+ */
+function smoothScrollToId(id) {
+  const aim = () =>
+    document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  aim();
+  window.setTimeout(aim, 600);
+}
+
 /* ---------------- landing page ---------------- */
 
 function Landing({
@@ -405,6 +420,35 @@ function Landing({
 }) {
   const fileRef = useRef(null);
   const requireAuthToUpload = authOn && !signedIn;
+  // The PDF waits here until the reader presses Start — picking a file is not
+  // the same as agreeing to spend credit on it.
+  const [picked, setPicked] = useState(null);
+  const [dragOver, setDragOver] = useState(false);
+  const [pickErr, setPickErr] = useState(null);
+  const outOfCredit = signedIn && balance !== null && balance <= 0;
+  const uploadBlocked = requireAuthToUpload || outOfCredit;
+  const canUpload = !uploadBlocked && !busy;
+
+  const takeFile = useCallback((f) => {
+    // Browsers report a dragged PDF as application/pdf, but some file systems
+    // hand over an empty type — fall back to the extension.
+    const isPdf = f.type === "application/pdf" || /\.pdf$/i.test(f.name || "");
+    if (!isPdf) {
+      setPickErr(`"${f.name}" isn't a PDF — this analyzes PDF papers.`);
+      return;
+    }
+    setPickErr(null);
+    setPicked(f);
+  }, []);
+
+  /** Send the reader to the upload panel rather than straight into an OS file
+   *  dialog — they land on the panel with the level picker and hints in view.
+   *  The Reveal animations between here and there grow the document while the
+   *  smooth scroll is still running, which overshoots the panel, so re-aim
+   *  once the layout has settled. */
+  //  Aim at the SECTION, not the panel itself: the panel sits inside a
+  //  `zoom: 1.3` container, and Chrome measures zoomed elements wrong.
+  const goToAnalyze = useCallback(() => smoothScrollToId("examples"), []);
 
   return (
     <div className="flex min-h-screen flex-col" style={{ fontFamily: "system-ui, -apple-system, 'Segoe UI', sans-serif" }}>
@@ -521,14 +565,13 @@ function Landing({
 
               <div className="mt-8 flex flex-wrap items-center gap-3">
                 <button
-                  onClick={() => (requireAuthToUpload ? onSignUp() : fileRef.current?.click())}
-                  disabled={busy || (signedIn && balance !== null && balance <= 0)}
-                  className="inline-flex items-center gap-2 rounded-xl bg-white px-6 py-3.5 text-sm font-bold text-slate-950 shadow-lg shadow-sky-500/10 transition hover:bg-sky-100 disabled:opacity-50"
+                  onClick={goToAnalyze}
+                  className="inline-flex items-center gap-2 rounded-xl bg-white px-6 py-3.5 text-sm font-bold text-slate-950 shadow-lg shadow-sky-500/10 transition hover:bg-sky-100"
                 >
                   <Upload size={16} /> Analyze a paper
                 </button>
                 <button
-                  onClick={() => document.getElementById("examples")?.scrollIntoView({ behavior: "smooth" })}
+                  onClick={goToAnalyze}
                   className="inline-flex items-center gap-2 rounded-xl border border-white/20 bg-white/5 px-6 py-3.5 text-sm font-semibold text-white transition hover:border-white/40 hover:bg-white/10"
                 >
                   <BookOpenCheck size={16} className="text-sky-400" /> Open a live example
@@ -626,31 +669,94 @@ function Landing({
               </p>
 
                 <Tilt3D className="mt-5 rounded-2xl" max={7} lift={22}>
-                  <button
-                    onClick={() => (requireAuthToUpload ? onSignUp() : fileRef.current?.click())}
-                    disabled={busy || (signedIn && balance !== null && balance <= 0)}
-                    className="pp-3d-card group flex w-full flex-col items-start gap-2 rounded-2xl border-2 border-dashed border-blue-300 bg-blue-50/40 p-5 text-left transition hover:border-blue-400 hover:bg-blue-50 disabled:opacity-50"
+                  {/* A div, not a button: it holds its own Start button once a
+                      file is staged, and nesting buttons is invalid HTML. */}
+                  <div
+                    id="analyze"
+                    onDragOver={(e) => { if (canUpload) { e.preventDefault(); setDragOver(true); } }}
+                    onDragLeave={() => setDragOver(false)}
+                    onDrop={(e) => {
+                      if (!canUpload) return;
+                      e.preventDefault();
+                      setDragOver(false);
+                      const f = e.dataTransfer?.files?.[0];
+                      if (f) takeFile(f);
+                    }}
+                    className={`pp-3d-card group rounded-2xl border-2 border-dashed p-5 transition ${
+                      uploadBlocked ? "border-slate-300 bg-slate-50 opacity-60" : dragOver
+                        ? "border-blue-500 bg-blue-100/70"
+                        : "border-blue-300 bg-blue-50/40"
+                    }`}
                   >
-                    <span className="pp-pop flex h-11 w-11 items-center justify-center rounded-xl bg-blue-600 text-white shadow-lg shadow-blue-600/25 transition group-hover:scale-105">
-                      <Upload size={19} />
-                    </span>
-                    <span className="pp-pop-sm text-[15px] font-semibold text-slate-900">Analyze your own PDF</span>
-                    <span className="text-[12.5px] leading-relaxed text-slate-500">
-                      {requireAuthToUpload
-                        ? "Sign up free — new accounts get $1.00 of analysis credit, and every paper you analyze is saved to your library."
-                        : signedIn && balance !== null && balance <= 0
-                          ? "You're out of analysis credit — add credit above, or open a ready-made example."
-                          : <>Local drive or synced OneDrive / Google Drive. Built at the <strong>{tier.label}</strong> level below.</>}
-                    </span>
-                  </button>
+                    <button
+                      type="button"
+                      onClick={() => (requireAuthToUpload ? onSignUp() : canUpload && fileRef.current?.click())}
+                      disabled={busy || (signedIn && balance !== null && balance <= 0)}
+                      className="flex w-full flex-col items-start gap-2 text-left disabled:cursor-not-allowed"
+                    >
+                      <span className="pp-pop flex h-11 w-11 items-center justify-center rounded-xl bg-blue-600 text-white shadow-lg shadow-blue-600/25 transition group-hover:scale-105">
+                        <Upload size={19} />
+                      </span>
+                      <span className="pp-pop-sm text-[15px] font-semibold text-slate-900">
+                        {picked ? "Swap the PDF" : "Drop a PDF here, or click to browse"}
+                      </span>
+                      <span className="text-[12.5px] leading-relaxed text-slate-500">
+                        {requireAuthToUpload
+                          ? "Sign up free — new accounts get $1.00 of analysis credit, and every paper you analyze is saved to your library."
+                          : signedIn && balance !== null && balance <= 0
+                            ? "You're out of analysis credit — add credit above, or open a ready-made example."
+                            : <>Local drive or synced OneDrive / Google Drive. Built at the <strong>{tier.label}</strong> level below.</>}
+                      </span>
+                    </button>
+
+                    {pickErr && (
+                      <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11.5px] leading-snug text-amber-800">
+                        {pickErr}
+                      </div>
+                    )}
+
+                    {/* Staged file + the explicit go-ahead. Nothing is uploaded
+                        or charged until Start is pressed. */}
+                    {picked && (
+                      <div className="mt-4 border-t border-blue-200/70 pt-3">
+                        <div className="flex items-center gap-2 rounded-xl border border-blue-200 bg-white px-3 py-2">
+                          <FileText size={15} className="shrink-0 text-blue-600" />
+                          <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium text-slate-800">{picked.name}</span>
+                          <span className="shrink-0 text-[11px] tabular-nums text-slate-400">
+                            {(picked.size / 1024 / 1024).toFixed(1)} MB
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setPicked(null)}
+                            disabled={busy}
+                            aria-label="Remove this PDF"
+                            className="shrink-0 rounded-lg p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
+                          >
+                            <XIcon size={14} />
+                          </button>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => onUpload(picked)}
+                          disabled={busy || !canUpload}
+                          className="mt-2.5 flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-3 text-sm font-bold text-white shadow-lg shadow-blue-600/25 transition hover:bg-blue-500 disabled:opacity-40"
+                        >
+                          {busy
+                            ? <><Loader2 size={16} className="animate-spin" /> Analyzing…</>
+                            : <>Start the {tier.label} analysis</>}
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </Tilt3D>
                 <input
                   ref={fileRef} type="file" accept=".pdf,application/pdf" className="hidden"
-                  onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) onUpload(f); }}
+                  onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) takeFile(f); }}
                 />
 
-                {/* Don't have the PDF to hand? Give us the DOI. */}
-                <DoiBox onPdf={onUpload} disabled={busy || requireAuthToUpload || (signedIn && balance !== null && balance <= 0)} />
+                {/* Don't have the PDF to hand? Give us the DOI. It stages into
+                    the same slot, so DOI papers get the same Start step. */}
+                <DoiBox onPdf={takeFile} disabled={busy || requireAuthToUpload || (signedIn && balance !== null && balance <= 0)} />
 
                 <div className="mt-4 space-y-3">
                   <TierPicker tier={tier} onTier={onTier} disabled={busy} />
@@ -827,7 +933,8 @@ export default function App() {
       // regeneration. Each validator returns a problem list or null.
       const asNote = (probs) => (probs && probs.length ? probs.join("\n") : null);
       const validators = {
-        overview: (s) => asNote(auditFoundations(s)),
+        // `foundations` is its own phase now — the gate follows the field.
+        foundations: (s) => asNote(auditFoundations(s)),
         method: (s) => {
           try {
             const h = buildHelpers(s.protocol);

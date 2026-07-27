@@ -38,6 +38,21 @@ const ndjson = (obj) => encoder.encode(JSON.stringify(obj) + "\n");
 
 const MAX_PDF_BASE64_CHARS = 44 * 1024 * 1024; // ~32MB decoded, base64 overhead included
 
+/**
+ * How long one phase may run before we abort it ourselves.
+ *
+ * Supabase hard-kills an Edge Function at 150s of wall clock on the free plan
+ * and 400s on Pro, and the kill looks like a silent disconnect to the browser
+ * — so we stop a few seconds early and send a real error instead. Set the
+ * `EDGE_WALL_MS` secret to the plan's window after upgrading:
+ *   supabase secrets set EDGE_WALL_MS=390000
+ * That one value also unlocks higher reasoning effort below, because the
+ * effort ceiling exists purely to fit this window.
+ */
+const WALL_MS = Math.min(590_000, Math.max(30_000, Number(Deno.env.get("EDGE_WALL_MS")) || 140_000));
+/** Above this budget there's room for the tier's full-quality effort setting. */
+const LONG_WINDOW_MS = 300_000;
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: CORS_HEADERS });
@@ -150,8 +165,11 @@ Deno.serve(async (req) => {
         // with json_schema) here. SPEC_SCHEMA is large and deeply nested, and the
         // API rejects it with "The compiled grammar is too large". Instead the
         // schema is embedded in the prompt and the response is parsed leniently.
+        // Effort is capped by the hosting window, not by what the tier can do:
+        // on a long window (Supabase Pro) Advanced runs Opus at full effort.
         const outputConfig = {};
-        if (tier.effort) outputConfig.effort = tier.effort;
+        const effort = WALL_MS >= LONG_WINDOW_MS ? (tier.effortLong || tier.effort) : tier.effort;
+        if (effort) outputConfig.effort = effort;
 
         const maxTokens = tier.id === "fast" ? 48000 : 64000;
 
@@ -229,14 +247,14 @@ Deno.serve(async (req) => {
             })
           : client.messages.stream(requestParams);
 
-        // Supabase kills the whole function at 150s of wall clock (free plan),
-        // which the client sees as a silent disconnect. Abort the Anthropic
-        // stream ourselves a bit earlier so we can return a clear error.
+        // Abort before the platform's own kill (see WALL_MS) so the client
+        // gets a typed "timeout" error it can retry on a faster tier, rather
+        // than a silent disconnect.
         let timedOut = false;
         const deadline = setTimeout(() => {
           timedOut = true;
           try { anthropicStream.abort(); } catch { /* already done */ }
-        }, 140_000);
+        }, WALL_MS);
 
         let chars = 0;
         let lastUpdate = 0;

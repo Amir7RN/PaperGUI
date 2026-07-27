@@ -25,14 +25,16 @@ export const MODEL_TIERS = [
     label: "Advanced",
     // Opus 4.8 — the highest-quality reproduction. Fast mode was removed:
     // this org's Anthropic plan has a fast-mode limit of 0 (gated preview),
-    // so speed:"fast" 429s. At standard speed (~60 tok/s) Opus only fits the
-    // hosting platform's 150s kill window at LOW effort — that's the ceiling
-    // on Supabase's FREE tier. On Supabase PRO (400s window) raise this to
-    // "high" for the full-quality result (see README → analysis tiers).
+    // so speed:"fast" 429s. At standard speed Opus only fits the hosting
+    // platform's 150s kill window at LOW effort — that's the ceiling on
+    // Supabase's FREE tier. `effortLong` is what the server uses instead once
+    // EDGE_WALL_MS says there's a bigger window (Supabase Pro = 400s); see
+    // README → "Analysis quality vs. the hosting time limit".
     model: "claude-opus-4-8",
     blurb: "Deepest, most faithful reproduction — best for dense, math-heavy papers",
     adaptive: true,
     effort: "low",
+    effortLong: "high",
     priceIn: 5.0,
     priceOut: 25.0,
   },
@@ -45,6 +47,7 @@ export const MODEL_TIERS = [
     // "medium" fits each analysis phase inside the platform's 150s kill
     // window; on Sonnet 5, medium ≈ the previous generation's high.
     effort: "medium",
+    effortLong: "high",
     priceIn: 3.0,
     priceOut: 15.0,
   },
@@ -55,6 +58,7 @@ export const MODEL_TIERS = [
     blurb: "Lighter analysis for straightforward papers",
     adaptive: true,
     effort: "medium",
+    effortLong: "medium",
     priceIn: 3.0,
     priceOut: 15.0,
   },
@@ -855,11 +859,19 @@ export const SPEC_SCHEMA = {
 
 /* ---------------- Phase split ----------------
  * The hosting platform (Supabase Edge Functions) hard-kills a function at
- * 150s of wall clock, so one call can never produce the whole spec for a
- * real paper. The client instead requests the analysis in THREE sequential
- * calls — overview → method → results — each returning a slice of the
- * PaperSpec that the client merges. The PDF document block is prompt-cached
- * (5-minute TTL), so calls 2 and 3 re-read it at ~10% of the input price.
+ * 150s of wall clock (free plan; 400s on Pro), so one call can never produce
+ * the whole spec for a real paper. The client instead requests the analysis
+ * in FOUR sequential calls — overview → foundations → method → results —
+ * each returning a slice of the PaperSpec that the client merges. The PDF
+ * document block is prompt-cached (5-minute TTL), so later calls re-read it
+ * at ~10% of the input price.
+ *
+ * `overview` used to also carry foundations + model + explainer. That made it
+ * by far the heaviest call — slider demos, governing equations and two
+ * narrated walkthroughs on top of the framing — and it was the stage that
+ * blew the kill window on Opus, halting the run mid-way. Those three fields
+ * are now their own phase, so no single call has to emit them alongside
+ * everything else.
  */
 
 const P = SPEC_SCHEMA.properties;
@@ -868,7 +880,7 @@ export const PHASE_SCHEMAS = {
   overview: {
     type: "object",
     additionalProperties: false,
-    required: ["meta", "archetype", "story", "mindmap", "conclusion", "references", "conceptFigures", "foundations", "model"],
+    required: ["meta", "archetype", "story", "mindmap", "conclusion", "references", "conceptFigures"],
     properties: {
       meta: P.meta,
       archetype: P.archetype,
@@ -877,10 +889,13 @@ export const PHASE_SCHEMAS = {
       conclusion: P.conclusion,
       references: P.references,
       conceptFigures: P.conceptFigures,
-      foundations: P.foundations,
-      model: P.model,
-      explainer: P.explainer,
     },
+  },
+  foundations: {
+    type: "object",
+    additionalProperties: false,
+    required: ["foundations", "model"],
+    properties: { foundations: P.foundations, model: P.model, explainer: P.explainer },
   },
   method: {
     type: "object",
@@ -965,18 +980,28 @@ export function fieldLexiconBlock(field) {
   );
 }
 
-/** Per-phase instruction appended to the prompt. `contextSpec` is the
- *  {protocol, blocks} slice from the method phase, required by results. */
+/** Per-phase instruction appended to the prompt. `contextSpec` carries the
+ *  slices earlier phases produced that this one needs (archetype for
+ *  foundations/method, the pipeline for results). */
 export function phaseInstruction(phase, contextSpec) {
   if (phase === "overview") {
     return (
-      "\n\nTHIS CALL IS PHASE 1 of 3: produce ONLY the fields " +
-      "{meta, archetype, story, mindmap, conclusion, references, conceptFigures, foundations, model, explainer}. " +
+      "\n\nTHIS CALL IS PHASE 1 of 4: produce ONLY the fields " +
+      "{meta, archetype, story, mindmap, conclusion, references, conceptFigures}. " +
       "Classify the archetype honestly — it decides whether the method is simulated live or " +
-      "explored through the paper's own equations and reported numbers. For `model`, read the " +
-      "METHODS/experimental/computational sections closely — extract the real toolchain, the " +
-      "governing equations with term glossaries, the assumptions and the validation, exactly as " +
-      "the paper states them. " +
+      "explored through the paper's own equations and reported numbers, and the later phases are " +
+      "told your decision. The background demos and governing equations (`foundations`, `model`), " +
+      "the method pipeline (protocol/blocks/explorables) and the result figures are produced in " +
+      "later calls — keep them in mind for coherence, but do NOT emit them now."
+    );
+  }
+  if (phase === "foundations") {
+    const arch = contextSpec?.archetype;
+    return (
+      "\n\nTHIS CALL IS PHASE 2 of 4: produce ONLY the fields {foundations, model, explainer}. " +
+      "For `model`, read the METHODS/experimental/computational sections closely — extract the real " +
+      "toolchain, the governing equations with term glossaries, the assumptions and the validation, " +
+      "exactly as the paper states them. " +
       "GROUNDING (this is what fixes the Background & Model sections authors have rejected as " +
       "'invented / can't tell what they show'): for EVERY foundation concept that the paper " +
       "illustrates with a figure, attach that figure via `figure` (page + fractional bbox, same as " +
@@ -986,15 +1011,18 @@ export function phaseInstruction(phase, contextSpec) {
       "failure we are eliminating. " +
       "EXPLAINER: also emit `explainer.foundations` and `explainer.model` — a 3-7 scene narrated " +
       "walkthrough of each section, spoken style (this is read aloud by text-to-speech), each scene " +
-      "pointing at a real figure, a live demo, or a governing equation. The method pipeline " +
-      "(protocol/blocks/explorables) and the result figures are produced in later calls — keep them " +
-      "in mind for coherence, but do NOT emit them now."
+      "pointing at a real figure, a live demo, or a governing equation. The method pipeline and the " +
+      "result figures come in later calls — do NOT emit them now." +
+      (arch
+        ? "\n\nPHASE 1 classified this paper as archetype \"" + arch.kind + "\" and advised: " +
+          (arch.reproductionAdvice || "")
+        : "")
     );
   }
   if (phase === "method") {
     const arch = contextSpec?.archetype;
     return (
-      "\n\nTHIS CALL IS PHASE 2 of 3: produce ONLY the fields {protocol, blocks, explorables} — " +
+      "\n\nTHIS CALL IS PHASE 3 of 4: produce ONLY the fields {protocol, blocks, explorables} — " +
       "the interactive method layer per the rules above. If the method is honestly simulatable, " +
       "build the full 3-6 block pipeline (explorables may be empty or hold 1-2 bonus explorers). " +
       "If it is NOT, emit blocks: [] with a minimal protocol and pour the interactivity into 2-4 " +
@@ -1011,7 +1039,7 @@ export function phaseInstruction(phase, contextSpec) {
   }
   const hasPipeline = !!contextSpec?.blocks?.length;
   return (
-    "\n\nTHIS CALL IS PHASE 3 of 3: produce the fields {resultFigures, checkpoints} per the rules above. " +
+    "\n\nTHIS CALL IS PHASE 4 of 4: produce the fields {resultFigures, checkpoints} per the rules above. " +
     "Every figure needs page + bbox, 3-6 hotspot markers, and a guided-tour explanation. " +
     "For EVERY panel, first classify figureFamily + confidence, then make the reproduce decision (honest-degrade) before writing any chart. " +
     "On the 1-3 most instructive reproduced panels, add a `predict` quiz (predict-then-reveal). " +
