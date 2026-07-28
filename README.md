@@ -250,11 +250,11 @@ publisher TDM API (Elsevier, Springer Nature, Wiley), negotiated per institution
   their account email and a pack code (e.g. `ADV2-STD1`) in the payment note;
   apply it with:
   ```sql
-  update public.credits set balance_usd = balance_usd + 4.05
+  update public.credits set balance_usd = balance_usd + 6.85
   where user_id = (select id from auth.users where email = 'buyer@example.com');
   ```
   The amount to grant is the pack's `grant` total from `_shared/packs.js`
-  (`ADV2-STD1` = 2×1.60 + 1×0.85 = 4.05), not what they paid — the balance is
+  (`ADV2-STD1` = 2×3.00 + 1×0.85 = 6.85), not what they paid — the balance is
   metered against real model spend, and the difference is the margin.
 - **Top up or reset a user's balance:** in the SQL Editor,
   `update public.credits set balance_usd = 1.00 where user_id = '<uuid>';`
