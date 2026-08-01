@@ -24,7 +24,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { jsonrepair } from "npm:jsonrepair@3";
 import {
   MODEL_TIERS, SPEC_SCHEMA, PHASE_SCHEMAS, SYSTEM_PROMPT,
-  hintsBlock, phaseInstruction, tierById, usageCostUsd,
+  hintsBlock, modelForPhase, phaseInstruction, tierById, usageCostUsd,
 } from "../_shared/paperSpec.js";
 
 const CORS_HEADERS = {
@@ -56,7 +56,7 @@ const LONG_WINDOW_MS = 300_000;
 /**
  * Prompt cache with a ONE-HOUR TTL, not the 5-minute default.
  *
- * A run is four sequential phases, each allowed up to WALL_MS, plus any
+ * A run is five sequential phases, each allowed up to WALL_MS, plus any
  * quality-gate regenerations — routinely more than five minutes end to end.
  * With the default TTL the cache had expired by the later phases, so each one
  * re-sent the whole PDF at full input price AND paid to write the cache again.
@@ -126,6 +126,10 @@ Deno.serve(async (req) => {
     return json(400, { error: "The results phase requires the pipeline from the method phase." });
   }
   const tier = tierById(tierId) || MODEL_TIERS[0];
+  // One tier can run several models — the Advanced tier puts Opus on the
+  // model/method/results phases and Sonnet on the narrative ones. Everything
+  // below (model id, thinking, effort, PRICING) comes from this, not the tier.
+  const run = modelForPhase(tier, phase);
 
   // --- 3. Check balance (owner is exempt) ----------------------------------
   let credit = null;
@@ -151,7 +155,7 @@ Deno.serve(async (req) => {
     // completes instead of dying half-paid. The negative balance simply
     // blocks the NEXT run until the account is topped up.
     const balance = credit ? Number(credit.balance_usd) : 0;
-    const isContinuation = phase === "method" || phase === "results";
+    const isContinuation = phase === "model" || phase === "method" || phase === "results";
     if (!credit || (isContinuation ? balance <= -5 : balance <= 0)) {
       return json(402, {
         error: "You've used up your analysis credit. Add credit to analyze more papers.",
@@ -170,7 +174,7 @@ Deno.serve(async (req) => {
   const stream = new ReadableStream({
     async start(controller) {
       const send = (obj) => controller.enqueue(ndjson(obj));
-      send({ type: "progress", pct: 6, label: `${tier.label} analysis — reading the paper (text + figures)…` });
+      send({ type: "progress", pct: 6, label: `${tier.label} analysis (${run.name}) — reading the paper (text + figures)…` });
 
       try {
         // NOTE: we deliberately do NOT use structured outputs (output_config.format
@@ -180,10 +184,10 @@ Deno.serve(async (req) => {
         // Effort is capped by the hosting window, not by what the tier can do:
         // on a long window (Supabase Pro) Advanced runs Opus at full effort.
         const outputConfig = {};
-        const effort = WALL_MS >= LONG_WINDOW_MS ? (tier.effortLong || tier.effort) : tier.effort;
+        const effort = WALL_MS >= LONG_WINDOW_MS ? (run.effortLong || run.effort) : run.effort;
         if (effort) outputConfig.effort = effort;
 
-        const maxTokens = tier.id === "fast" ? 48000 : 64000;
+        const maxTokens = run.model === "claude-haiku-4-5" ? 48000 : 64000;
 
         const schema = phase ? PHASE_SCHEMAS[phase] : SPEC_SCHEMA;
         const schemaBlock =
@@ -216,9 +220,9 @@ Deno.serve(async (req) => {
           schemaBlock;
 
         const requestParams = {
-          model: tier.model,
+          model: run.model,
           max_tokens: maxTokens,
-          ...(tier.adaptive ? { thinking: { type: "adaptive" } } : {}),
+          ...(run.adaptive ? { thinking: { type: "adaptive" } } : {}),
           ...(Object.keys(outputConfig).length ? { output_config: outputConfig } : {}),
           messages: [
             {
@@ -256,15 +260,9 @@ Deno.serve(async (req) => {
           ],
         };
 
-        // Fast mode (Opus 4.8): ~2.5x output speed at 2x price — the only way
-        // Opus fits the platform's 150s window. Beta endpoint + flag required.
-        const anthropicStream = tier.speed === "fast"
-          ? client.beta.messages.stream({
-              ...requestParams,
-              speed: "fast",
-              betas: ["fast-mode-2026-02-01"],
-            })
-          : client.messages.stream(requestParams);
+        // Standard speed only: Opus fast mode is a gated preview and this
+        // org's plan has a fast-mode limit of 0, so speed:"fast" 429s.
+        const anthropicStream = client.messages.stream(requestParams);
 
         // Abort before the platform's own kill (see WALL_MS) so the client
         // gets a typed "timeout" error it can retry on a faster tier, rather
@@ -342,6 +340,7 @@ Deno.serve(async (req) => {
           console.error("spec parse failed", {
             phase: phase || "full",
             tier: tier.id,
+            model: run.model,
             stopReason: response.stop_reason,
             length: answer.length,
             head: answer.slice(0, 400),
@@ -357,7 +356,7 @@ Deno.serve(async (req) => {
         }
 
         // --- 5. Meter and deduct the real cost (owner is never charged) ----
-        const cost = usageCostUsd(tier, response.usage);
+        const cost = usageCostUsd(run, response.usage);
 
         // Where the money actually went, per phase. Without this the only
         // visible number is one total for the whole run, which isn't enough
@@ -367,6 +366,7 @@ Deno.serve(async (req) => {
         console.log("phase cost", JSON.stringify({
           phase: phase || "full",
           tier: tier.id,
+          model: run.model,
           effort,
           costUsd: +cost.toFixed(4),
           inputTokens: u.input_tokens || 0,

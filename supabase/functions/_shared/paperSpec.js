@@ -12,70 +12,110 @@
  * pricing/model logic can never drift out of sync.
  */
 
-/* ---------------- analysis model tiers ----------------
- * Four capability levels mapped onto the current Claude lineup.
- * priceIn/priceOut are USD per million tokens (input/output) — used
+/* ---------------- the model catalog ----------------
+ * Every model the analyzer may call, with what it costs and how it must be
+ * driven. priceIn/priceOut are USD per million tokens (input/output) — used
  * server-side to meter real cost against each account's balance.
+ *
+ * `effort` is what fits the hosting platform's 150s kill window; `effortLong`
+ * is used instead once EDGE_WALL_MS says there's a bigger window (Supabase
+ * Pro = 400s). See README → "Analysis quality vs. the hosting time limit".
+ *
  * Haiku 4.5 has a different API surface: no adaptive thinking, no effort
  * parameter (both 400), and a 200K context window (≈100 PDF pages max).
+ */
+export const MODEL_CATALOG = {
+  "claude-opus-4-8": {
+    // Fast mode is NOT used: this org's Anthropic plan has a fast-mode limit
+    // of 0 (gated preview), so speed:"fast" 429s.
+    name: "Opus 4.8", adaptive: true, effort: "low", effortLong: "high",
+    priceIn: 5.0, priceOut: 25.0,
+  },
+  "claude-sonnet-5": {
+    // On Sonnet 5, "medium" ≈ the previous generation's "high".
+    name: "Sonnet 5", adaptive: true, effort: "medium", effortLong: "high",
+    priceIn: 3.0, priceOut: 15.0,
+  },
+  "claude-sonnet-4-6": {
+    name: "Sonnet 4.6", adaptive: true, effort: "medium", effortLong: "medium",
+    priceIn: 3.0, priceOut: 15.0,
+  },
+  "claude-haiku-4-5": {
+    name: "Haiku 4.5", adaptive: false, effort: null, effortLong: null,
+    priceIn: 1.0, priceOut: 5.0,
+  },
+};
+
+/* ---------------- analysis model tiers ----------------
+ * Four capability levels mapped onto the catalog above. A tier names one
+ * default model, and MAY override it per analysis phase — see `phaseModels`
+ * on the Advanced tier.
  */
 export const MODEL_TIERS = [
   {
     id: "advanced",
     label: "Advanced",
-    // Opus 4.8 — the highest-quality reproduction. Fast mode was removed:
-    // this org's Anthropic plan has a fast-mode limit of 0 (gated preview),
-    // so speed:"fast" 429s. At standard speed Opus only fits the hosting
-    // platform's 150s kill window at LOW effort — that's the ceiling on
-    // Supabase's FREE tier. `effortLong` is what the server uses instead once
-    // EDGE_WALL_MS says there's a bigger window (Supabase Pro = 400s); see
-    // README → "Analysis quality vs. the hosting time limit".
     model: "claude-opus-4-8",
-    blurb: "Deepest, most faithful reproduction — best for dense, math-heavy papers",
-    adaptive: true,
-    effort: "low",
-    effortLong: "high",
-    priceIn: 5.0,
-    priceOut: 25.0,
+    blurb: "Opus on the model, method and results; Sonnet on the narrative parts",
+    /**
+     * Per-phase routing: Opus is only worth its 5x/25x price where the work is
+     * genuinely hard — reading the governing equations out of the methods
+     * section, building the runnable pipeline, and digitizing result figures.
+     * The narrative phases (story, concept map, intro figures, background
+     * lessons) are summarization of prose the paper already states plainly,
+     * where Sonnet 5 matches Opus, so routing them to Sonnet cuts roughly half
+     * the run's cost with no measured loss on those sections.
+     */
+    phaseModels: {
+      overview:    "claude-sonnet-5",  // story · mind map · idea in pictures
+      foundations: "claude-sonnet-5",  // background lessons
+      model:       "claude-opus-4-8",  // governing equations + methodology
+      method:      "claude-opus-4-8",  // pipeline + explorables
+      results:     "claude-opus-4-8",  // result figures + claims
+    },
   },
   {
     id: "standard",
     label: "Standard",
     model: "claude-sonnet-5",
     blurb: "Balanced quality, speed and cost — the recommended default",
-    adaptive: true,
-    // "medium" fits each analysis phase inside the platform's 150s kill
-    // window; on Sonnet 5, medium ≈ the previous generation's high.
-    effort: "medium",
-    effortLong: "high",
-    priceIn: 3.0,
-    priceOut: 15.0,
   },
   {
     id: "basic",
     label: "Basic",
     model: "claude-sonnet-4-6",
     blurb: "Lighter analysis for straightforward papers",
-    adaptive: true,
-    effort: "medium",
-    effortLong: "medium",
-    priceIn: 3.0,
-    priceOut: 15.0,
   },
   {
     id: "fast",
     label: "Fast",
     model: "claude-haiku-4-5",
     blurb: "Quickest and cheapest — papers up to ~100 pages",
-    adaptive: false,
-    effort: null,
-    priceIn: 1.0,
-    priceOut: 5.0,
   },
 ];
 
 export function tierById(id) {
   return MODEL_TIERS.find((t) => t.id === id) || null;
+}
+
+/**
+ * The model that actually runs one phase of a tier's analysis, merged with
+ * everything the caller needs to drive and bill it:
+ *   { model, name, adaptive, effort, effortLong, priceIn, priceOut }
+ *
+ * A tier without `phaseModels` (or a phase it doesn't list) falls back to the
+ * tier's own model, so the non-Advanced tiers behave exactly as before.
+ */
+export function modelForPhase(tier, phase) {
+  const id = (phase && tier?.phaseModels?.[phase]) || tier?.model;
+  const entry = MODEL_CATALOG[id] || MODEL_CATALOG["claude-sonnet-5"];
+  return { model: id, ...entry };
+}
+
+/** Distinct model names a tier uses, in phase order — for the tier picker. */
+export function tierModelNames(tier) {
+  const ids = tier?.phaseModels ? Object.values(tier.phaseModels) : [tier?.model];
+  return [...new Set(ids)].map((id) => MODEL_CATALOG[id]?.name).filter(Boolean);
 }
 
 /**
@@ -89,17 +129,19 @@ export function tierById(id) {
 const CACHE_WRITE_MULTIPLIER = 2.0; // 1h TTL; a 5-minute write would be 1.25
 const CACHE_READ_MULTIPLIER = 0.1;
 
-export function usageCostUsd(tier, usage) {
+/** `priced` is a MODEL_CATALOG entry (from modelForPhase) — NOT the tier, which
+ *  no longer carries pricing now that one tier can run several models. */
+export function usageCostUsd(priced, usage) {
   if (!usage) return 0;
   const inTok = usage.input_tokens || 0;
   const outTok = usage.output_tokens || 0;
   const cacheWrite = usage.cache_creation_input_tokens || 0;
   const cacheRead = usage.cache_read_input_tokens || 0;
   const cost =
-    (inTok * tier.priceIn) / 1e6 +
-    (outTok * tier.priceOut) / 1e6 +
-    (cacheWrite * tier.priceIn * CACHE_WRITE_MULTIPLIER) / 1e6 +
-    (cacheRead * tier.priceIn * CACHE_READ_MULTIPLIER) / 1e6;
+    (inTok * priced.priceIn) / 1e6 +
+    (outTok * priced.priceOut) / 1e6 +
+    (cacheWrite * priced.priceIn * CACHE_WRITE_MULTIPLIER) / 1e6 +
+    (cacheRead * priced.priceIn * CACHE_READ_MULTIPLIER) / 1e6;
   return cost;
 }
 
@@ -866,20 +908,36 @@ export const SPEC_SCHEMA = {
  * The hosting platform (Supabase Edge Functions) hard-kills a function at
  * 150s of wall clock (free plan; 400s on Pro), so one call can never produce
  * the whole spec for a real paper. The client instead requests the analysis
- * in FOUR sequential calls — overview → foundations → method → results —
- * each returning a slice of the PaperSpec that the client merges. The PDF
- * document block is prompt-cached (5-minute TTL), so later calls re-read it
- * at ~10% of the input price.
+ * in FIVE sequential calls — overview → foundations → model → method →
+ * results — each returning a slice of the PaperSpec that the client merges.
+ * The PDF document block is prompt-cached (1-hour TTL), so later calls re-read
+ * it at ~10% of the input price.
  *
  * `overview` used to also carry foundations + model + explainer. That made it
  * by far the heaviest call — slider demos, governing equations and two
  * narrated walkthroughs on top of the framing — and it was the stage that
- * blew the kill window on Opus, halting the run mid-way. Those three fields
- * are now their own phase, so no single call has to emit them alongside
- * everything else.
+ * blew the kill window on Opus, halting the run mid-way.
+ *
+ * `foundations` and `model` were then one phase, and were split again for a
+ * different reason: they need DIFFERENT models. Background lessons are
+ * restatement of prose the paper already gives plainly; the governing
+ * equations are the hardest reading in the paper. With them in one call the
+ * whole thing had to run on Opus. Split, the Advanced tier routes background
+ * to Sonnet and the model to Opus (see MODEL_TIERS.phaseModels). Each emits
+ * its own half of `explainer`, which the client merges.
  */
 
 const P = SPEC_SCHEMA.properties;
+
+/** `explainer` is produced in halves by two phases, so merging a phase's
+ *  result must combine it rather than overwrite. */
+export const MERGED_SPEC_KEYS = ["explainer"];
+
+const explainerHalf = (half) => ({
+  type: "object",
+  additionalProperties: false,
+  properties: { [half]: explainerSectionSchema },
+});
 
 export const PHASE_SCHEMAS = {
   overview: {
@@ -899,8 +957,14 @@ export const PHASE_SCHEMAS = {
   foundations: {
     type: "object",
     additionalProperties: false,
-    required: ["foundations", "model"],
-    properties: { foundations: P.foundations, model: P.model, explainer: P.explainer },
+    required: ["foundations"],
+    properties: { foundations: P.foundations, explainer: explainerHalf("foundations") },
+  },
+  model: {
+    type: "object",
+    additionalProperties: false,
+    required: ["model"],
+    properties: { model: P.model, explainer: explainerHalf("model") },
   },
   method: {
     type: "object",
@@ -991,7 +1055,7 @@ export function fieldLexiconBlock(field) {
 export function phaseInstruction(phase, contextSpec) {
   if (phase === "overview") {
     return (
-      "\n\nTHIS CALL IS PHASE 1 of 4: produce ONLY the fields " +
+      "\n\nTHIS CALL IS PHASE 1 of 5: produce ONLY the fields " +
       "{meta, archetype, story, mindmap, conclusion, references, conceptFigures}. " +
       "Classify the archetype honestly — it decides whether the method is simulated live or " +
       "explored through the paper's own equations and reported numbers, and the later phases are " +
@@ -1003,21 +1067,41 @@ export function phaseInstruction(phase, contextSpec) {
   if (phase === "foundations") {
     const arch = contextSpec?.archetype;
     return (
-      "\n\nTHIS CALL IS PHASE 2 of 4: produce ONLY the fields {foundations, model, explainer}. " +
-      "For `model`, read the METHODS/experimental/computational sections closely — extract the real " +
-      "toolchain, the governing equations with term glossaries, the assumptions and the validation, " +
-      "exactly as the paper states them. " +
-      "GROUNDING (this is what fixes the Background & Model sections authors have rejected as " +
+      "\n\nTHIS CALL IS PHASE 2 of 5: produce ONLY the fields {foundations, explainer}, and inside " +
+      "`explainer` ONLY the `foundations` key. These are the background lessons a reader needs " +
+      "BEFORE the paper's own contribution makes sense — key ideas from the prior work this paper " +
+      "builds on, each one playable. " +
+      "GROUNDING (this is what fixes the Background section authors have rejected as " +
       "'invented / can't tell what they show'): for EVERY foundation concept that the paper " +
       "illustrates with a figure, attach that figure via `figure` (page + fractional bbox, same as " +
-      "result figures) and give the demo a `provenance` naming the figure/equation/section. For each " +
-      "governing equation, set `provenance`, and attach the paper figure it produces via `figure` " +
-      "when one exists. A live plot with no visible link to the paper's own figure is the exact " +
-      "failure we are eliminating. " +
-      "EXPLAINER: also emit `explainer.foundations` and `explainer.model` — a 3-7 scene narrated " +
-      "walkthrough of each section, spoken style (this is read aloud by text-to-speech), each scene " +
-      "pointing at a real figure, a live demo, or a governing equation. The method pipeline and the " +
-      "result figures come in later calls — do NOT emit them now." +
+      "result figures) and give the demo a `provenance` naming the figure/equation/section. A live " +
+      "plot with no visible link to the paper's own figure is the exact failure we are eliminating. " +
+      "EXPLAINER: emit `explainer.foundations` — a 3-7 scene narrated walkthrough of this section, " +
+      "spoken style (this is read aloud by text-to-speech), each scene pointing at a real figure or " +
+      "a live demo. Do NOT emit `explainer.model`. " +
+      "The governing equations (`model`), the method pipeline and the result figures come in later " +
+      "calls — do NOT emit them now." +
+      (arch
+        ? "\n\nPHASE 1 classified this paper as archetype \"" + arch.kind + "\" and advised: " +
+          (arch.reproductionAdvice || "")
+        : "")
+    );
+  }
+  if (phase === "model") {
+    const arch = contextSpec?.archetype;
+    return (
+      "\n\nTHIS CALL IS PHASE 3 of 5: produce ONLY the fields {model, explainer}, and inside " +
+      "`explainer` ONLY the `model` key. Read the METHODS/experimental/computational sections " +
+      "closely — extract the real toolchain, the governing equations with term glossaries, the " +
+      "assumptions and the validation, exactly as the paper states them. This is the hardest " +
+      "reading in the paper: every symbol must be the paper's own, every equation traceable. " +
+      "GROUNDING: for each governing equation set `provenance` (naming the paper's equation number " +
+      "/ section), and attach the paper figure it produces via `figure` (page + fractional bbox) " +
+      "when one exists. Never invent an equation the paper does not state. " +
+      "EXPLAINER: emit `explainer.model` — a 3-7 scene narrated walkthrough of this section, spoken " +
+      "style (read aloud by text-to-speech), each scene pointing at a real figure or a governing " +
+      "equation. Do NOT emit `explainer.foundations` — phase 2 already produced it. " +
+      "The method pipeline and the result figures come in later calls — do NOT emit them now." +
       (arch
         ? "\n\nPHASE 1 classified this paper as archetype \"" + arch.kind + "\" and advised: " +
           (arch.reproductionAdvice || "")
@@ -1027,7 +1111,7 @@ export function phaseInstruction(phase, contextSpec) {
   if (phase === "method") {
     const arch = contextSpec?.archetype;
     return (
-      "\n\nTHIS CALL IS PHASE 3 of 4: produce ONLY the fields {protocol, blocks, explorables} — " +
+      "\n\nTHIS CALL IS PHASE 4 of 5: produce ONLY the fields {protocol, blocks, explorables} — " +
       "the interactive method layer per the rules above. If the method is honestly simulatable, " +
       "build the full 3-6 block pipeline (explorables may be empty or hold 1-2 bonus explorers). " +
       "If it is NOT, emit blocks: [] with a minimal protocol and pour the interactivity into 2-4 " +
@@ -1044,7 +1128,7 @@ export function phaseInstruction(phase, contextSpec) {
   }
   const hasPipeline = !!contextSpec?.blocks?.length;
   return (
-    "\n\nTHIS CALL IS PHASE 4 of 4: produce the fields {resultFigures, checkpoints} per the rules above. " +
+    "\n\nTHIS CALL IS PHASE 5 of 5: produce the fields {resultFigures, checkpoints} per the rules above. " +
     "Every figure needs page + bbox, 3-6 hotspot markers, and a guided-tour explanation. " +
     "For EVERY panel, first classify figureFamily + confidence, then make the reproduce decision (honest-degrade) before writing any chart. " +
     "On the 1-3 most instructive reproduced panels, add a `predict` quiz (predict-then-reveal). " +

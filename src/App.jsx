@@ -29,7 +29,7 @@ import { SAMPLE_SPEC_6 } from "./samplePaper6.js";
 import { SAMPLE_SPEC_7 } from "./samplePaper7.js";
 import { SAMPLE_SPEC_8 } from "./samplePaper8.js";
 import { SAMPLE_SPEC_9 } from "./samplePaper9.js";
-import { analyzePaper, MODEL_TIERS, getModelTier, setModelTier } from "./api.js";
+import { analyzePaper, MODEL_TIERS, tierModelNames, getModelTier, setModelTier } from "./api.js";
 import { fileToBase64, renderPdfRegions } from "./pdf.js";
 import {
   compileSpec, buildHelpers, defaultsFromSpec, runSpec, validateResultFigures,
@@ -117,6 +117,11 @@ function TierPicker({ tier, onTier, disabled }) {
             >
               <div className={`text-xs font-semibold ${selected ? "text-blue-700" : "text-slate-700"}`}>
                 {t.label}
+              </div>
+              {/* A tier can now run more than one model — Advanced splits the
+                  run between Opus and Sonnet, so name what it actually calls. */}
+              <div className="mt-0.5 text-[9.5px] font-medium uppercase tracking-wide text-slate-400">
+                {tierModelNames(t).join(" + ")}
               </div>
               <div className="mt-0.5 text-[10px] leading-snug text-slate-500">{t.blurb}</div>
             </button>

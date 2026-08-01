@@ -9,12 +9,12 @@
  * account balance server-side (see supabase/functions/analyze-paper).
  */
 
-import { MODEL_TIERS } from "../supabase/functions/_shared/paperSpec.js";
+import { MERGED_SPEC_KEYS, MODEL_TIERS, modelForPhase, tierModelNames } from "../supabase/functions/_shared/paperSpec.js";
 import { getAccessToken, functionsUrl, supabaseAnonKey } from "./supabase.js";
 
 const TIER_STORAGE = "paper-playground-model-tier";
 
-export { MODEL_TIERS };
+export { MODEL_TIERS, tierModelNames };
 
 export function getModelTier() {
   try {
@@ -30,7 +30,7 @@ export function setModelTier(id) {
 }
 
 /**
- * The analysis runs as FOUR sequential edge-function calls — the hosting
+ * The analysis runs as FIVE sequential edge-function calls — the hosting
  * platform kills any single function at 150s of wall clock (400s on Pro),
  * which a full one-shot analysis always exceeds on real papers. Each phase
  * returns a slice of the PaperSpec; the PDF is prompt-cached server-side so
@@ -40,17 +40,38 @@ export function setModelTier(id) {
  * demos, the governing equations AND two narrated walkthroughs on top of the
  * paper's framing was what pushed the first call past the kill window on the
  * Advanced (Opus) tier, halting runs mid-way.
+ *
+ * `model` is then split out of `foundations` so the two can run on DIFFERENT
+ * models — the Advanced tier routes the narrative phases (overview,
+ * foundations) to Sonnet and the hard ones (model, method, results) to Opus.
+ * See MODEL_TIERS.phaseModels in paperSpec.js.
  */
 const PHASES = [
-  { id: "overview",    title: "Story & framing", from: 3,  to: 26,
+  { id: "overview",    title: "Story & framing", from: 3,  to: 22,
     keys: ["meta", "archetype", "story", "mindmap", "conclusion", "references", "conceptFigures"] },
-  { id: "foundations", title: "Background & model", from: 26, to: 50,
-    keys: ["foundations", "model", "explainer"] },
-  { id: "method",      title: "Interactive method layer", from: 50, to: 75,
+  { id: "foundations", title: "Background", from: 22, to: 38,
+    keys: ["foundations", "explainer"] },
+  { id: "model",       title: "The model & equations", from: 38, to: 55,
+    keys: ["model", "explainer"] },
+  { id: "method",      title: "Interactive method layer", from: 55, to: 76,
     keys: ["protocol", "blocks", "explorables"] },
-  { id: "results",     title: "Result figures", from: 75, to: 99,
+  { id: "results",     title: "Result figures", from: 76, to: 99,
     keys: ["resultFigures", "checkpoints", "claims", "flashcards"] },
 ];
+
+/** Merge one phase's returned slice into the accumulating spec. Most keys just
+ *  overwrite; MERGED_SPEC_KEYS (`explainer`) are produced in halves by two
+ *  phases, so overwriting would throw the first half away. */
+function mergePhase(spec, phase, phaseSpec) {
+  for (const k of phase.keys) {
+    const v = phaseSpec?.[k];
+    if (v === undefined) continue;
+    spec[k] = MERGED_SPEC_KEYS.includes(k) && v && typeof v === "object"
+      ? { ...(spec[k] || {}), ...v }
+      : v;
+  }
+  return spec;
+}
 
 /* Completed phases are cached for the session (keyed by document), so a
  * failed or retried analysis NEVER re-pays for stages that already
@@ -68,12 +89,24 @@ function docKey(pdfBase64) {
   return `${n}:${h}`;
 }
 
-/** Next-faster tier to fall back to when a phase times out. */
+/**
+ * Next-faster tier to fall back to when a phase times out.
+ *
+ * It must step down the MODEL, not just the tier: with per-phase routing,
+ * Advanced already runs `overview` on Sonnet 5, and "falling back" to the
+ * Standard tier would re-run the identical model and time out again. So skip
+ * any tier that resolves to the same model for this phase.
+ */
 const FALLBACK_ORDER = ["advanced", "standard", "basic", "fast"];
-function fallbackTier(tier) {
+function fallbackTier(tier, phase) {
   const i = FALLBACK_ORDER.indexOf(tier.id);
-  if (i === -1 || i === FALLBACK_ORDER.length - 1) return null;
-  return MODEL_TIERS.find((t) => t.id === FALLBACK_ORDER[i + 1]) || null;
+  if (i === -1) return null;
+  const current = modelForPhase(tier, phase?.id).model;
+  for (let j = i + 1; j < FALLBACK_ORDER.length; j++) {
+    const next = MODEL_TIERS.find((t) => t.id === FALLBACK_ORDER[j]);
+    if (next && modelForPhase(next, phase?.id).model !== current) return next;
+  }
+  return null;
 }
 
 /** One phase call: streams NDJSON progress, returns {spec, cost, remainingBalance}.
@@ -185,13 +218,14 @@ async function runPhaseWithFallback(pdfBase64, tier, hints, phase, contextSpec, 
         continue;
       }
 
-      const next = fallbackTier(attempt);
+      const next = fallbackTier(attempt, phase);
       if (!next) throw err;
+      const nextName = modelForPhase(next, phase.id).name;
       report(
         phase.from,
         code === "timeout"
-          ? `${phase.title} — took too long, retrying on the ${next.label} level…`
-          : `${phase.title} — couldn't read the reply, retrying on the ${next.label} level…`,
+          ? `${phase.title} — took too long, retrying on ${nextName}…`
+          : `${phase.title} — couldn't read the reply, retrying on ${nextName}…`,
       );
       attempt = next;
       retriedThisTier = false;
@@ -242,7 +276,7 @@ export async function analyzePaper(pdfBase64, onProgress, tier = getModelTier(),
       const contextSpec =
         phase.id === "results"
           ? { protocol: spec.protocol, blocks: spec.blocks, archetype: spec.archetype, field: spec.meta?.field }
-          : phase.id === "method" || phase.id === "foundations"
+          : phase.id === "method" || phase.id === "foundations" || phase.id === "model"
             ? { archetype: spec.archetype }
             : null;
       // A timed-out stage retries down the tier ladder, so one slow stage
@@ -258,10 +292,7 @@ export async function analyzePaper(pdfBase64, onProgress, tier = getModelTier(),
       // exact problems fed back to the analyzer.
       const validator = validators?.[phase.id];
       if (validator) {
-        const candidate = { ...spec };
-        for (const k of phase.keys) {
-          if (result.spec?.[k] !== undefined) candidate[k] = result.spec[k];
-        }
+        const candidate = mergePhase({ ...spec }, phase, result.spec);
         let problems = null;
         try { problems = validator(candidate); } catch { /* audit crash ≠ analysis failure */ }
         if (problems) {
@@ -271,10 +302,7 @@ export async function analyzePaper(pdfBase64, onProgress, tier = getModelTier(),
             // faster level to finish, the regeneration must not climb back to
             // one that just timed out on this paper.
             const retry = await runPhase(pdfBase64, ranOn, hints, phase, contextSpec, token, report, problems, codeText);
-            const candidate2 = { ...spec };
-            for (const k of phase.keys) {
-              if (retry.spec?.[k] !== undefined) candidate2[k] = retry.spec[k];
-            }
+            const candidate2 = mergePhase({ ...spec }, phase, retry.spec);
             let problems2 = null;
             try { problems2 = validator(candidate2); } catch { /* keep retry */ }
             // Prefer the retry unless it is measurably worse than the original.
@@ -292,9 +320,7 @@ export async function analyzePaper(pdfBase64, onProgress, tier = getModelTier(),
 
     // Copy only this phase's expected fields — without strict structured
     // outputs the model occasionally emits stray extra keys.
-    for (const k of phase.keys) {
-      if (result.spec?.[k] !== undefined) spec[k] = result.spec[k];
-    }
+    mergePhase(spec, phase, result.spec);
     totalCost += result.cost || 0;
     if (typeof result.remainingBalance === "number") remainingBalance = result.remainingBalance;
   }

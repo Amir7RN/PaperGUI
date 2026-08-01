@@ -744,14 +744,23 @@ function MindMap({ mindmap }) {
         </div>
       </div>
 
-      <div className="overflow-x-auto">
+      {/* No horizontal scroll: the viewBox scales the whole map to whatever
+          width the (now full-bleed) reading column gives it, so on a wide
+          window the map is drawn LARGER than its natural size instead of
+          being clipped into a scroller. The height cap keeps a tall map on
+          one screen — SVG letterboxes it rather than overflowing. Below `lg`
+          there is not enough width to read a scaled-down map, so phones keep
+          the old scroller. */}
+      <div className="overflow-x-auto lg:overflow-visible">
         <style>{`
           @keyframes nodePop { from { opacity: 0; transform: scale(0.55); } to { opacity: 1; transform: none; } }
           @keyframes edgeDraw { to { stroke-dashoffset: 0; } }
           .mm-node { transform-box: fill-box; transform-origin: center; animation: nodePop 500ms cubic-bezier(0.34,1.56,0.64,1) both; cursor: pointer; }
           .mm-edge { stroke-dasharray: 500; stroke-dashoffset: 500; animation: edgeDraw 900ms ease-out forwards; }
         `}</style>
-        <svg width="100%" viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Concept map of the paper" style={{ minWidth: Math.max(640, colCount * 190) }}>
+        <svg width="100%" viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Concept map of the paper"
+          className="min-w-[640px] lg:min-w-0"
+          style={{ display: "block", height: "auto", maxHeight: "78vh" }}>
           <defs>
             <marker id="mm-arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
               <path d="M 0 0 L 10 5 L 0 10 z" fill="#b9c2cf" />
@@ -3560,7 +3569,7 @@ function SideNav({ sections, activeId, onSelect, visited }) {
   const done = sections.filter((s) => visited?.has(s.id)).length;
   const pct = sections.length ? Math.round((done / sections.length) * 100) : 0;
   return (
-    <aside className="hidden shrink-0 lg:block" style={{ width: "236px" }}>
+    <aside className="hidden shrink-0 lg:block" style={{ width: "var(--sidenav-w, 216px)" }}>
       <div className="sticky top-4 flex max-h-[calc(100vh-2rem)] flex-col overflow-y-auto pb-4 pr-1">
         <div className="mb-2.5 rounded-xl border border-slate-200/80 bg-white p-3 shadow-sm">
           <div className="flex items-baseline justify-between">
@@ -3942,7 +3951,9 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
           <div className="pp-orb absolute -top-16 left-[38%] h-56 w-56 rounded-full bg-fuchsia-600/15 blur-3xl" style={{ animationDelay: "-8s" }} />
           <div className="pp-grid-lines absolute inset-0" />
         </div>
-        <div className="relative mx-auto px-4 py-6 sm:px-6" style={{ maxWidth: "var(--content-max, 1280px)" }}>
+        {/* full-bleed to match the reader shell below — the hero used to be a
+            centred column, which left a visible margin mismatch */}
+        <div className="relative w-full py-6" style={{ paddingLeft: "calc(var(--page-pad, 12px) + 8px)", paddingRight: "calc(var(--page-pad, 12px) + 8px)" }}>
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="min-w-0 max-w-3xl">
               <div className="mb-2 flex items-center gap-2.5">
@@ -4070,9 +4081,12 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
         /* ===== reader view: pick a section from the sidebar, see just that one ===== */
         <>
           <SectionTabBar sections={sections} activeId={activeS?.id} onSelect={selectSection} />
-          <div className="mx-auto flex items-start gap-8 pt-4" style={{ maxWidth: "var(--content-max, 1360px)", paddingLeft: "var(--page-pad, 24px)", paddingRight: "var(--page-pad, 24px)" }}>
+          {/* App shell, not a centred document: the section rail sits hard
+              against the left edge (Gmail-style) and the reading column takes
+              everything that is left, so nothing is wasted to page margins. */}
+          <div className="flex w-full items-start gap-5 pt-4" style={{ paddingLeft: "var(--page-pad, 12px)", paddingRight: "var(--page-pad, 12px)" }}>
             <SideNav sections={sections} activeId={activeS?.id} onSelect={selectSection} visited={visited} />
-            <main ref={canvasRef} className="min-w-0 flex-1">
+            <main ref={canvasRef} className="min-w-0 flex-1" style={{ maxWidth: "var(--content-max, 2600px)" }}>
               <DesignBox id="conclusion" label="Conclusion" mode="flow" rect={layout.boxes.conclusion} onRect={setBox} register={registerBox}>
                 <TakeawayBox conclusion={spec.conclusion} modifiedCount={modifiedCount} onReset={() => { setParams(defaults); setPinnedT(null); }} />
                 {active.error && <div className="mt-3 rounded-xl border-2 border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800"><strong>Pipeline error:</strong> {active.error}</div>}

@@ -143,17 +143,21 @@ Supabase Edge Functions are hard-killed at **150s** (free plan) / **400s** (Pro)
 and the kill reaches the browser as a silent disconnect. Three things keep a run
 inside that window:
 
-1. **Four phases, not one call** — `overview → foundations → method → results`
-   (`PHASES` in `src/api.js`, `PHASE_SCHEMAS`/`phaseInstruction` in
+1. **Five phases, not one call** — `overview → foundations → model → method →
+   results` (`PHASES` in `src/api.js`, `PHASE_SCHEMAS`/`phaseInstruction` in
    `_shared/paperSpec.js`). `foundations` is split out of `overview` because
    emitting the background demos, governing equations and two narrated
    walkthroughs on top of the paper's framing was what overran the window on
-   Opus. Adding a phase means editing all three of those in step.
+   Opus; `model` is then split out of `foundations` so the two halves can run
+   on different models (see *Per-phase model routing* below). Adding a phase
+   means editing all three of those in step.
 2. **A self-imposed deadline** — the function aborts its own Anthropic stream at
    `EDGE_WALL_MS` (default `140000`) so it can return a typed `timeout` error
    instead of dying silently.
 3. **A fallback ladder** — a timed-out phase retries on the next-faster tier and
-   keeps stepping down until one finishes, so a run never halts half-done.
+   keeps stepping down until one finishes, so a run never halts half-done. The
+   ladder skips any tier that would resolve to the *same* model for that phase,
+   so a fallback is always a real step down.
 
 **After upgrading to Supabase Pro, set the window and nothing else:**
 
@@ -169,6 +173,27 @@ reproduction. On the free plan leave it unset.
 **Fast mode** (`speed: "fast"`, ~2.5× faster Opus) is only usable if your
 Anthropic org has fast-mode access; without it the API returns a 429
 (`0 fast mode input tokens per minute`). It is not enabled here.
+
+### Per-phase model routing
+
+A tier is no longer one model. `MODEL_CATALOG` (`_shared/paperSpec.js`) holds
+every model with its price and how it must be driven; a tier names a default
+model and may override it per phase via `phaseModels`. The **Advanced** tier
+does exactly that:
+
+| Phase | Sections it produces | Model |
+|---|---|---|
+| `overview` | Story · Mind map · Idea in pictures | Sonnet 5 |
+| `foundations` | Background | Sonnet 5 |
+| `model` | The model & governing equations | Opus 4.8 |
+| `method` | Method lab · Explorables | Opus 4.8 |
+| `results` | Result figures · Claims · Recall | Opus 4.8 |
+
+The narrative phases restate prose the paper already gives plainly, where
+Sonnet 5 matches Opus; the other three are the hard reading (equations,
+runnable pipeline, figure digitization) and stay on Opus. Cost is metered per
+phase against the model that actually ran it — `usageCostUsd` takes the
+`modelForPhase()` result, not the tier.
 
 ### 5. Card payments (Stripe Checkout)
 

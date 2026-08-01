@@ -13,11 +13,22 @@
 
 const STORAGE = "paper-playground-layout";
 
+/* Bumped when a default changes in a way a stale saved layout would fight.
+ * v2: the reader view became a full-bleed app shell (left rail + reading
+ * column), so the old centred-document contentMax/pagePad are discarded. */
+const LAYOUT_VERSION = 2;
+const V2_RESET_KEYS = ["contentMax", "pagePad"];
+
 /* Each numeric knob: { group, label, cssVar, unit, min, max, step, value } */
 export const NUMERIC_DEFS = [
   // Global
-  { key: "contentMax",   group: "Global",       label: "Page width (flow mode)", cssVar: "--content-max",  unit: "px", min: 900, max: 2200, step: 20, value: 1280 },
-  { key: "pagePad",      group: "Global",       label: "Side margin (flow mode)", cssVar: "--page-pad",    unit: "px", min: 0,   max: 48,   step: 2,  value: 24   },
+  // The reader view is a full-bleed app shell (a fixed left rail + the reading
+  // column), not a centred document — so `contentMax` caps the READING COLUMN
+  // and its default is high enough that the column simply fills whatever is
+  // left of the window on any normal display.
+  { key: "contentMax",   group: "Global",       label: "Reading column max width", cssVar: "--content-max", unit: "px", min: 900, max: 3200, step: 20, value: 2600 },
+  { key: "pagePad",      group: "Global",       label: "Side margin (flow mode)", cssVar: "--page-pad",    unit: "px", min: 0,   max: 48,   step: 2,  value: 12   },
+  { key: "sideNavW",     group: "Global",       label: "Left section rail width", cssVar: "--sidenav-w",   unit: "px", min: 170, max: 320,  step: 4,  value: 216  },
   { key: "cardRadius",   group: "Global",       label: "Corner rounding",       cssVar: "--card-radius",   unit: "px", min: 6,   max: 26,   step: 1,  value: 16   },
 
   // Title header
@@ -63,9 +74,10 @@ export const DEFAULT_SECTIONS = [
  * The values below are the finalized "master slide" the maintainer approved —
  * every paper renders against this by default; visitors can still rearrange. */
 export const DEFAULT_LAYOUT = {
+  version: LAYOUT_VERSION,
   numeric: {
     ...Object.fromEntries(NUMERIC_DEFS.map((d) => [d.key, d.value])),
-    contentMax: 2140, pagePad: 28, cardRadius: 18,
+    contentMax: 2600, pagePad: 12, sideNavW: 216, cardRadius: 18,
     titleSize: 29, authorSize: 13, abstractSize: 15,
     secBadge: 38, secHead: 20, secSub: 15, secGap: 36,
     conceptText: 13, conceptChartH: 300,
@@ -88,8 +100,13 @@ export function loadLayout() {
     const raw = localStorage.getItem(STORAGE);
     if (!raw) return structuredClone(DEFAULT_LAYOUT);
     const saved = JSON.parse(raw);
+    const savedNumeric = { ...(saved.numeric || {}) };
+    if ((saved.version || 1) < LAYOUT_VERSION) {
+      for (const k of V2_RESET_KEYS) delete savedNumeric[k];
+    }
     return {
-      numeric: { ...DEFAULT_LAYOUT.numeric, ...(saved.numeric || {}) },
+      version: LAYOUT_VERSION,
+      numeric: { ...DEFAULT_LAYOUT.numeric, ...savedNumeric },
       // merge by KEY (not index) so newly added sections appear with their
       // defaults instead of scrambling an older saved layout
       sections: DEFAULT_SECTIONS.map((d) => ({

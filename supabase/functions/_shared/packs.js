@@ -22,8 +22,15 @@
  * uncached system prompt) both fixed in analyze-paper — expect ≈$2.30 now,
  * dominated by Opus output tokens at $25/M, which no caching can reduce.
  *
+ * Advanced then moved to PER-PHASE model routing (MODEL_TIERS.phaseModels):
+ * the story / mind-map / idea / background phases run on Sonnet 5, which is
+ * exactly 0.6x Opus on BOTH input and output, so the run drops by 40% of
+ * whatever share of the bill those phases carry — projected ≈$1.90-2.05,
+ * plus a few cents for the extra (cache-read) fifth call. NOT yet measured:
+ * confirm from the `phase cost` logs, which now print the model per phase.
+ *
  * The other three levels are still carrying the ORIGINAL mid-2026 estimates
- * below, taken over three phases rather than today's four and before the
+ * below, taken over three phases rather than today's five and before the
  * caching faults were understood. Treat them as unverified: re-measure from
  * the `phase cost` logs in analyze-paper and correct them the same way.
  *   Standard (Sonnet 5)   ≈ $0.60?  → grant 0.85   [unverified]
