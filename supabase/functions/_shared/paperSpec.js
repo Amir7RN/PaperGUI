@@ -260,6 +260,59 @@ const explorableSchema = {
   },
 };
 
+/* ---------------- on-demand reader panels ----------------
+ * One explorable, generated for a passage the READER selected rather than a
+ * concept the analyzer chose. Deliberately the SAME `demo` shape the analysis
+ * already emits, so it renders through the existing DemoChart / DemoFrames
+ * components and the same kernel sandbox — an on-demand panel executes nothing
+ * the analysis pipeline doesn't already execute.
+ */
+export const PANEL_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["title", "story", "source", "demo"],
+  properties: {
+    title: { type: "string", description: "Short handle for what this panel lets you play with, e.g. 'Peak demand vs. electrification level'" },
+    story: { type: "string", description: "1-2 plain sentences: what the reader should discover by dragging the sliders" },
+    source: { type: "string", description: "Where in the paper this comes from — 'Eq. (3)', 'Fig. 2b', 'Sec. III.A', or 'the selected passage'. Never invent a figure or equation number the passage does not mention." },
+    demo: demoSchema,
+  },
+};
+
+/** The instruction for one on-demand panel. Deliberately short: this is a
+ *  single small artifact on a metered per-click budget, not an analysis. */
+export function panelPrompt({ paperTitle, sectionLabel, quote, context }) {
+  return (
+    "You build ONE small interactive panel that teaches exactly what a reader just highlighted " +
+    "while reading a scientific paper. They chose this passage because they did not follow it.\n\n" +
+    `PAPER: ${paperTitle || "(untitled)"}\n` +
+    `WHERE THEY ARE: ${sectionLabel}\n\n` +
+    `THE PASSAGE THEY SELECTED:\n"""${quote}"""\n\n` +
+    (context ? `WHAT THE ANALYSIS ALREADY KNOWS ABOUT THIS PAPER (use it to stay faithful to the paper's own quantities, symbols and numbers):\n"""${context}"""\n\n` : "") +
+    "BUILD THE PANEL THAT MAKES THIS PASSAGE CLICK:\n" +
+    "- Pick the ONE mechanism, trade-off or relationship in the passage that a slider can reveal, and build that. " +
+    "Not a summary of the passage — a thing the reader can move.\n" +
+    "- 1-3 sliders. Every slider must visibly change the plot at its default operating point; a slider that does nothing is a failure.\n" +
+    "- At default values the plot must show an obviously shaped, clearly varying curve. Flat or constant output is a failure.\n" +
+    "- Calibrate ranges and magnitudes to the paper's own reported numbers wherever the passage or the context gives them.\n" +
+    "- xLabel and yLabel MUST name the quantity AND its unit as the paper uses them ('peak demand (GW)', 'iteration', " +
+    "'log₁₀ power density (W/m²)'). A bare word with no unit is a failure.\n" +
+    "- `source` must be traceable: name the equation, figure, table or section the passage refers to, or say it comes from the selected passage. Never cite a number the paper did not give.\n" +
+    "- HONESTY BEFORE COMPLETENESS: if the passage describes something no slider can honestly represent (a photograph, a claim about " +
+    "prior work, a bare experimental protocol), build the nearest thing that IS honest — the equation it rests on, or the " +
+    "reported quantities it compares — and say so in `story`. Never fabricate data the paper does not have.\n\n" +
+    "RULES FOR demo.computeJs (this code is EXECUTED in the reader's browser):\n" +
+    "- It is the BODY of: function(params, helpers).\n" +
+    "- chart kind: return { x?: number[], categories?: string[] (bar only), series: [{ label, data: number[] }] } — 1-4 series, all the same length; x defaults to helpers.t.\n" +
+    "- frames kind: return { frames: [{ grid: number[][] (max 10x10), note: string }] } with 4-25 frames.\n" +
+    "- `params` holds slider values by key. `helpers` = { n, dt, t, T, noise, clamp(v,lo,hi), step(ti,t0,amp) }.\n" +
+    "- ONLY Math, basic JS and helpers. No imports, no fetch, no Date, no randomness except helpers.noise. Deterministic.\n" +
+    "- Keep numerics stable: explicit Euler with helpers.dt, clamp integrators, never divide by something that can reach zero.\n" +
+    "- Include `insightJs` — body of function(params, result, helpers) => one plain sentence with real computed numbers, " +
+    "saying what the current slider values are showing. This is what turns a slider toy into a lesson."
+  );
+}
+
 /** "The physics & the model" section — the methodology at the depth authors
  *  expect: experiment vs simulation, the real toolchain, the governing
  *  equations term by term, the assumptions, and how results were validated.

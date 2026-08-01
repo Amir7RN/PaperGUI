@@ -174,6 +174,35 @@ reproduction. On the free plan leave it unset.
 Anthropic org has fast-mode access; without it the API returns a 429
 (`0 fast mode input tokens per minute`). It is not enabled here.
 
+### On-demand reader panels
+
+`generate-panel` builds ONE explorable for a passage the reader highlighted,
+rather than the concepts the analyzer chose up front. Deploy it alongside the
+others — it uses the same `ANTHROPIC_API_KEY` secret:
+
+```bash
+supabase functions deploy generate-panel
+```
+
+It emits the same `demo` shape the analysis already produces, so it renders
+through the existing `DemoChart` / `DemoFrames` and executes nothing new. Three
+guards, all deliberate:
+
+- **Metered, not free.** Unlike `section-chat` (free Haiku), this writes real
+  simulation code on Sonnet 5 and is charged to the caller's balance —
+  ≈ **$0.06 per panel** at typical size.
+- **Capped.** `PANEL_SOFT_CAP` (`src/panelGen.js`) is 8 panels per paper;
+  past it the reader is shown what this paper has cost and must confirm each
+  extra one. The button that spends money carries no price tag, so the total
+  has to be surfaced somewhere.
+- **Audited before display.** `auditPanel` test-runs the generated kernel in
+  the browser and rejects anything that fails to compile, throws, or draws a
+  flat line — the same standard the analysis validators apply.
+
+Whatever a reader builds is kept in a per-paper notebook (`src/notebook.js`,
+localStorage). Panels are already paid for, so losing them to a refresh would
+mean paying twice.
+
 ### Per-phase model routing
 
 A tier is no longer one model. `MODEL_CATALOG` (`_shared/paperSpec.js`) holds

@@ -31,11 +31,11 @@ import {
   BookOpen, PanelLeftClose, PanelLeftOpen, Highlighter, Sparkles,
   MessageCircle, Copy, Check, Crosshair, GraduationCap, HelpCircle,
   MousePointerClick, ArrowLeftRight, Network, LineChart, ShieldQuestion,
-  Undo2, GitCompare, Target, Gauge, Quote, Sigma, BookMarked,
+  Undo2, GitCompare, Target, Gauge, Quote, Sigma, BookMarked, SlidersHorizontal,
 } from "lucide-react";
 import { TextLayer } from "pdfjs-dist";
 import { loadPdfDoc, renderPdfPage, extractPageItems } from "./pdf.js";
-import { buildPaperIndex, findSectionAnchor, paperOutline } from "./pdfAnchors.js";
+import { buildPaperIndex, findSectionAnchor, paperOutline, HEAD_LABEL } from "./pdfAnchors.js";
 import { buildInlineRefs, locateQuote, matchEvidence, sectionKeyAt } from "./paperRefs.js";
 import { buildSectionContext } from "./sectionChat.js";
 
@@ -248,6 +248,8 @@ const ACTIONS = {
   story:    { label: "In the story", icon: BookOpen, kind: "pin", pin: "story" },
   mindmap:  { label: "On the map", icon: Network, kind: "pin", pin: "mindmap" },
   evidence: { label: "Show the evidence", icon: LineChart, kind: "evidence" },
+  // The one action that costs money and generates code — see panelGen.js.
+  panel:    { label: "Build me a panel", icon: SlidersHorizontal, kind: "panel" },
   steelman: { label: "Steelman it", icon: ShieldQuestion,
     ask: (q) => `The authors state this limitation or caveat: ${Q(q)}\n\nSteelman it: spell out what it actually means for someone relying on this work, including the part the authors may be underplaying. Use only what this paper says.` },
   overturn: { label: "What'd change it", icon: Undo2,
@@ -260,20 +262,25 @@ const ACTIONS = {
     ask: (q) => `Assess how firmly this is stated: ${Q(q)}\n\nQuote the hedging words ("may", "suggests", "preliminary") or the firm ones, say whether the paper's own evidence supports that strength, and flag it if the language is more confident than the evidence.` },
 };
 
-/** Section key (from the paper's own headings) → which actions to offer. */
+/** Section key (from the paper's own headings) → which actions to offer.
+ *
+ * `panel` lives on the method-ish sections on purpose. It is where a reader
+ * most often hits something they cannot picture, and it is the one action that
+ * spends money — offering it beside every sentence in the paper would invite
+ * clicking it out of curiosity rather than need. */
 const SECTION_ACTIONS = {
   abstract:     ["explain", "simplify", "story", "mindmap"],
   introduction: ["explain", "simplify", "story", "mindmap"],
   related:      ["explain", "simplify", "story"],
-  method:       ["explain", "simplify"],
-  experiment:   ["explain", "simplify"],
+  method:       ["explain", "simplify", "panel"],
+  experiment:   ["explain", "simplify", "panel"],
   results:      ["explain", "evidence", "hedging"],
   conclusion:   ["explain", "steelman", "overturn", "compare", "takeaway", "hedging"],
 };
 const DEFAULT_ACTIONS = ["explain", "simplify"];
 
 export function PaperReader({
-  url, title, open, onClose, spec, section, onAsk, onPin,
+  url, title, open, onClose, spec, section, onAsk, onPin, onBuildPanel,
   variant = "modal", onOutline, gotoPage,
 }) {
   const [doc, setDoc] = useState(null);
@@ -510,9 +517,10 @@ export function PaperReader({
       if (k === "evidence") return (spec?.resultFigures || []).length > 0;
       if (k === "story") return !!(onPin && spec?.story);
       if (k === "mindmap") return !!(onPin && spec?.mindmap?.nodes?.length);
+      if (k === "panel") return !!onBuildPanel;
       return true;
     }),
-    [sel?.head, spec, onPin]
+    [sel?.head, spec, onPin, onBuildPanel]
   );
 
   const runAction = useCallback((key) => {
@@ -525,6 +533,15 @@ export function PaperReader({
     // Jump to the analysis pin that covers this passage. Nothing is generated;
     // the reader just sees where this text lives in the story or the map.
     if (key === "story" || key === "mindmap") { onPin?.(key); done(); return; }
+
+    // The one action that spends real credit. The workspace owns the cap, the
+    // confirmation and the notebook; the reader just hands over the passage
+    // and where in the paper it came from.
+    if (key === "panel") {
+      onBuildPanel?.({ quote, page, sectionLabel: HEAD_LABEL[sel.head] || "this part of the paper" });
+      done();
+      return;
+    }
 
     // Claim → evidence, resolved locally against the paper's own figures. If
     // no figure matches convincingly, say so instead of pointing anywhere.
@@ -550,7 +567,7 @@ export function PaperReader({
     if (!payload.initialAsk && !payload.initialDraft) return;
     onAsk(payload);
     done();
-  }, [sel, onAsk, onPin, spec, page, sectionId, section?.title]);
+  }, [sel, onAsk, onPin, onBuildPanel, spec, page, sectionId, section?.title]);
 
   if (!open) return null;
 

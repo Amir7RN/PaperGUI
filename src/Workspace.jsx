@@ -23,6 +23,7 @@ import {
   Sparkles, BookMarked, Play, Pause, Puzzle, Rocket, Network, ChevronLeft, FileCode2, Crosshair,
   Shuffle, Wand2, Trophy, Bot, ListChecks, GraduationCap, Images, Link2,
   ShieldCheck, Layers, RotateCw, Check as CheckIcon, GripVertical, Volume2, VolumeX,
+  NotebookPen, Trash2, Loader2,
 } from "lucide-react";
 import SectionChat from "./SectionChat.jsx";
 import PdfReader, { PaperReader } from "./PdfReader.jsx";
@@ -34,6 +35,9 @@ import DigitizerEditor from "./DigitizerEditor.jsx";
 import { DigitizedPanel, isSpecialDigitized, PALETTE } from "./DigitizedPanels.jsx";
 import DesignBox from "./DesignBox.jsx";
 import { loadLayout, saveLayout, layoutStyle, sectionByKey } from "./layout.js";
+import { generatePanel, PANEL_SOFT_CAP } from "./panelGen.js";
+import { buildSectionContext } from "./sectionChat.js";
+import { loadNotebook, addPanel, removeEntry, clearNotebook, panelSpend } from "./notebook.js";
 import {
   buildHelpers, defaultsFromSpec, compileSpec, runSpec, buildRows,
   compileResultFigures, runResultPanel, buildPanelRows, makeFigureHelpers,
@@ -3654,10 +3658,20 @@ function SideNav({ sections, activeId, onSelect, visited, outline, onOutlineJump
  * OVER the reader and close straight back to the sentence you were on: the
  * reader keeps its state because it is never unmounted.
  */
-function PaperPins({ pins, onOpen }) {
-  if (!pins.length) return null;
+function PaperPins({ pins, onOpen, notebookCount, onNotebook }) {
+  if (!pins.length && !onNotebook) return null;
   return (
     <div className="pointer-events-none fixed bottom-5 right-5 z-40 flex flex-col items-end gap-2">
+      {onNotebook && (
+        <button onClick={onNotebook}
+          className="pointer-events-auto flex items-center gap-2 rounded-full border border-indigo-200 bg-white py-2.5 pl-3.5 pr-4 text-[12.5px] font-bold text-indigo-700 shadow-xl transition hover:-translate-y-0.5 hover:shadow-2xl"
+          title="What you've built for this paper">
+          <NotebookPen size={15} /> Notebook
+          {notebookCount > 0 && (
+            <span className="rounded-full bg-indigo-600 px-1.5 text-[10px] font-bold text-white">{notebookCount}</span>
+          )}
+        </button>
+      )}
       {pins.map((p) => {
         const Icon = p.icon;
         return (
@@ -3697,6 +3711,183 @@ function PinOverlay({ pin, onClose }) {
           </button>
         </div>
         {pin.content}
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- the reader's notebook ----------------
+ * What THIS reader had to build to get through THIS paper. Panels they
+ * generated are already paid for, so they persist across reloads (see
+ * notebook.js) — a one-shot popup would have charged them twice for the same
+ * explanation.
+ */
+function NotebookDrawer({ open, entries, onClose, onRemove, onClear, onGoToPage }) {
+  useEffect(() => {
+    if (!open) return undefined;
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+  if (!open) return null;
+
+  const panels = entries.filter((e) => e.kind === "panel");
+  const spend = panels.reduce((s, e) => s + (e.cost || 0), 0);
+
+  return (
+    <div className="fixed inset-0 z-[70] flex justify-end bg-slate-950/60 backdrop-blur-sm"
+      role="dialog" aria-modal="true" aria-label="Your notebook" onClick={onClose}>
+      <div className="flex h-full w-full max-w-2xl flex-col bg-slate-50 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}>
+        <div className="flex shrink-0 items-center gap-2 border-b border-slate-200 bg-white px-4 py-3">
+          <NotebookPen size={16} className="text-indigo-600" />
+          <span className="text-[14px] font-bold text-slate-800">Your notebook</span>
+          <span className="text-[11px] text-slate-400">
+            {panels.length} panel{panels.length === 1 ? "" : "s"}
+            {spend > 0 ? ` · $${spend.toFixed(2)} spent` : ""}
+          </span>
+          {entries.length > 0 && (
+            <button onClick={onClear}
+              className="ml-auto rounded-lg border border-slate-200 px-2.5 py-1 text-[11px] font-semibold text-slate-500 transition hover:border-red-300 hover:text-red-600">
+              Clear
+            </button>
+          )}
+          <button onClick={onClose} aria-label="Close"
+            className={`rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 ${entries.length ? "" : "ml-auto"}`}>
+            <X size={16} />
+          </button>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto p-4">
+          {entries.length === 0 ? (
+            <div className="mt-16 text-center">
+              <NotebookPen size={26} className="mx-auto mb-3 text-slate-300" />
+              <p className="mx-auto max-w-sm text-[12.5px] leading-relaxed text-slate-500">
+                Nothing here yet. While you read, select a passage in the method you can’t picture
+                and choose <strong className="text-slate-700">Build me a panel</strong> — whatever
+                you make lands here and stays with this paper.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {entries.map((e) => (
+                <div key={e.id} className="rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm">
+                  <div className="mb-2 flex items-start gap-2">
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">
+                      <SlidersHorizontal size={13} />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[13px] font-bold text-slate-800">{e.panel?.title || "Panel"}</div>
+                      <div className="text-[10.5px] text-slate-400">
+                        {e.sectionLabel}
+                        {Number.isInteger(e.page) ? ` · page ${e.page}` : ""}
+                        {e.panel?.source ? ` · ${e.panel.source}` : ""}
+                      </div>
+                    </div>
+                    {Number.isInteger(e.page) && (
+                      <button onClick={() => onGoToPage(e.page)}
+                        className="shrink-0 rounded-lg border border-slate-200 px-2 py-1 text-[10.5px] font-semibold text-slate-500 transition hover:border-slate-300 hover:text-slate-800">
+                        Back to p{e.page}
+                      </button>
+                    )}
+                    <button onClick={() => onRemove(e.id)} aria-label="Remove"
+                      className="shrink-0 rounded-lg p-1 text-slate-300 transition hover:bg-red-50 hover:text-red-500">
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+
+                  {/* The passage that prompted it — the reason this panel exists. */}
+                  {e.quote && (
+                    <p className="mb-2 border-l-2 border-indigo-200 pl-2 text-[11px] italic leading-snug text-slate-500">
+                      {e.quote.length > 220 ? `${e.quote.slice(0, 220)}…` : e.quote}
+                    </p>
+                  )}
+                  {e.panel?.story && (
+                    <p className="mb-2 text-[12px] leading-snug text-slate-600">{e.panel.story}</p>
+                  )}
+                  {e.panel?.demo && (
+                    e.panel.demo.kind === "frames"
+                      ? <DemoFrames demo={e.panel.demo} />
+                      : <DemoChart demo={e.panel.demo} />
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Progress / confirm / failure for one panel build. */
+function PanelJobDialog({ job, onConfirm, onCancel }) {
+  if (!job) return null;
+  return (
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/60 px-4 backdrop-blur-sm"
+      role="dialog" aria-modal="true" onClick={job.status === "working" ? undefined : onCancel}>
+      <div className="w-full max-w-md rounded-2xl border border-white/30 bg-white p-5 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}>
+        {job.status === "working" && (
+          <>
+            <div className="mb-2 flex items-center gap-2">
+              <Loader2 size={16} className="animate-spin text-indigo-600" />
+              <span className="text-[14px] font-bold text-slate-800">Building your panel…</span>
+            </div>
+            <p className="text-[12px] leading-relaxed text-slate-500">
+              Writing a small simulation for the passage you picked, then test-running it before
+              you see it. Usually 10–20 seconds.
+            </p>
+            <p className="mt-2 border-l-2 border-slate-200 pl-2 text-[11px] italic leading-snug text-slate-400">
+              {job.quote.length > 180 ? `${job.quote.slice(0, 180)}…` : job.quote}
+            </p>
+          </>
+        )}
+
+        {job.status === "confirm" && (
+          <>
+            <div className="mb-2 flex items-center gap-2">
+              <TriangleAlert size={16} className="text-amber-500" />
+              <span className="text-[14px] font-bold text-slate-800">That’s {job.built} panels for this paper</span>
+            </div>
+            {/* The button that spends money carries no price, so the total is
+                shown here rather than left to be discovered on the balance. */}
+            <p className="text-[12px] leading-relaxed text-slate-600">
+              Each panel is generated on demand and charged to your credit — this paper has used
+              <strong> ${job.spent.toFixed(2)}</strong> so far. Build another?
+            </p>
+            <div className="mt-4 flex gap-2">
+              <button onClick={onCancel}
+                className="flex-1 rounded-lg border border-slate-200 py-2 text-[12.5px] font-semibold text-slate-600 transition hover:bg-slate-50">
+                Not now
+              </button>
+              <button onClick={onConfirm}
+                className="flex-1 rounded-lg bg-indigo-600 py-2 text-[12.5px] font-semibold text-white transition hover:bg-indigo-500">
+                Build it
+              </button>
+            </div>
+          </>
+        )}
+
+        {job.status === "error" && (
+          <>
+            <div className="mb-2 flex items-center gap-2">
+              <TriangleAlert size={16} className="text-red-500" />
+              <span className="text-[14px] font-bold text-slate-800">Couldn’t build that one</span>
+            </div>
+            <p className="text-[12px] leading-relaxed text-slate-600">{job.message}</p>
+            <div className="mt-4 flex gap-2">
+              <button onClick={onCancel}
+                className="flex-1 rounded-lg border border-slate-200 py-2 text-[12.5px] font-semibold text-slate-600 transition hover:bg-slate-50">
+                Close
+              </button>
+              <button onClick={onConfirm}
+                className="flex-1 rounded-lg bg-indigo-600 py-2 text-[12.5px] font-semibold text-white transition hover:bg-indigo-500">
+                Try again
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
@@ -3828,6 +4019,46 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
   // Identity-stable so PaperReader's effect doesn't refire every render.
   const handleOutline = useCallback((o) => setOutline(o), []);
 
+  /* ---- the reader's own notebook: panels they had built, kept per paper ---- */
+  const [notebook, setNotebook] = useState(() => loadNotebook(spec));
+  const [notebookOpen, setNotebookOpen] = useState(false);
+  // { quote, page, sectionLabel } while a panel is being generated, plus the
+  // pending-confirmation and error states around it.
+  const [panelJob, setPanelJob] = useState(null);
+  useEffect(() => { setNotebook(loadNotebook(spec)); }, [spec]);
+
+  const runPanelJob = useCallback(async (req) => {
+    setPanelJob({ ...req, status: "working" });
+    try {
+      const { panel, cost } = await generatePanel({
+        paperTitle: spec.meta?.title,
+        sectionLabel: req.sectionLabel,
+        quote: req.quote,
+        // Ground the builder in what the analysis already knows, so the panel
+        // uses the paper's own symbols and numbers instead of inventing its own.
+        context: buildSectionContext(spec, "model"),
+      });
+      setNotebook(addPanel(spec, { panel, quote: req.quote, page: req.page, sectionLabel: req.sectionLabel, cost }));
+      setPanelJob(null);
+      setNotebookOpen(true);
+    } catch (e) {
+      setPanelJob({ ...req, status: "error", message: e?.message || String(e) });
+    }
+  }, [spec]);
+
+  /* Entry point from the reader. The cap exists because this spends real
+   * credit per click and the reader never sees a price tag on the button —
+   * past it, they get told what they've spent and have to say yes again. */
+  const requestPanel = useCallback((req) => {
+    const spent = panelSpend(spec);
+    const built = notebook.filter((e) => e.kind === "panel").length;
+    if (built >= PANEL_SOFT_CAP) {
+      setPanelJob({ ...req, status: "confirm", built, spent });
+      return;
+    }
+    runPanelJob(req);
+  }, [spec, notebook, runPanelJob]);
+
   // free-form canvas ("PowerPoint mode")
   const canvasRef = useRef(null);
   const boxEls = useRef({});
@@ -3934,7 +4165,7 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
       content: (
         <PaperReader
           variant="inline" url={spec.paperPdf} title={spec.meta?.title} open
-          spec={spec} onAsk={setChatSection} onPin={setPin}
+          spec={spec} onAsk={setChatSection} onPin={setPin} onBuildPanel={requestPanel}
           onOutline={handleOutline} gotoPage={paperPage}
         />
       ),
@@ -4261,8 +4492,24 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
 
       {/* Pins only make sense on the paper itself — over a chart lab they'd be
           two floating buttons competing with the section rail for the same job. */}
-      {activeS?.id === "paper" && <PaperPins pins={pins} onOpen={setPin} />}
+      {activeS?.id === "paper" && (
+        <PaperPins pins={pins} onOpen={setPin}
+          notebookCount={notebook.length} onNotebook={() => setNotebookOpen(true)} />
+      )}
       <PinOverlay pin={openPin} onClose={() => setPin(null)} />
+
+      <NotebookDrawer
+        open={notebookOpen} entries={notebook}
+        onClose={() => setNotebookOpen(false)}
+        onRemove={(id) => setNotebook(removeEntry(spec, id))}
+        onClear={() => setNotebook(clearNotebook(spec))}
+        onGoToPage={(p) => { setNotebookOpen(false); selectSection("paper"); setPaperPage({ page: p }); }}
+      />
+      <PanelJobDialog
+        job={panelJob}
+        onCancel={() => setPanelJob(null)}
+        onConfirm={() => runPanelJob({ quote: panelJob.quote, page: panelJob.page, sectionLabel: panelJob.sectionLabel })}
+      />
 
       <SelectionExplain onAsk={setChatSection} />
       <SectionChat spec={spec} open={chatSection} onClose={() => setChatSection(null)} />
