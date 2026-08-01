@@ -32,6 +32,7 @@ import {
   MessageCircle, Copy, Check, Crosshair, GraduationCap, HelpCircle,
   MousePointerClick, ArrowLeftRight, Network, LineChart, ShieldQuestion,
   Undo2, GitCompare, Target, Gauge, Quote, Sigma, BookMarked, SlidersHorizontal,
+  NotebookPen,
 } from "lucide-react";
 import { TextLayer } from "pdfjs-dist";
 import { loadPdfDoc, renderPdfPage, extractPageItems } from "./pdf.js";
@@ -250,6 +251,7 @@ const ACTIONS = {
   evidence: { label: "Show the evidence", icon: LineChart, kind: "evidence" },
   // The one action that costs money and generates code — see panelGen.js.
   panel:    { label: "Build me a panel", icon: SlidersHorizontal, kind: "panel" },
+  keep:     { label: "Keep this", icon: NotebookPen, kind: "keep" },
   steelman: { label: "Steelman it", icon: ShieldQuestion,
     ask: (q) => `The authors state this limitation or caveat: ${Q(q)}\n\nSteelman it: spell out what it actually means for someone relying on this work, including the part the authors may be underplaying. Use only what this paper says.` },
   overturn: { label: "What'd change it", icon: Undo2,
@@ -280,7 +282,7 @@ const SECTION_ACTIONS = {
 const DEFAULT_ACTIONS = ["explain", "simplify"];
 
 export function PaperReader({
-  url, title, open, onClose, spec, section, onAsk, onPin, onBuildPanel,
+  url, title, open, onClose, spec, section, onAsk, onPin, onBuildPanel, onKeep,
   variant = "modal", onOutline, gotoPage,
 }) {
   const [doc, setDoc] = useState(null);
@@ -523,6 +525,11 @@ export function PaperReader({
     [sel?.head, spec, onPin, onBuildPanel]
   );
 
+  /* "Keep this" is offered everywhere, after the section-specific actions:
+   * clipping a passage is not something one part of a paper needs more than
+   * another, and it costs nothing. */
+  const keepAction = onKeep ? ["keep"] : [];
+
   const runAction = useCallback((key) => {
     if (!sel) return;
     // PDF lines break words with a hyphen; heal them so the model sees prose
@@ -539,6 +546,12 @@ export function PaperReader({
     // and where in the paper it came from.
     if (key === "panel") {
       onBuildPanel?.({ quote, page, sectionLabel: HEAD_LABEL[sel.head] || "this part of the paper" });
+      done();
+      return;
+    }
+
+    if (key === "keep") {
+      onKeep?.({ quote, page, sectionLabel: HEAD_LABEL[sel.head] || "the paper" });
       done();
       return;
     }
@@ -567,7 +580,7 @@ export function PaperReader({
     if (!payload.initialAsk && !payload.initialDraft) return;
     onAsk(payload);
     done();
-  }, [sel, onAsk, onPin, onBuildPanel, spec, page, sectionId, section?.title]);
+  }, [sel, onAsk, onPin, onBuildPanel, onKeep, spec, page, sectionId, section?.title]);
 
   if (!open) return null;
 
@@ -773,7 +786,7 @@ export function PaperReader({
           style={{ position: "fixed", left: sel.x, top: Math.max(56, sel.y), transform: "translate(-50%, -100%)", zIndex: 75 }}
         >
           <div className="pp-rise flex max-w-[92vw] flex-wrap items-center justify-center gap-0.5 rounded-xl border border-indigo-300/60 bg-slate-900/95 p-1 shadow-2xl backdrop-blur">
-            {selActions.map((k) => {
+            {[...selActions, ...keepAction].map((k) => {
               const a = ACTIONS[k];
               return <AssistBtn key={k} icon={a.icon} label={a.label} primary={a.primary} onClick={() => runAction(k)} />;
             })}

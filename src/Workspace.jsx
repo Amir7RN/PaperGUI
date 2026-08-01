@@ -23,7 +23,7 @@ import {
   Sparkles, BookMarked, Play, Pause, Puzzle, Rocket, Network, ChevronLeft, FileCode2, Crosshair,
   Shuffle, Wand2, Trophy, Bot, ListChecks, GraduationCap, Images, Link2,
   ShieldCheck, Layers, RotateCw, Check as CheckIcon, GripVertical, Volume2, VolumeX,
-  NotebookPen, Trash2, Loader2,
+  NotebookPen, Trash2, Loader2, Quote,
 } from "lucide-react";
 import SectionChat from "./SectionChat.jsx";
 import PdfReader, { PaperReader } from "./PdfReader.jsx";
@@ -37,7 +37,7 @@ import DesignBox from "./DesignBox.jsx";
 import { loadLayout, saveLayout, layoutStyle, sectionByKey } from "./layout.js";
 import { generatePanel, PANEL_SOFT_CAP } from "./panelGen.js";
 import { buildSectionContext } from "./sectionChat.js";
-import { loadNotebook, addPanel, removeEntry, clearNotebook, panelSpend } from "./notebook.js";
+import { loadNotebook, addPanel, addNote, removeEntry, clearNotebook, panelSpend } from "./notebook.js";
 import {
   buildHelpers, defaultsFromSpec, compileSpec, runSpec, buildRows,
   compileResultFigures, runResultPanel, buildPanelRows, makeFigureHelpers,
@@ -3557,11 +3557,11 @@ function SelectionExplain({ onAsk }) {
  * vertical table of contents that tracks where you are. So a reader opening an
  * analyzed paper immediately knows what they're looking at and where to go. */
 const GUIDE_TIPS = [
-  { icon: SlidersHorizontal, text: "Drag any slider — the figures recompute live." },
-  { icon: Sparkles, text: "Select any text → “Explain the selected text”." },
+  { icon: Sparkles, text: "Select any text — what’s offered depends on where you are in the paper." },
+  { icon: SlidersHorizontal, text: "Stuck on a method? Select it → “Build me a panel”." },
+  { icon: NotebookPen, text: "Panels and kept passages stay in your Notebook." },
+  { icon: Link2, text: "Tinted [refs], Fig. and Eq. mentions open in place." },
   { icon: GraduationCap, text: "Tutor & quiz on every section — type or talk." },
-  { icon: Layers, text: "Flip the flashcards to make it stick." },
-  { icon: ChevronRight, text: "← / → arrow keys jump between sections." },
 ];
 
 /* ---------------- app-shell navigation (single-section reading view) --------
@@ -3575,6 +3575,39 @@ const GUIDE_TIPS = [
 function SideNav({ sections, activeId, onSelect, visited, outline, onOutlineJump }) {
   const done = sections.filter((s) => visited?.has(s.id)).length;
   const pct = sections.length ? Math.round((done / sections.length) * 100) : 0;
+
+  /* Once the paper itself is the spine, the pre-baked conceptual walkthrough
+   * stops being the route through it. Those sections still exist — the reader
+   * paid for them and the Results and Reverse labs are built on them — but
+   * they belong behind a fold, not ahead of the paper. Opened automatically
+   * when the reader is standing in one, so the rail never hides where you are. */
+  const primary = sections.filter((s) => !s.lab);
+  const labs = sections.filter((s) => s.lab);
+  const inLab = labs.some((s) => s.id === activeId);
+  const [labsOpen, setLabsOpen] = useState(false);
+  useEffect(() => { if (inLab) setLabsOpen(true); }, [inLab]);
+
+  const Row = ({ s, i, dim }) => {
+    const t = SECTION_TONES[s.tone];
+    const on = activeId === s.id;
+    const seen = visited?.has(s.id);
+    const Icon = s.icon;
+    return (
+      <button onClick={() => onSelect(s.id)}
+        className={`group flex items-center gap-2.5 rounded-xl px-2.5 py-2 text-left transition ${
+          on ? `bg-gradient-to-r ${TONE_GRAD[s.tone]} text-white shadow-md`
+             : `${dim ? "text-slate-500" : "text-slate-600"} hover:translate-x-0.5 hover:bg-slate-100`
+        }`}>
+        <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-lg ${on ? "bg-white/20 text-white" : `bg-slate-100 ${t.text}`}`}>
+          <Icon size={14} />
+        </span>
+        <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{s.navLabel}</span>
+        {seen && !on
+          ? <CheckIcon size={12} className="shrink-0 text-emerald-500" aria-label="visited" />
+          : <span className={`text-[10px] font-bold tabular-nums ${on ? "text-white/60" : "text-slate-300"}`}>{i + 1}</span>}
+      </button>
+    );
+  };
   return (
     <aside className="hidden shrink-0 lg:block" style={{ width: "var(--sidenav-w, 216px)" }}>
       <div className="sticky top-4 flex max-h-[calc(100vh-2rem)] flex-col overflow-y-auto pb-4 pr-1">
@@ -3590,27 +3623,30 @@ function SideNav({ sections, activeId, onSelect, visited, outline, onOutlineJump
         </div>
         <div className="mb-1.5 px-2 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">Sections</div>
         <nav className="flex flex-col gap-0.5">
-          {sections.map((s, i) => {
-            const t = SECTION_TONES[s.tone];
-            const on = activeId === s.id;
-            const seen = visited?.has(s.id);
-            const Icon = s.icon;
-            return (
-              <button key={s.id} onClick={() => onSelect(s.id)}
-                className={`group flex items-center gap-2.5 rounded-xl px-2.5 py-2 text-left transition ${
-                  on ? `bg-gradient-to-r ${TONE_GRAD[s.tone]} text-white shadow-md` : "text-slate-600 hover:translate-x-0.5 hover:bg-slate-100"
-                }`}>
-                <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-lg ${on ? "bg-white/20 text-white" : `bg-slate-100 ${t.text}`}`}>
-                  <Icon size={14} />
-                </span>
-                <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{s.navLabel}</span>
-                {seen && !on
-                  ? <CheckIcon size={12} className="shrink-0 text-emerald-500" aria-label="visited" />
-                  : <span className={`text-[10px] font-bold tabular-nums ${on ? "text-white/60" : "text-slate-300"}`}>{i + 1}</span>}
-              </button>
-            );
-          })}
+          {primary.map((s) => <Row key={s.id} s={s} i={sections.indexOf(s)} />)}
         </nav>
+
+        {labs.length > 0 && (
+          <div className="mt-2">
+            <button onClick={() => setLabsOpen((o) => !o)}
+              className="flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400 transition hover:bg-slate-100 hover:text-slate-600">
+              <ChevronRight size={12} className={`transition-transform ${labsOpen ? "rotate-90" : ""}`} />
+              Guided labs
+              <span className="ml-auto rounded-full bg-slate-100 px-1.5 text-[9.5px] tabular-nums text-slate-400">{labs.length}</span>
+            </button>
+            {labsOpen && (
+              <>
+                <p className="mb-1 px-2 text-[10px] leading-snug text-slate-400">
+                  The prepared walkthrough. You don’t have to go through it — read the paper and
+                  pull what you need.
+                </p>
+                <nav className="flex flex-col gap-0.5">
+                  {labs.map((s) => <Row key={s.id} s={s} i={sections.indexOf(s)} dim />)}
+                </nav>
+              </>
+            )}
+          </div>
+        )}
 
         {/* The paper's OWN sections, indented under it — its table of contents,
             not ours. Absent when heading detection found nothing, which is a
@@ -3744,6 +3780,7 @@ function NotebookDrawer({ open, entries, onClose, onRemove, onClear, onGoToPage 
           <span className="text-[14px] font-bold text-slate-800">Your notebook</span>
           <span className="text-[11px] text-slate-400">
             {panels.length} panel{panels.length === 1 ? "" : "s"}
+            {entries.length - panels.length > 0 ? ` · ${entries.length - panels.length} kept` : ""}
             {spend > 0 ? ` · $${spend.toFixed(2)} spent` : ""}
           </span>
           {entries.length > 0 && (
@@ -3773,11 +3810,15 @@ function NotebookDrawer({ open, entries, onClose, onRemove, onClear, onGoToPage 
               {entries.map((e) => (
                 <div key={e.id} className="rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm">
                   <div className="mb-2 flex items-start gap-2">
-                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">
-                      <SlidersHorizontal size={13} />
+                    <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-lg ${
+                      e.kind === "panel" ? "bg-indigo-50 text-indigo-600" : "bg-amber-50 text-amber-600"
+                    }`}>
+                      {e.kind === "panel" ? <SlidersHorizontal size={13} /> : <Quote size={13} />}
                     </span>
                     <div className="min-w-0 flex-1">
-                      <div className="text-[13px] font-bold text-slate-800">{e.panel?.title || "Panel"}</div>
+                      <div className="text-[13px] font-bold text-slate-800">
+                        {e.kind === "panel" ? (e.panel?.title || "Panel") : "Kept passage"}
+                      </div>
                       <div className="text-[10.5px] text-slate-400">
                         {e.sectionLabel}
                         {Number.isInteger(e.page) ? ` · page ${e.page}` : ""}
@@ -3796,10 +3837,13 @@ function NotebookDrawer({ open, entries, onClose, onRemove, onClear, onGoToPage 
                     </button>
                   </div>
 
-                  {/* The passage that prompted it — the reason this panel exists. */}
+                  {/* The passage itself: for a panel, the reason it exists; for
+                      a clipping, the whole point — so it isn't truncated. */}
                   {e.quote && (
-                    <p className="mb-2 border-l-2 border-indigo-200 pl-2 text-[11px] italic leading-snug text-slate-500">
-                      {e.quote.length > 220 ? `${e.quote.slice(0, 220)}…` : e.quote}
+                    <p className={`mb-2 border-l-2 pl-2 text-[11px] italic leading-snug ${
+                      e.kind === "panel" ? "border-indigo-200 text-slate-500" : "border-amber-300 text-slate-600"
+                    }`}>
+                      {e.kind === "panel" && e.quote.length > 220 ? `${e.quote.slice(0, 220)}…` : e.quote}
                     </p>
                   )}
                   {e.panel?.story && (
@@ -4046,6 +4090,11 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
     }
   }, [spec]);
 
+  /* Clipping a passage — free, instant, no model call. */
+  const keepPassage = useCallback((req) => {
+    setNotebook(addNote(spec, req));
+  }, [spec]);
+
   /* Entry point from the reader. The cap exists because this spends real
    * credit per click and the reader never sees a price tag on the button —
    * past it, they get told what they've spent and have to say yes again. */
@@ -4165,7 +4214,7 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
       content: (
         <PaperReader
           variant="inline" url={spec.paperPdf} title={spec.meta?.title} open
-          spec={spec} onAsk={setChatSection} onPin={setPin} onBuildPanel={requestPanel}
+          spec={spec} onAsk={setChatSection} onPin={setPin} onBuildPanel={requestPanel} onKeep={keepPassage}
           onOutline={handleOutline} gotoPage={paperPage}
         />
       ),
@@ -4184,23 +4233,27 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
       content: <MindMap mindmap={spec.mindmap} />,
     },
     {
+      // `lab: spineOn` demotes the pre-baked conceptual walkthrough out of the
+      // primary rail once the paper itself is the spine. It is NOT deleted:
+      // the analysis still produces it and it is one click away, because the
+      // reader paid for it and the Results / Reverse labs are built on it.
       id: "concept", boxId: "sec-concept", boxLabel: "Idea in pictures", navLabel: "Idea", ariaLabel: "Concept primer",
-      show: !!spec.conceptFigures?.length && sec("concept").on, tone: "violet", icon: ImageIcon,
+      show: !!spec.conceptFigures?.length && sec("concept").on, tone: "violet", icon: ImageIcon, lab: spineOn,
       content: <ConceptFigures figures={spec.conceptFigures} onOpen={setLightbox} />,
     },
     {
       id: "foundations", boxId: "sec-foundations", boxLabel: "Background", navLabel: "Background", ariaLabel: "Foundations from prior work",
-      show: !!spec.foundations?.length && sec("foundations").on, tone: "amber", icon: Landmark,
+      show: !!spec.foundations?.length && sec("foundations").on, tone: "amber", icon: Landmark, lab: spineOn,
       content: <FoundationsLab foundations={spec.foundations} explainer={buildExplainer(spec, "foundations")} onOpenFig={setLightbox} />,
     },
     {
       id: "model", boxId: "sec-model", boxLabel: "The model", navLabel: "Model", ariaLabel: "The paper's methodology, tools and governing equations",
-      show: !!spec.model && sec("model").on, tone: "blue", icon: Sigma,
+      show: !!spec.model && sec("model").on, tone: "blue", icon: Sigma, lab: spineOn,
       content: <TheModel model={spec.model} explainer={buildExplainer(spec, "model")} onOpenFig={setLightbox} />,
     },
     {
       id: "method", boxId: "sec-method", boxLabel: "Method lab", navLabel: "Method", ariaLabel: "The paper's contribution",
-      show: hasPipeline && sec("method").on, tone: "blue", icon: GitBranch,
+      show: hasPipeline && sec("method").on, tone: "blue", icon: GitBranch, lab: spineOn,
       content: (
         <ConceptLab
           spec={spec} params={params} defaults={defaults} setParam={setParam} rows={rows} compiled={compiled}
@@ -4210,7 +4263,7 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
     },
     {
       id: "explorables", boxId: "sec-explorables", boxLabel: "Explorables lab", navLabel: "Explore", ariaLabel: "Interactive explorers derived from the paper's own equations and data",
-      show: !!spec.explorables?.length && sec("explorables").on, tone: "amber", icon: FlaskConical,
+      show: !!spec.explorables?.length && sec("explorables").on, tone: "amber", icon: FlaskConical, lab: spineOn,
       content: <ExplorablesLab explorables={spec.explorables} />,
     },
     {
