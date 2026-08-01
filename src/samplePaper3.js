@@ -258,6 +258,11 @@ const SKU_COLORS = {
 };
 
 export const SAMPLE_SPEC_3 = {
+  // The real paper, served to the in-app reader. With this set the workspace
+  // opens on the paper's own text rather than the analysis dashboard — every
+  // reading feature (cross-reference cards, section-aware selection, on-demand
+  // panels) hangs off it. See public/papers/ and the .gitignore negations.
+  paperPdf: `${BASE}papers/supply-chain-forecasting.pdf`,
   meta: {
     title: "A novel multi-phase hierarchical forecasting approach with machine learning in supply chain management",
     authors: "S. Taghiyeh, D. C. Lengacher, A. H. Sadeghi, A. Sahebi-Fakhrabad, R. B. Handfield",

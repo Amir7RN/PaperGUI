@@ -23,7 +23,7 @@ import {
   Sparkles, BookMarked, Play, Pause, Puzzle, Rocket, Network, ChevronLeft, FileCode2, Crosshair,
   Shuffle, Wand2, Trophy, Bot, ListChecks, GraduationCap, Images, Link2,
   ShieldCheck, Layers, RotateCw, Check as CheckIcon, GripVertical, Volume2, VolumeX,
-  NotebookPen, Trash2, Loader2, Quote,
+  NotebookPen, Trash2, Loader2, Quote, ShieldAlert,
 } from "lucide-react";
 import SectionChat from "./SectionChat.jsx";
 import PdfReader, { PaperReader } from "./PdfReader.jsx";
@@ -3752,6 +3752,67 @@ function PinOverlay({ pin, onClose }) {
   );
 }
 
+/* ---------------- evidence check ----------------
+ * What the paper's own sentences say about how much its results can carry.
+ * Every line is quoted from the paper with the page it came from, because the
+ * point is to send the reader to the sentence — not to hand down a verdict on
+ * work this has not actually evaluated.
+ */
+function EvidenceCheck({ evidence, onGoToPage }) {
+  const { found = [], missing = [] } = evidence || {};
+  return (
+    <div className="space-y-3">
+      <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11.5px] leading-snug text-amber-900">
+        This is a <strong>keyword scan of the paper's own text</strong>, not a statistical review.
+        Every line below is quoted from the paper — click through and judge it yourself. Something
+        missing here means those words never appeared, <em>not</em> that the authors didn’t do it.
+      </p>
+
+      {found.map((f) => (
+        <div key={f.id} className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+          <div className="mb-1.5 flex items-center gap-1.5">
+            <span className={`h-2 w-2 shrink-0 rounded-full ${f.level === "warn" ? "bg-amber-500" : "bg-emerald-500"}`} />
+            <span className="text-[12px] font-bold text-slate-800">{f.label}</span>
+            <span className="text-[10.5px] text-slate-400">{f.items[0]?.note}</span>
+          </div>
+          <ul className="space-y-1.5">
+            {f.items.map((it, i) => (
+              <li key={i} className="flex items-start gap-2">
+                <button onClick={() => onGoToPage(it.page)}
+                  className="mt-0.5 shrink-0 rounded border border-slate-200 px-1.5 text-[9.5px] font-bold tabular-nums text-slate-500 transition hover:border-slate-400 hover:text-slate-800">
+                  p{it.page}
+                </button>
+                <span className="text-[11px] leading-snug text-slate-600">
+                  {it.text.length > 260 ? `${it.text.slice(0, 260)}…` : it.text}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+
+      {missing.length > 0 && (
+        <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-3">
+          <div className="mb-1 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+            Never mentioned in the text
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {missing.map((m) => (
+              <span key={m.id} className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] text-slate-500">
+                {m.label}
+              </span>
+            ))}
+          </div>
+          <p className="mt-1.5 text-[10.5px] leading-snug text-slate-400">
+            Worth checking the figures and tables directly — these may still be there without the
+            words this scan looks for.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ---------------- the reader's notebook ----------------
  * What THIS reader had to build to get through THIS paper. Panels they
  * generated are already paid for, so they persist across reloads (see
@@ -4062,6 +4123,9 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
   const [pin, setPin] = useState(null);
   // Identity-stable so PaperReader's effect doesn't refire every render.
   const handleOutline = useCallback((o) => setOutline(o), []);
+  // What the paper's own text says about how much weight its results carry.
+  const [evidence, setEvidence] = useState(null);
+  const handleEvidence = useCallback((e) => setEvidence(e), []);
 
   /* ---- the reader's own notebook: panels they had built, kept per paper ---- */
   const [notebook, setNotebook] = useState(() => loadNotebook(spec));
@@ -4215,7 +4279,7 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
         <PaperReader
           variant="inline" url={spec.paperPdf} title={spec.meta?.title} open
           spec={spec} onAsk={setChatSection} onPin={setPin} onBuildPanel={requestPanel} onKeep={keepPassage}
-          onOutline={handleOutline} gotoPage={paperPage}
+          onOutline={handleOutline} onEvidence={handleEvidence} gotoPage={paperPage}
         />
       ),
     },
@@ -4312,6 +4376,11 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
         !!spec.mindmap?.nodes?.length && sec("mindmap").on && {
           id: "mindmap", label: "Map", title: sec("mindmap").title, tone: "rose", icon: Network,
           content: <MindMap mindmap={spec.mindmap} />,
+        },
+        !!evidence?.found?.length && {
+          id: "evidence", label: "Evidence", title: "How much weight this paper's results carry",
+          tone: "emerald", icon: ShieldAlert,
+          content: <EvidenceCheck evidence={evidence} onGoToPage={(p) => { setPin(null); setPaperPage({ page: p }); }} />,
         },
       ].filter(Boolean)
     : [];

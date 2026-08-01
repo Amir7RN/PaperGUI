@@ -32,12 +32,13 @@ import {
   MessageCircle, Copy, Check, Crosshair, GraduationCap, HelpCircle,
   MousePointerClick, ArrowLeftRight, Network, LineChart, ShieldQuestion,
   Undo2, GitCompare, Target, Gauge, Quote, Sigma, BookMarked, SlidersHorizontal,
-  NotebookPen,
+  NotebookPen, Ruler, ShieldAlert,
 } from "lucide-react";
 import { TextLayer } from "pdfjs-dist";
 import { loadPdfDoc, renderPdfPage, extractPageItems } from "./pdf.js";
 import { buildPaperIndex, findSectionAnchor, paperOutline, HEAD_LABEL } from "./pdfAnchors.js";
 import { buildInlineRefs, locateQuote, matchEvidence, sectionKeyAt } from "./paperRefs.js";
+import { scanRobustness } from "./robustness.js";
 import { buildSectionContext } from "./sectionChat.js";
 
 const BASE_SCALE = 1.5;
@@ -260,6 +261,10 @@ const ACTIONS = {
     ask: (q) => `This is a conclusion from the paper: ${Q(q)}\n\nHow does it sit against the related work THIS paper itself cites? Where does it agree, and where does it push back? Only use what this paper reports about that prior work.` },
   takeaway: { label: "So what do I do", icon: Target,
     ask: (q) => `From this passage: ${Q(q)}\n\nGive the actionable takeaway for someone who wants to BUILD ON this work — what they should actually do differently. Keep it to a few concrete points, grounded in the paper.` },
+  // Statistical significance and practical significance are different
+  // questions, and papers report the first while readers need the second.
+  magnitude: { label: "How big a deal?", icon: Ruler,
+    ask: (q) => `This passage reports a statistical result: ${Q(q)}\n\nTranslate it into PRACTICAL significance, not statistical significance. What does the effect size, interval or R² mean for someone acting on it — is the difference big enough to matter in the real setting the paper is about? If the paper only shows the result is unlikely to be chance, and says nothing about whether it is large enough to matter, say that plainly.` },
   hedging:  { label: "How firm is this?", icon: Gauge,
     ask: (q) => `Assess how firmly this is stated: ${Q(q)}\n\nQuote the hedging words ("may", "suggests", "preliminary") or the firm ones, say whether the paper's own evidence supports that strength, and flag it if the language is more confident than the evidence.` },
 };
@@ -276,14 +281,14 @@ const SECTION_ACTIONS = {
   related:      ["explain", "simplify", "story"],
   method:       ["explain", "simplify", "panel"],
   experiment:   ["explain", "simplify", "panel"],
-  results:      ["explain", "evidence", "hedging"],
-  conclusion:   ["explain", "steelman", "overturn", "compare", "takeaway", "hedging"],
+  results:      ["explain", "evidence", "magnitude", "hedging"],
+  conclusion:   ["explain", "steelman", "overturn", "compare", "takeaway", "magnitude"],
 };
 const DEFAULT_ACTIONS = ["explain", "simplify"];
 
 export function PaperReader({
   url, title, open, onClose, spec, section, onAsk, onPin, onBuildPanel, onKeep,
-  variant = "modal", onOutline, gotoPage,
+  variant = "modal", onOutline, onEvidence, gotoPage,
 }) {
   const [doc, setDoc] = useState(null);
   const [numPages, setNumPages] = useState(0);
@@ -364,6 +369,12 @@ export function PaperReader({
     if (!index || !onOutline) return;
     onOutline(paperOutline(index));
   }, [index, onOutline]);
+
+  /* ---- and the evidence scan, which needs the same text index ---- */
+  useEffect(() => {
+    if (!index || !onEvidence) return;
+    onEvidence(scanRobustness(index));
+  }, [index, onEvidence]);
 
   /* ---- an owner-driven page jump (inline rail clicks) ----
    * `gotoPage` is an OBJECT ({ page }), not a bare number, so its identity
@@ -812,6 +823,7 @@ export function PaperReader({
             setCard(null);
           } : null}
           onGoToPage={(p) => { setCard(null); go(p); }}
+          onBuildPanel={onBuildPanel ? (req) => { setCard(null); onBuildPanel({ ...req, page }); } : null}
         />,
         document.body
       )}
@@ -861,7 +873,7 @@ export default function PdfReader(props) {
  * the one model call is the optional "why here?" button, which the reader asks
  * for explicitly.
  */
-function XrefCard({ card, onClose, onAsk, onGoToPage }) {
+function XrefCard({ card, onClose, onAsk, onGoToPage, onBuildPanel }) {
   useEffect(() => {
     const onKey = (e) => { if (e.key === "Escape") onClose(); };
     const onDown = (e) => { if (!e.target.closest?.("[data-xref-card]")) onClose(); };
@@ -964,6 +976,22 @@ function XrefCard({ card, onClose, onAsk, onGoToPage }) {
                   </li>
                 ))}
               </ul>
+            )}
+            {/* An equation the paper states is the most honest possible thing
+                to put on sliders: it is the paper's own model with the paper's
+                own coefficients, not a simulation of its experiment. */}
+            {onBuildPanel && (
+              <button
+                onClick={() => onBuildPanel({
+                  quote:
+                    `${p.name || card.label}: ${p.eq}\n` +
+                    (p.plain ? `${p.plain}\n` : "") +
+                    ((p.terms || []).map((t) => `${t.sym} = ${t.meaning}`).join("; ")),
+                  sectionLabel: `${card.label} — the paper's own equation`,
+                })}
+                className="mt-2.5 flex w-full items-center justify-center gap-1.5 rounded-lg bg-indigo-600 py-1.5 text-[11.5px] font-semibold text-white transition hover:bg-indigo-500">
+                <SlidersHorizontal size={13} /> Try it with your own numbers
+              </button>
             )}
           </>
         )}
