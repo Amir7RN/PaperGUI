@@ -3934,7 +3934,7 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
       content: (
         <PaperReader
           variant="inline" url={spec.paperPdf} title={spec.meta?.title} open
-          spec={spec} onAsk={setChatSection}
+          spec={spec} onAsk={setChatSection} onPin={setPin}
           onOutline={handleOutline} gotoPage={paperPage}
         />
       ),

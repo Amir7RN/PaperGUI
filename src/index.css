@@ -319,6 +319,19 @@
   transition: background 0.25s ease, box-shadow 0.25s ease;
 }
 
+/* Cross-reference markers ("[12]", "Fig. 3", "Eq. 2") the reader can click.
+ * Decorative ONLY — pointer-events stay off so dragging a selection across a
+ * marker never breaks; PdfReader hit-tests the click against their boxes.
+ * A tinted wash plus an underline reads as "this is live" without covering
+ * the paper's own type. */
+.pdfr-xref {
+  position: absolute;
+  border-radius: 2px;
+  background: rgba(99, 102, 241, 0.22);
+  box-shadow: inset 0 -2px 0 rgba(67, 56, 202, 0.85);
+  mix-blend-mode: multiply;
+}
+
 /* pdf.js text layer — the part that makes words clickable and selectable */
 .pdfr-textlayer {
   position: absolute;

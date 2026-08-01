@@ -35,7 +35,7 @@ const normalize = (s) =>
     .replace(/[‘’]/g, "'")
     .replace(/-\s+/g, "");
 
-function tokenize(s) {
+export function tokenize(s) {
   const out = [];
   for (const w of normalize(s).split(/[^a-z0-9]+/)) {
     if (!w || w.length < 3 || STOP.has(w)) continue;
@@ -245,7 +245,11 @@ export function buildPaperIndex(pageDatas) {
         // any real gap is a word space (a glyph-level split has none)
         if (prev && it.x - (prev.x + prev.w) > 0.0015) { text += " "; owner.push(-1); }
         const fi = flat.length;
-        flat.push({ x: it.x, y: ln.y, w: it.w, h: ln.h, line: li });
+        // `h`/`y` are the LINE's, so highlight boxes line up across a line.
+        // `ih` keeps the run's own glyph height, which is the only signal that
+        // separates a superscript citation ("…grid.14,15") from body text —
+        // see the superscript scan in paperRefs.js.
+        flat.push({ x: it.x, y: ln.y, w: it.w, h: ln.h, line: li, ih: it.h });
         for (let k = 0; k < it.str.length; k++) owner.push(fi);
         text += it.str;
         prev = it;
@@ -396,6 +400,64 @@ function keyTerms(text, df, nSent) {
     out.set(term, (1 + Math.log(f)) * Math.log(1 + nSent / d));
   }
   return out;
+}
+
+/**
+ * Boxes (page fractions) covering one character range of one page, one box per
+ * line the range spans. Exported because inline references (citation markers,
+ * "Fig. 3" mentions) need exactly the same char-range → on-page-geometry step
+ * that provenance highlights do — see paperRefs.js.
+ *
+ * `start`/`end` are indices into that page's own `text`.
+ */
+export function rectsForSpan(index, pageIdx, start, end) {
+  const p = index?.pages?.[pageIdx];
+  if (!p) return [];
+
+  const byLine = new Map();
+  let i = start;
+  while (i < end && i < p.owner.length) {
+    const fi = p.owner[i];
+    if (fi < 0) { i++; continue; }              // inserted whitespace
+    const it = p.flat[fi];
+    if (!it) { i++; continue; }
+
+    // How much of THIS glyph run the range actually covers. pdf.js hands back
+    // whole lines as single runs, so a "Fig. 3" inside one would otherwise be
+    // drawn across the entire line — the box is interpolated by character
+    // position instead. Proportional spacing makes this approximate; for a
+    // marker a few pixels out is invisible, and it beats a 350px underline.
+    let a = i;
+    while (a > 0 && p.owner[a - 1] === fi) a--;
+    let b = i;
+    while (b + 1 < p.owner.length && p.owner[b + 1] === fi) b++;
+    const len = b - a + 1;
+
+    const from = Math.max(a, start);
+    const to = Math.min(b, end - 1);
+    const x1 = it.x + (it.w * (from - a)) / len;
+    const x2 = it.x + (it.w * (to - a + 1)) / len;
+
+    const r = byLine.get(it.line);
+    if (!r) byLine.set(it.line, { x1, y1: it.y, x2, y2: it.y + it.h });
+    else {
+      r.x1 = Math.min(r.x1, x1); r.x2 = Math.max(r.x2, x2);
+      r.y1 = Math.min(r.y1, it.y); r.y2 = Math.max(r.y2, it.y + it.h);
+    }
+    i = b + 1;
+  }
+
+  return [...byLine.values()]
+    .map((r) => {
+      const h = r.y2 - r.y1;
+      return {
+        x: Math.max(0, r.x1 - 0.001),
+        y: Math.max(0, r.y1 - h * 0.1),
+        w: Math.min(1, r.x2 - r.x1 + 0.002),
+        h: h * 1.2,
+      };
+    })
+    .filter((r) => r.w > 0.002 && r.h > 0.002);
 }
 
 /** Highlight boxes (page fractions) for one matched sentence, one per line. */

@@ -30,11 +30,13 @@ import {
   X, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Download, Loader2,
   BookOpen, PanelLeftClose, PanelLeftOpen, Highlighter, Sparkles,
   MessageCircle, Copy, Check, Crosshair, GraduationCap, HelpCircle,
-  MousePointerClick, ArrowLeftRight,
+  MousePointerClick, ArrowLeftRight, Network, LineChart, ShieldQuestion,
+  Undo2, GitCompare, Target, Gauge, Quote, Sigma, BookMarked,
 } from "lucide-react";
 import { TextLayer } from "pdfjs-dist";
 import { loadPdfDoc, renderPdfPage, extractPageItems } from "./pdf.js";
 import { buildPaperIndex, findSectionAnchor, paperOutline } from "./pdfAnchors.js";
+import { buildInlineRefs, locateQuote, matchEvidence, sectionKeyAt } from "./paperRefs.js";
 import { buildSectionContext } from "./sectionChat.js";
 
 const BASE_SCALE = 1.5;
@@ -60,7 +62,7 @@ const GUIDE_KEY = "pp-pdfr-guide-v1";
 
 /* ---------------- one live page: canvas + real text layer + highlights ------ */
 
-function PdfPageView({ doc, pageNo, scale, marks, activeMark, tone, turnKey }) {
+function PdfPageView({ doc, pageNo, scale, marks, activeMark, tone, turnKey, hotspots, onHotspot }) {
   const canvasRef = useRef(null);
   const textRef = useRef(null);
   const activeRef = useRef(null);
@@ -123,10 +125,58 @@ function PdfPageView({ doc, pageNo, scale, marks, activeMark, tone, turnKey }) {
 
   const c = toneOf(tone);
 
+  /* Clicking a cross-reference is HIT-TESTED, not overlaid.
+   *
+   * A clickable overlay sitting above the text layer would swallow the
+   * pointer wherever a marker is, so dragging a selection across a sentence
+   * containing "[12]" would break mid-sentence. Instead the markers are drawn
+   * purely decoratively (pointer-events: none) and the click is resolved
+   * against their boxes here — selection behaviour is untouched. */
+  const onPageClick = useCallback((e) => {
+    if (!hotspots?.length || !onHotspot) return;
+    // A click that ends a drag-selection is not a click on a link.
+    const sel = window.getSelection();
+    if (sel && !sel.isCollapsed) return;
+    const box = e.currentTarget.getBoundingClientRect();
+    if (!box.width || !box.height) return;
+    const x = (e.clientX - box.left) / box.width;
+    const y = (e.clientY - box.top) / box.height;
+    for (const h of hotspots) {
+      for (const r of h.rects) {
+        if (x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) {
+          // Stop here, or this very click keeps bubbling to the document and
+          // trips the card's own click-outside handler — opening and closing
+          // it in one gesture.
+          e.stopPropagation();
+          onHotspot(h, { x: e.clientX, y: box.top + r.y * box.height });
+          return;
+        }
+      }
+    }
+  }, [hotspots, onHotspot]);
+
   return (
     <div key={turnKey} className="pdfr-page pdfr-shadow relative bg-white"
-      style={{ width: dims?.w, height: dims?.h }}>
+      style={{ width: dims?.w, height: dims?.h }} onClick={onPageClick}>
       <canvas ref={canvasRef} className="block" />
+
+      {/* cross-reference markers — decorative only; see onPageClick */}
+      {hotspots?.length > 0 && (
+        <div className="pointer-events-none absolute inset-0 z-[2]" aria-hidden="true">
+          {hotspots.map((h) =>
+            h.rects.map((r, j) => (
+              <span
+                key={`${h.id}-${j}`}
+                className="pdfr-xref"
+                style={{
+                  left: `${r.x * 100}%`, top: `${r.y * 100}%`,
+                  width: `${r.w * 100}%`, height: `${r.h * 100}%`,
+                }}
+              />
+            ))
+          )}
+        </div>
+      )}
 
       {/* provenance highlights — translucent marker, text stays readable */}
       <div className="pointer-events-none absolute inset-0 z-[1]" aria-hidden="true">
@@ -179,8 +229,51 @@ function PdfPageView({ doc, pageNo, scale, marks, activeMark, tone, turnKey }) {
  *                        navigates. Null means "don't interfere".
  */
 
+/* ---------------- what selecting text offers, per paper section ------------
+ * The useful question changes with where you are in a paper. In the intro you
+ * want orientation; in the results you want to know which figure backs the
+ * sentence; in the discussion — where papers hedge, overclaim and gesture at
+ * future work — you want the claim pressure-tested. Offering one generic
+ * "explain" everywhere wastes the one thing we know for free: the section.
+ *
+ * `ask` builds a tutor prompt. `kind` marks the two actions that are not
+ * prompts: opening an analysis pin, and the local evidence matcher.
+ */
+const Q = (s) => `“${s}”`;
+const ACTIONS = {
+  explain:  { label: "Explain", icon: Sparkles, primary: true,
+    ask: (q, page) => `Explain this passage from the paper (page ${page}), in plain language: ${Q(q)}` },
+  simplify: { label: "Simplify", icon: GraduationCap,
+    ask: (q) => `Re-explain this passage from the paper as simply as possible, no jargon, one everyday analogy: ${Q(q)}` },
+  story:    { label: "In the story", icon: BookOpen, kind: "pin", pin: "story" },
+  mindmap:  { label: "On the map", icon: Network, kind: "pin", pin: "mindmap" },
+  evidence: { label: "Show the evidence", icon: LineChart, kind: "evidence" },
+  steelman: { label: "Steelman it", icon: ShieldQuestion,
+    ask: (q) => `The authors state this limitation or caveat: ${Q(q)}\n\nSteelman it: spell out what it actually means for someone relying on this work, including the part the authors may be underplaying. Use only what this paper says.` },
+  overturn: { label: "What'd change it", icon: Undo2,
+    ask: (q) => `This is a claim from the paper's discussion: ${Q(q)}\n\nWhat would the evidence have to look like for this claim NOT to hold? Be concrete about the measurement or result that would overturn it.` },
+  compare:  { label: "vs. related work", icon: GitCompare,
+    ask: (q) => `This is a conclusion from the paper: ${Q(q)}\n\nHow does it sit against the related work THIS paper itself cites? Where does it agree, and where does it push back? Only use what this paper reports about that prior work.` },
+  takeaway: { label: "So what do I do", icon: Target,
+    ask: (q) => `From this passage: ${Q(q)}\n\nGive the actionable takeaway for someone who wants to BUILD ON this work — what they should actually do differently. Keep it to a few concrete points, grounded in the paper.` },
+  hedging:  { label: "How firm is this?", icon: Gauge,
+    ask: (q) => `Assess how firmly this is stated: ${Q(q)}\n\nQuote the hedging words ("may", "suggests", "preliminary") or the firm ones, say whether the paper's own evidence supports that strength, and flag it if the language is more confident than the evidence.` },
+};
+
+/** Section key (from the paper's own headings) → which actions to offer. */
+const SECTION_ACTIONS = {
+  abstract:     ["explain", "simplify", "story", "mindmap"],
+  introduction: ["explain", "simplify", "story", "mindmap"],
+  related:      ["explain", "simplify", "story"],
+  method:       ["explain", "simplify"],
+  experiment:   ["explain", "simplify"],
+  results:      ["explain", "evidence", "hedging"],
+  conclusion:   ["explain", "steelman", "overturn", "compare", "takeaway", "hedging"],
+};
+const DEFAULT_ACTIONS = ["explain", "simplify"];
+
 export function PaperReader({
-  url, title, open, onClose, spec, section, onAsk,
+  url, title, open, onClose, spec, section, onAsk, onPin,
   variant = "modal", onOutline, gotoPage,
 }) {
   const [doc, setDoc] = useState(null);
@@ -197,8 +290,11 @@ export function PaperReader({
   const [anchorMiss, setAnchorMiss] = useState(false);
   const [hlOn, setHlOn] = useState(true);
   const [markIdx, setMarkIdx] = useState(0);
-  const [sel, setSel] = useState(null);           // { x, y, text }
+  const [sel, setSel] = useState(null);           // { x, y, text, head }
   const [copied, setCopied] = useState(false);
+  // A cross-reference card: { at:{x,y}, kind, label, payload } — the resolved
+  // "[12]" / "Fig. 3" / "Eq. 2" shown where it was mentioned.
+  const [card, setCard] = useState(null);
   // First-time orientation: what the colour means and what you can do here.
   // Dismissed for good once, reopenable from the ? button.
   const [guide, setGuide] = useState(false);
@@ -249,6 +345,10 @@ export function PaperReader({
     })();
     return () => { alive = false; setIndexing(false); };
   }, [doc, url]);
+
+  /* ---- resolvable cross-references, once the text index exists ---- */
+  const refs = useMemo(() => buildInlineRefs(index, spec), [index, spec]);
+  const pageSpots = useMemo(() => refs.byPage.get(page) || [], [refs, page]);
 
   /* ---- hand the paper's own outline to whoever owns the rail ---- */
   useEffect(() => {
@@ -384,31 +484,73 @@ export function PaperReader({
         const r = s.getRangeAt(0).getBoundingClientRect();
         if (!r.width && !r.height) { setSel(null); return; }
         setCopied(false);
-        setSel({ x: Math.min(window.innerWidth - 180, Math.max(180, r.left + r.width / 2)), y: r.top - 10, text });
+        setCard(null);
+        // Which of the paper's own sections this selection sits in decides
+        // what we offer to do with it. Unlocatable text falls back to the
+        // generic menu rather than guessing a section.
+        const at = locateQuote(index, page, text);
+        setSel({
+          x: Math.min(window.innerWidth - 220, Math.max(220, r.left + r.width / 2)),
+          y: r.top - 10,
+          text,
+          head: at == null ? null : sectionKeyAt(index, at),
+        });
       }, 10);
     };
     const onDown = (e) => { if (!e.target.closest?.("[data-pdfr-assist]")) setSel(null); };
     stage.addEventListener("mouseup", onUp);
     document.addEventListener("mousedown", onDown);
     return () => { stage.removeEventListener("mouseup", onUp); document.removeEventListener("mousedown", onDown); };
-  }, [open, doc]);
+  }, [open, doc, index, page]);
 
-  const askAbout = useCallback((kind) => {
-    if (!sel || !onAsk) return;
+  /* Which actions this selection offers — driven by the paper's own section.
+   * `chat` and `copy` are always last; they work anywhere. */
+  const selActions = useMemo(
+    () => (SECTION_ACTIONS[sel?.head] || DEFAULT_ACTIONS).filter((k) => {
+      if (k === "evidence") return (spec?.resultFigures || []).length > 0;
+      if (k === "story") return !!(onPin && spec?.story);
+      if (k === "mindmap") return !!(onPin && spec?.mindmap?.nodes?.length);
+      return true;
+    }),
+    [sel?.head, spec, onPin]
+  );
+
+  const runAction = useCallback((key) => {
+    if (!sel) return;
     // PDF lines break words with a hyphen; heal them so the model sees prose
     const clean = sel.text.replace(/(\w)-\s+(\w)/g, "$1$2");
     const quote = clean.length > 900 ? `${clean.slice(0, 900)}…` : clean;
-    const prompts = {
-      explain: `Explain this passage from the paper (page ${page}), in plain language: “${quote}”`,
-      simplify: `Re-explain this passage from the paper as simply as possible, no jargon, one everyday analogy: “${quote}”`,
-    };
+    const done = () => { setSel(null); window.getSelection()?.removeAllRanges(); };
+
+    // Jump to the analysis pin that covers this passage. Nothing is generated;
+    // the reader just sees where this text lives in the story or the map.
+    if (key === "story" || key === "mindmap") { onPin?.(key); done(); return; }
+
+    // Claim → evidence, resolved locally against the paper's own figures. If
+    // no figure matches convincingly, say so instead of pointing anywhere.
+    if (key === "evidence") {
+      const hit = matchEvidence(spec, quote);
+      setCard({
+        at: { x: sel.x, y: sel.y },
+        kind: hit ? "figure" : "no-evidence",
+        label: hit ? (hit.fig.figureLabel || "Evidence") : "No figure matched",
+        payload: hit
+          ? { label: hit.fig.figureLabel, title: hit.fig.title, explanation: hit.fig.explanation,
+              image: hit.fig.image, page: hit.fig.page, citing: quote }
+          : { citing: quote },
+      });
+      done();
+      return;
+    }
+
+    if (!onAsk) return;
     const payload = { sectionId: sectionId || "story", title: section?.title || "The paper" };
-    if (kind === "chat") payload.initialDraft = `About this passage on page ${page}: “${quote}”\n\nMy question: `;
-    else payload.initialAsk = prompts[kind];
+    if (key === "chat") payload.initialDraft = `About this passage on page ${page}: “${quote}”\n\nMy question: `;
+    else payload.initialAsk = ACTIONS[key]?.ask?.(quote, page);
+    if (!payload.initialAsk && !payload.initialDraft) return;
     onAsk(payload);
-    setSel(null);
-    window.getSelection()?.removeAllRanges();
-  }, [sel, onAsk, page, sectionId, section?.title]);
+    done();
+  }, [sel, onAsk, onPin, spec, page, sectionId, section?.title]);
 
   if (!open) return null;
 
@@ -535,6 +677,8 @@ export function PaperReader({
               <PdfPageView
                 doc={doc} pageNo={page} scale={scale} marks={pageMarks}
                 activeMark={activeMark} tone={tone} turnKey={`${page}-${dir}`}
+                hotspots={pageSpots}
+                onHotspot={(h, at) => { setSel(null); setCard({ at, kind: h.kind, label: h.label, payload: h.payload }); }}
               />
             </div>
           )}
@@ -578,8 +722,14 @@ export function PaperReader({
             )}
             <li className="flex gap-2">
               <MousePointerClick size={13} className="mt-0.5 shrink-0 text-indigo-300" />
-              <span>Select any words → <strong className="text-white">Explain · Simplify · Ask AI</strong>.</span>
+              <span>Select any words — what’s offered depends on the section you’re in.</span>
             </li>
+            {pageSpots.length > 0 && (
+              <li className="flex gap-2">
+                <span className="mt-1 h-2.5 w-4 shrink-0 rounded-sm" style={{ background: "rgba(99,102,241,0.35)", boxShadow: "inset 0 -1.5px 0 rgba(129,140,248,0.9)" }} />
+                <span>Tinted <strong className="text-white">[refs]</strong>, <strong className="text-white">Fig.</strong> and <strong className="text-white">Eq.</strong> mentions open where you are — no scrolling away.</span>
+              </li>
+            )}
             <li className="flex gap-2">
               <ArrowLeftRight size={13} className="mt-0.5 shrink-0 text-slate-400" />
               <span>← → turn pages{marks.length > 0 ? <>, <strong className="text-white">n</strong> jumps to the next passage</> : null}{inline ? "." : " · Esc closes."}</span>
@@ -605,10 +755,12 @@ export function PaperReader({
           onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
           style={{ position: "fixed", left: sel.x, top: Math.max(56, sel.y), transform: "translate(-50%, -100%)", zIndex: 75 }}
         >
-          <div className="pp-rise flex items-center gap-0.5 rounded-xl border border-indigo-300/60 bg-slate-900/95 p-1 shadow-2xl backdrop-blur">
-            <AssistBtn icon={Sparkles} label="Explain" onClick={() => askAbout("explain")} primary />
-            <AssistBtn icon={GraduationCap} label="Simplify" onClick={() => askAbout("simplify")} />
-            <AssistBtn icon={MessageCircle} label="Ask…" onClick={() => askAbout("chat")} />
+          <div className="pp-rise flex max-w-[92vw] flex-wrap items-center justify-center gap-0.5 rounded-xl border border-indigo-300/60 bg-slate-900/95 p-1 shadow-2xl backdrop-blur">
+            {selActions.map((k) => {
+              const a = ACTIONS[k];
+              return <AssistBtn key={k} icon={a.icon} label={a.label} primary={a.primary} onClick={() => runAction(k)} />;
+            })}
+            <AssistBtn icon={MessageCircle} label="Ask…" onClick={() => runAction("chat")} />
             <span className="mx-0.5 h-5 w-px bg-white/15" />
             <AssistBtn
               icon={copied ? Check : Copy}
@@ -617,6 +769,20 @@ export function PaperReader({
             />
           </div>
         </div>,
+        document.body
+      )}
+
+      {/* ---- cross-reference card ---- */}
+      {card && createPortal(
+        <XrefCard
+          card={card}
+          onClose={() => setCard(null)}
+          onAsk={onAsk ? (ask) => {
+            onAsk({ sectionId: sectionId || "story", title: section?.title || "The paper", initialAsk: ask });
+            setCard(null);
+          } : null}
+          onGoToPage={(p) => { setCard(null); go(p); }}
+        />,
         document.body
       )}
 
@@ -654,6 +820,146 @@ export function PaperReader({
  */
 export default function PdfReader(props) {
   return <PaperReader {...props} variant="modal" />;
+}
+
+/* ---------------- the cross-reference card ----------------
+ * Shown where the pointer was mentioned, so following "[12]" or "Fig. 3"
+ * costs no scrolling and no lost place. Every field is the paper's own: the
+ * citing sentence and bibliography entry are read out of the document, the
+ * figure is the crop already taken from its page, the equation is what the
+ * analysis extracted from the methods. Nothing here is generated on the fly —
+ * the one model call is the optional "why here?" button, which the reader asks
+ * for explicitly.
+ */
+function XrefCard({ card, onClose, onAsk, onGoToPage }) {
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    const onDown = (e) => { if (!e.target.closest?.("[data-xref-card]")) onClose(); };
+    window.addEventListener("keydown", onKey);
+    // `click`, not `mousedown`: the page click that OPENED this card is still
+    // travelling, and closing on mousedown would shut it in the same gesture.
+    document.addEventListener("click", onDown);
+    return () => { window.removeEventListener("keydown", onKey); document.removeEventListener("click", onDown); };
+  }, [onClose]);
+
+  const p = card.payload || {};
+  const W = 380;
+  // Keep the card on screen: clamp horizontally, and flip below the reference
+  // when there isn't room above it.
+  const left = Math.min(Math.max(W / 2 + 8, card.at.x), window.innerWidth - W / 2 - 8);
+  const above = card.at.y > 320;
+
+  const Head = ({ icon: Icon, children }) => (
+    <div className="mb-2 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-indigo-300">
+      <Icon size={12} /> {children}
+      <button onClick={onClose} aria-label="Close"
+        className="ml-auto rounded p-0.5 text-slate-400 transition hover:bg-white/10 hover:text-white">
+        <X size={13} />
+      </button>
+    </div>
+  );
+
+  return (
+    <div
+      data-xref-card=""
+      style={{
+        position: "fixed", left, top: above ? card.at.y - 10 : card.at.y + 26,
+        transform: above ? "translate(-50%, -100%)" : "translate(-50%, 0)",
+        width: W, zIndex: 80,
+      }}
+    >
+      <div className="pp-rise max-h-[62vh] overflow-y-auto rounded-xl border border-indigo-300/50 bg-slate-900/97 p-3 text-slate-200 shadow-2xl backdrop-blur">
+        {card.kind === "citation" && (
+          <>
+            <Head icon={BookMarked}>Reference {card.label}</Head>
+            {p.citing && (
+              <p className="mb-2 border-l-2 border-indigo-400/50 pl-2 text-[11.5px] italic leading-snug text-slate-400">
+                {/* WHY it's cited here — the paper's own sentence, not the
+                    reference's abstract. That's the part a reader wants. */}
+                {p.citing}
+              </p>
+            )}
+            <ul className="space-y-1.5">
+              {(p.entries || []).map((e) => (
+                <li key={e.n} className="text-[11.5px] leading-snug text-slate-300">
+                  <span className="mr-1 font-bold text-indigo-300">[{e.n}]</span>{e.text}
+                </li>
+              ))}
+            </ul>
+            {onAsk && p.citing && (
+              <button
+                onClick={() => onAsk(`In this paper, the sentence “${p.citing}” cites ${(p.entries || []).map((e) => `[${e.n}] ${e.text}`).join(" ; ")}.\n\nWhy is that work being cited at exactly this point — what does it contribute to the argument here? Use only what this paper says about it.`)}
+                className="mt-2.5 w-full rounded-lg bg-indigo-600 py-1.5 text-[11.5px] font-semibold text-white transition hover:bg-indigo-500">
+                Why is it cited here?
+              </button>
+            )}
+          </>
+        )}
+
+        {card.kind === "figure" && (
+          <>
+            <Head icon={Quote}>{p.label || card.label}</Head>
+            {p.image && (
+              <img src={p.image} alt={p.title || card.label}
+                className="mb-2 w-full rounded-lg border border-white/10 bg-white" />
+            )}
+            {p.title && <div className="mb-1 text-[12.5px] font-semibold text-white">{p.title}</div>}
+            {p.explanation && (
+              <p className="text-[11.5px] leading-snug text-slate-300">
+                {p.explanation.length > 420 ? `${p.explanation.slice(0, 420)}…` : p.explanation}
+              </p>
+            )}
+            {Number.isInteger(p.page) && (
+              <button onClick={() => onGoToPage(p.page)}
+                className="mt-2.5 w-full rounded-lg border border-white/15 bg-white/5 py-1.5 text-[11.5px] font-semibold text-slate-200 transition hover:bg-white/10 hover:text-white">
+                Go to page {p.page}
+              </button>
+            )}
+          </>
+        )}
+
+        {card.kind === "equation" && (
+          <>
+            <Head icon={Sigma}>{card.label}</Head>
+            <div className="mb-2 rounded-lg border border-white/10 bg-slate-950/70 px-2.5 py-2 text-center text-[13px] text-cyan-200">
+              {p.eq}
+            </div>
+            {p.name && <div className="mb-1 text-[12.5px] font-semibold text-white">{p.name}</div>}
+            {p.plain && <p className="text-[11.5px] leading-snug text-slate-300">{p.plain}</p>}
+            {(p.terms || []).length > 0 && (
+              <ul className="mt-2 space-y-0.5">
+                {p.terms.map((t, i) => (
+                  <li key={i} className="text-[11px] text-slate-400">
+                    <span className="mr-1 font-semibold text-cyan-300">{t.sym}</span>{t.meaning}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </>
+        )}
+
+        {card.kind === "no-evidence" && (
+          <>
+            <Head icon={LineChart}>No figure matched</Head>
+            {/* Honest degrade: pointing at the least-bad figure would be worse
+                than admitting the sentence couldn't be tied to one. */}
+            <p className="text-[11.5px] leading-snug text-slate-300">
+              This sentence doesn’t line up clearly with any of the paper’s result figures, so
+              nothing is being claimed as its evidence. It may be a general statement, or its
+              support may live in a table rather than a figure.
+            </p>
+            {onAsk && (
+              <button
+                onClick={() => onAsk(`Which of this paper's own results — figure, table or reported number — actually supports this sentence: “${p.citing}”? If nothing in the paper directly supports it, say so plainly.`)}
+                className="mt-2.5 w-full rounded-lg bg-indigo-600 py-1.5 text-[11.5px] font-semibold text-white transition hover:bg-indigo-500">
+                Ask the tutor to look
+              </button>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function AssistBtn({ icon: Icon, label, onClick, primary }) {
