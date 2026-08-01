@@ -25,7 +25,7 @@ import {
   ShieldCheck, Layers, RotateCw, Check as CheckIcon, GripVertical, Volume2, VolumeX,
 } from "lucide-react";
 import SectionChat from "./SectionChat.jsx";
-import PdfReader from "./PdfReader.jsx";
+import PdfReader, { PaperReader } from "./PdfReader.jsx";
 import ExplainerVideo from "./ExplainerVideo.jsx";
 import { buildExplainer, fetchSceneAudio } from "./narrate.js";
 import { useVoiceOutput } from "./useVoice.js";
@@ -3511,6 +3511,9 @@ function SelectionExplain({ onAsk }) {
         while (node && node.nodeType !== 1) node = node.parentNode;
         const host = node && node.closest?.("[data-section-id]");
         if (!host) { setChip(null); return; }
+        // Inside the paper reader, its own assist bar (Explain · Simplify ·
+        // Ask · Copy) owns the selection — don't stack a second chip on it.
+        if (node.closest?.("[data-paper-reader]")) { setChip(null); return; }
         const rect = sel.getRangeAt(0).getBoundingClientRect();
         setChip({
           x: rect.left + rect.width / 2, y: rect.top - 8,
@@ -3565,7 +3568,7 @@ const GUIDE_TIPS = [
 /** Persistent desktop sidebar — the primary way to move around a paper.
  *  Tracks which sections the reader has already opened and shows overall
  *  progress, so working through a paper feels like clearing a map. */
-function SideNav({ sections, activeId, onSelect, visited }) {
+function SideNav({ sections, activeId, onSelect, visited, outline, onOutlineJump }) {
   const done = sections.filter((s) => visited?.has(s.id)).length;
   const pct = sections.length ? Math.round((done / sections.length) * 100) : 0;
   return (
@@ -3605,6 +3608,27 @@ function SideNav({ sections, activeId, onSelect, visited }) {
           })}
         </nav>
 
+        {/* The paper's OWN sections, indented under it — its table of contents,
+            not ours. Absent when heading detection found nothing, which is a
+            real outcome on unusual typography: better to show no outline than
+            a made-up one. */}
+        {outline?.length > 0 && (
+          <div className="mt-2 border-l border-slate-200 pl-2">
+            <div className="mb-1 px-1.5 text-[9.5px] font-bold uppercase tracking-[0.12em] text-slate-400">
+              In the paper
+            </div>
+            <nav className="flex flex-col gap-0.5">
+              {outline.map((h) => (
+                <button key={h.key} onClick={() => onOutlineJump?.(h)}
+                  className="flex items-center gap-2 rounded-lg px-2 py-1 text-left text-[12px] text-slate-500 transition hover:bg-slate-100 hover:text-slate-800">
+                  <span className="min-w-0 flex-1 truncate">{h.label}</span>
+                  <span className="text-[9.5px] font-semibold tabular-nums text-slate-300">p{h.page}</span>
+                </button>
+              ))}
+            </nav>
+          </div>
+        )}
+
         <div className="mt-4 rounded-xl border border-slate-100 bg-slate-50/70 p-2.5">
           <div className="mb-1.5 px-0.5 text-[9.5px] font-bold uppercase tracking-[0.12em] text-slate-400">Good to know</div>
           <ul className="flex flex-col gap-1.5">
@@ -3620,6 +3644,61 @@ function SideNav({ sections, activeId, onSelect, visited }) {
         </div>
       </div>
     </aside>
+  );
+}
+
+/* ---------------- pins: the analysis, over the paper ----------------
+ * Story and the mind map are orientation, not destinations. Sending someone to
+ * another page for them costs them their place in the paper — the exact thing
+ * that makes people give up and go read the PDF somewhere else. So they open
+ * OVER the reader and close straight back to the sentence you were on: the
+ * reader keeps its state because it is never unmounted.
+ */
+function PaperPins({ pins, onOpen }) {
+  if (!pins.length) return null;
+  return (
+    <div className="pointer-events-none fixed bottom-5 right-5 z-40 flex flex-col items-end gap-2">
+      {pins.map((p) => {
+        const Icon = p.icon;
+        return (
+          <button key={p.id} onClick={() => onOpen(p.id)}
+            className={`pointer-events-auto group flex items-center gap-2 rounded-full bg-gradient-to-r ${TONE_GRAD[p.tone]} py-2.5 pl-3.5 pr-4 text-[12.5px] font-bold text-white shadow-xl ring-2 ring-white/70 transition hover:-translate-y-0.5 hover:shadow-2xl`}
+            title={`${p.label} — opens over the paper`}>
+            <Icon size={15} /> {p.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function PinOverlay({ pin, onClose }) {
+  useEffect(() => {
+    if (!pin) return undefined;
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [pin, onClose]);
+  if (!pin) return null;
+  const Icon = pin.icon;
+  return (
+    <div className="fixed inset-0 z-[70] flex items-start justify-center overflow-y-auto bg-slate-950/70 px-4 py-8 backdrop-blur-sm"
+      role="dialog" aria-modal="true" aria-label={pin.label} onClick={onClose}>
+      <div className="w-full max-w-6xl rounded-2xl border border-white/30 bg-slate-50 p-4 shadow-2xl sm:p-5"
+        onClick={(e) => e.stopPropagation()}>
+        <div className="mb-3 flex items-center gap-2">
+          <span className={`flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-r ${TONE_GRAD[pin.tone]} text-white`}>
+            <Icon size={15} />
+          </span>
+          <span className="text-[14px] font-bold text-slate-800">{pin.title}</span>
+          <button onClick={onClose}
+            className="ml-auto flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-[12px] font-semibold text-slate-600 shadow-sm transition hover:border-slate-300 hover:text-slate-900">
+            <ChevronLeft size={13} /> Back to the paper
+          </button>
+        </div>
+        {pin.content}
+      </div>
+    </div>
   );
 }
 
@@ -3733,12 +3812,33 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
   const hasPdf = !!spec.paperPdf;
   const sec = useCallback((k) => sectionByKey(layout, k), [layout]);
 
+  /* ---------------- the reading spine ----------------
+   * When we have the paper itself, the paper is the page: its real text is the
+   * primary surface and the analysis hangs off it, rather than the analysis
+   * being the page with the paper hidden behind a button. Papers analyzed
+   * before paper storage existed have no PDF and fall back, unchanged, to the
+   * section dashboard — the spine is additive, never a blank page.
+   * (`spineOn` is derived below, once `free` exists.)
+   */
+  const [outline, setOutline] = useState([]);   // the paper's own headings
+  const [paperPage, setPaperPage] = useState(null); // rail-driven page jump
+  // `pin` is Story / Mind map opened OVER the reader: an overlay at the current
+  // reading position with one tap back, never a navigation away from the paper.
+  const [pin, setPin] = useState(null);
+  // Identity-stable so PaperReader's effect doesn't refire every render.
+  const handleOutline = useCallback((o) => setOutline(o), []);
+
   // free-form canvas ("PowerPoint mode")
   const canvasRef = useRef(null);
   const boxEls = useRef({});
   // Non-owners never get free-layout mode (and can't be stranded in it by a
   // stale localStorage flag, since they have no button to exit).
   const free = isOwner && layout.freeMode;
+
+  // The spine replaces the dashboard only in flow mode: free layout is the
+  // owner arranging analysis CARDS on a canvas, and a live document viewer is
+  // not one of those.
+  const spineOn = hasPdf && !free;
 
   const registerBox = useCallback((id, el) => {
     if (el) boxEls.current[id] = el; else delete boxEls.current[id];
@@ -3826,13 +3926,30 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
   // instead of leaving a numbering gap or a dead nav entry.
   const sections = [
     {
+      // The paper itself, first and default. Not a DesignBox and not part of
+      // free-layout: it's a live document viewer, not a card to arrange.
+      id: "paper", boxId: "sec-paper", boxLabel: "The paper", navLabel: "The paper",
+      ariaLabel: "The paper's own text", raw: true,
+      show: spineOn, tone: "blue", icon: BookOpen,
+      content: (
+        <PaperReader
+          variant="inline" url={spec.paperPdf} title={spec.meta?.title} open
+          spec={spec} onAsk={setChatSection}
+          onOutline={handleOutline} gotoPage={paperPage}
+        />
+      ),
+    },
+    {
+      // With the spine on, Story and Mind map are floating pins over the
+      // reader instead of rail stops — you glance at them and come straight
+      // back to the sentence you were on.
       id: "story", boxId: "sec-story", boxLabel: "Story", navLabel: "Story", ariaLabel: "The paper's story",
-      show: !!spec.story && sec("story").on, tone: "rose", icon: Sparkles,
+      show: !spineOn && !!spec.story && sec("story").on, tone: "rose", icon: Sparkles,
       content: <StoryPlayer story={spec.story} />,
     },
     {
       id: "mindmap", boxId: "sec-mindmap", boxLabel: "Mind map", navLabel: "Map", ariaLabel: "The paper as a concept map",
-      show: !!spec.mindmap?.nodes?.length && sec("mindmap").on, tone: "rose", icon: Network,
+      show: !spineOn && !!spec.mindmap?.nodes?.length && sec("mindmap").on, tone: "rose", icon: Network,
       content: <MindMap mindmap={spec.mindmap} />,
     },
     {
@@ -3899,6 +4016,23 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
     },
   ].filter((s) => s.show);
 
+  /* Story and the mind map, as pins over the reader rather than rail stops.
+   * Only while the spine is on — without the paper there is nothing to pin
+   * them over, and they stay ordinary sections. */
+  const pins = spineOn
+    ? [
+        !!spec.story && sec("story").on && {
+          id: "story", label: "Story", title: sec("story").title, tone: "rose", icon: Sparkles,
+          content: <StoryPlayer story={spec.story} />,
+        },
+        !!spec.mindmap?.nodes?.length && sec("mindmap").on && {
+          id: "mindmap", label: "Map", title: sec("mindmap").title, tone: "rose", icon: Network,
+          content: <MindMap mindmap={spec.mindmap} />,
+        },
+      ].filter(Boolean)
+    : [];
+  const openPin = pins.find((p) => p.id === pin) || null;
+
   // Single-section reading view: resolve the active section (fall back to first).
   const activeIdx = Math.max(0, sections.findIndex((s) => s.id === activeSectionId));
   const activeS = sections[activeIdx];
@@ -3925,6 +4059,10 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
       const tag = el?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el?.isContentEditable) return;
       if (free || chatSection || lightbox || infoKey || refsOpen || editorOpen || inspect || pdfOpen || traceTarget != null) return;
+      // Inside the paper, ← → turn PAGES — the reader owns them. Stealing them
+      // to change section would make the paper impossible to read with the
+      // keyboard.
+      if (pin || activeS?.id === "paper") return;
       const target = e.key === "ArrowRight" ? sections[activeIdx + 1] : sections[activeIdx - 1];
       if (target) { e.preventDefault(); selectSection(target.id); }
     };
@@ -4085,14 +4223,26 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
               against the left edge (Gmail-style) and the reading column takes
               everything that is left, so nothing is wasted to page margins. */}
           <div className="flex w-full items-start gap-5 pt-4" style={{ paddingLeft: "var(--page-pad, 12px)", paddingRight: "var(--page-pad, 12px)" }}>
-            <SideNav sections={sections} activeId={activeS?.id} onSelect={selectSection} visited={visited} />
+            <SideNav
+              sections={sections} activeId={activeS?.id} onSelect={selectSection} visited={visited}
+              outline={spineOn ? outline : null}
+              onOutlineJump={(h) => { selectSection("paper"); setPaperPage({ page: h.page }); }}
+            />
             <main ref={canvasRef} className="min-w-0 flex-1" style={{ maxWidth: "var(--content-max, 2600px)" }}>
               <DesignBox id="conclusion" label="Conclusion" mode="flow" rect={layout.boxes.conclusion} onRect={setBox} register={registerBox}>
                 <TakeawayBox conclusion={spec.conclusion} modifiedCount={modifiedCount} onReset={() => { setParams(defaults); setPinnedT(null); }} />
                 {active.error && <div className="mt-3 rounded-xl border-2 border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800"><strong>Pipeline error:</strong> {active.error}</div>}
               </DesignBox>
 
-              {activeS && (
+              {/* The paper renders bare: no card chrome, no numbered section
+                  header, no drag box. It is the document, not a panel about
+                  the document — and it has no entry in the editable section
+                  list, so sec("paper") would be undefined. */}
+              {activeS?.raw ? (
+                <section className="pp-section-in" aria-label={activeS.ariaLabel} data-section-id={activeS.id}>
+                  {activeS.content}
+                </section>
+              ) : activeS ? (
                 <DesignBox key={activeS.id} id={activeS.boxId} label={activeS.boxLabel} mode="flow" rect={layout.boxes[activeS.boxId]} onRect={setBox} register={registerBox}>
                   <section className="pp-section-in" aria-label={activeS.ariaLabel} data-section-id={activeS.id} data-section-title={sec(activeS.id).title}>
                     <SectionHeader num={activeIdx + 1} tone={activeS.tone} icon={activeS.icon} title={sec(activeS.id).title} sub={sec(activeS.id).sub}
@@ -4101,7 +4251,7 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
                     {activeS.content}
                   </section>
                 </DesignBox>
-              )}
+              ) : null}
 
               <SectionPager sections={sections} activeIdx={activeIdx} onSelect={selectSection} />
             </main>
@@ -4109,13 +4259,20 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
         </>
       )}
 
+      {/* Pins only make sense on the paper itself — over a chart lab they'd be
+          two floating buttons competing with the section rail for the same job. */}
+      {activeS?.id === "paper" && <PaperPins pins={pins} onOpen={setPin} />}
+      <PinOverlay pin={openPin} onClose={() => setPin(null)} />
+
       <SelectionExplain onAsk={setChatSection} />
       <SectionChat spec={spec} open={chatSection} onClose={() => setChatSection(null)} />
       {hasPdf && (
         <PdfReader
           url={spec.paperPdf} title={spec.meta?.title} open={pdfOpen} onClose={() => setPdfOpen(false)}
           spec={spec}
-          section={activeS ? { id: activeS.id, title: sec(activeS.id).title, tone: activeS.tone } : null}
+          // No section to trace when the paper itself is what's on screen —
+          // "find where this section came from" would be pointing at itself.
+          section={activeS && !activeS.raw ? { id: activeS.id, title: sec(activeS.id).title, tone: activeS.tone } : null}
           onAsk={setChatSection}
         />
       )}

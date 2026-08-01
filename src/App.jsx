@@ -35,7 +35,7 @@ import {
   compileSpec, buildHelpers, defaultsFromSpec, runSpec, validateResultFigures,
   auditPipeline, auditResultFiguresQuality, auditFigureFidelity, auditFoundations, auditExplorables,
 } from "./engine.js";
-import { authEnabled, onAuthChange, signOut, getBalance, saveAnalysis } from "./supabase.js";
+import { authEnabled, onAuthChange, signOut, getBalance, saveAnalysis, uploadPaperPdf } from "./supabase.js";
 
 const BG_URL = `${import.meta.env.BASE_URL}Background.png`;
 
@@ -790,9 +790,15 @@ function Landing({
                   </div>
                 )}
 
+                {/* Shown BEFORE the upload, because it describes what the upload
+                    does. This used to say the PDF wasn't kept; it now is, so the
+                    reader can reread the paper itself and not only our summary
+                    of it. Say that plainly rather than burying it. */}
                 <p className="mt-4 flex items-start gap-1.5 text-[11px] leading-relaxed text-slate-400">
                   <FileText size={12} className="mt-0.5 shrink-0" />
-                  Your PDF isn't kept — only the finished interactive analysis is saved, privately, to your own library.
+                  Your PDF is stored privately to your own library, so you can reread the paper
+                  itself — not just the analysis — whenever you reopen it. Only you can access it,
+                  and deleting the analysis deletes the PDF with it.
                 </p>
             </div>
           </div>
@@ -1012,11 +1018,23 @@ export default function App() {
       newSpec.resultFigures = validateResultFigures(newSpec, compiled, helpers, defaults);
 
       // Persist to the account's library so this paper can be reopened later
-      // for free instead of spending credit to re-analyze the same PDF.
+      // for free instead of spending credit to re-analyze the same PDF. The PDF
+      // itself rides along, privately, so a reopened analysis can still show the
+      // paper — the reading surface, not just our summary of it.
       if (authEnabled && session) {
+        setProgress({ pct: 97, label: "Storing the paper privately…" });
+        // Never let a storage failure sink an analysis that was already paid
+        // for: a null path just means this paper opens summary-only.
+        let pdfPath = null;
+        try { pdfPath = await uploadPaperPdf(file); } catch { /* summary-only */ }
         setProgress({ pct: 98, label: "Saving to your library…" });
-        try { await saveAnalysis(newSpec); } catch { /* library save is best-effort */ }
+        try { await saveAnalysis(newSpec, pdfPath); } catch { /* library save is best-effort */ }
       }
+
+      // The paper is readable in THIS session regardless of whether it was
+      // stored — an object URL over the bytes we already hold. A stored paper
+      // gets a signed URL instead when it is reopened from the library.
+      try { newSpec.paperPdf = URL.createObjectURL(file); } catch { /* summary-only */ }
 
       setProgress({ pct: 100, label: "Done" });
       setSpec(newSpec);

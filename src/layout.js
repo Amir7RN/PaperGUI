@@ -140,6 +140,17 @@ export function layoutStyle(layout) {
   return style;
 }
 
+/**
+ * Never returns undefined. Not every section on screen is an EDITABLE section:
+ * the paper's own reading surface is a live document, not a titled card in the
+ * layout editor, so `sectionByKey(layout, "paper")` legitimately has nothing to
+ * find. Returning undefined made every `sec(id).title` call site a latent crash
+ * — and one of them ran on every render, closed or not.
+ */
 export function sectionByKey(layout, key) {
-  return layout.sections.find((s) => s.key === key) || DEFAULT_SECTIONS.find((s) => s.key === key);
+  return (
+    layout.sections.find((s) => s.key === key) ||
+    DEFAULT_SECTIONS.find((s) => s.key === key) ||
+    { key, on: true, title: "", sub: "" }
+  );
 }

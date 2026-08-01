@@ -25,6 +25,7 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   X, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Download, Loader2,
   BookOpen, PanelLeftClose, PanelLeftOpen, Highlighter, Sparkles,
@@ -33,7 +34,7 @@ import {
 } from "lucide-react";
 import { TextLayer } from "pdfjs-dist";
 import { loadPdfDoc, renderPdfPage, extractPageItems } from "./pdf.js";
-import { buildPaperIndex, findSectionAnchor } from "./pdfAnchors.js";
+import { buildPaperIndex, findSectionAnchor, paperOutline } from "./pdfAnchors.js";
 import { buildSectionContext } from "./sectionChat.js";
 
 const BASE_SCALE = 1.5;
@@ -160,9 +161,28 @@ function PdfPageView({ doc, pageNo, scale, marks, activeMark, tone, turnKey }) {
   );
 }
 
-/* ---------------- the reader ---------------- */
+/* ---------------- the reader ----------------
+ *
+ * One component, two shells. `variant` decides whether this is the fullscreen
+ * modal it has always been, or the page's own primary reading surface:
+ *
+ *   "modal"  — fixed inset-0 overlay, Esc closes, close button, page arrows
+ *              pinned to the viewport. Every pre-existing call site.
+ *   "inline" — sits in the document flow as the reading spine. No dialog role,
+ *              no close affordance, Esc left alone (the workspace owns it), and
+ *              the page arrows anchor to the stage instead of the viewport.
+ *
+ * Two extra hooks exist for the inline case, both no-ops when unused:
+ *   onOutline(outline) — the paper's own detected sections, once the text index
+ *                        is built, so the workspace can drive a rail from them.
+ *   gotoPage           — a page number the owner wants shown; changing it
+ *                        navigates. Null means "don't interfere".
+ */
 
-export default function PdfReader({ url, title, open, onClose, spec, section, onAsk }) {
+export function PaperReader({
+  url, title, open, onClose, spec, section, onAsk,
+  variant = "modal", onOutline, gotoPage,
+}) {
   const [doc, setDoc] = useState(null);
   const [numPages, setNumPages] = useState(0);
   const [page, setPage] = useState(1);
@@ -191,6 +211,7 @@ export default function PdfReader({ url, title, open, onClose, spec, section, on
 
   const sectionId = section?.id || null;
   const tone = section?.tone || "amber";
+  const inline = variant === "inline";
 
   /* ---- open the document ---- */
   useEffect(() => {
@@ -228,6 +249,31 @@ export default function PdfReader({ url, title, open, onClose, spec, section, on
     })();
     return () => { alive = false; setIndexing(false); };
   }, [doc, url]);
+
+  /* ---- hand the paper's own outline to whoever owns the rail ---- */
+  useEffect(() => {
+    if (!index || !onOutline) return;
+    onOutline(paperOutline(index));
+  }, [index, onOutline]);
+
+  /* ---- an owner-driven page jump (inline rail clicks) ----
+   * `gotoPage` is an OBJECT ({ page }), not a bare number, so its identity
+   * changes on every request. A number would silently do nothing the second
+   * time the same rail entry is clicked — page away from Method, click
+   * "Method" again, and the value would be unchanged and the effect wouldn't
+   * fire. */
+  const jumpPage = gotoPage?.page;
+  useEffect(() => {
+    if (!doc || !Number.isInteger(jumpPage)) return;
+    if (jumpPage < 1 || jumpPage > numPages) return;
+    setDir((d) => (jumpPage > page ? "next" : jumpPage < page ? "prev" : d));
+    setPage(jumpPage);
+    setSel(null);
+    stageRef.current?.scrollTo({ top: 0 });
+    // `page` is deliberately not a dependency: re-running on every page change
+    // would yank the reader back to the rail's page as soon as they paged away.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [doc, gotoPage, numPages]);
 
   /* ---- resolve where this section came from ---- */
   useEffect(() => {
@@ -311,7 +357,8 @@ export default function PdfReader({ url, title, open, onClose, spec, section, on
       const el = document.activeElement;
       const tag = el?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el?.isContentEditable) return;
-      if (e.key === "Escape") onClose();
+      // Inline, there is nothing to close and the workspace owns Escape.
+      if (e.key === "Escape") { if (!inline) onClose?.(); }
       else if (e.key === "ArrowRight" || e.key === "PageDown") { e.preventDefault(); next(); }
       else if (e.key === "ArrowLeft" || e.key === "PageUp") { e.preventDefault(); prev(); }
       else if (e.key === "+" || e.key === "=") setZoom((z) => Math.min(2.6, +(z + 0.2).toFixed(2)));
@@ -320,7 +367,7 @@ export default function PdfReader({ url, title, open, onClose, spec, section, on
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, next, prev, onClose, marks.length, markIdx, gotoMark]);
+  }, [open, next, prev, onClose, marks.length, markIdx, gotoMark, inline]);
 
   /* ---- selection -> AI assist bar ---- */
   useEffect(() => {
@@ -369,8 +416,18 @@ export default function PdfReader({ url, title, open, onClose, spec, section, on
   const activeMark = marks[markIdx]?.page === page ? marks[markIdx].key : -1;
 
   return (
-    <div className="fixed inset-0 z-[60] flex flex-col bg-slate-950/94 backdrop-blur-sm"
-      role="dialog" aria-modal="true" aria-label={`Full paper — ${title || "PDF"}`}>
+    <div
+      className={inline
+        ? "relative flex h-[calc(100vh-8rem)] min-h-[520px] flex-col overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 shadow-xl"
+        : "fixed inset-0 z-[60] flex flex-col bg-slate-950/94 backdrop-blur-sm"}
+      // Marks the reader's whole subtree so the workspace's own selection chip
+      // stands down inside it — the reader has a richer assist bar for the same
+      // gesture, and two popups fighting over one selection is not a feature.
+      data-paper-reader=""
+      {...(inline
+        ? { "aria-label": `The paper — ${title || "PDF"}` }
+        : { role: "dialog", "aria-modal": true, "aria-label": `Full paper — ${title || "PDF"}` })}
+    >
 
       {/* ---- top bar ---- */}
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-white/10 bg-slate-900/85 px-3 py-2.5 sm:px-4">
@@ -425,8 +482,11 @@ export default function PdfReader({ url, title, open, onClose, spec, section, on
           </button>
           <a href={url} download title="Download the PDF"
             className="rounded-lg p-1.5 text-slate-300 transition hover:bg-white/10 hover:text-white"><Download size={16} /></a>
-          <button onClick={onClose} title="Close (Esc)"
-            className="rounded-lg p-1.5 text-slate-300 transition hover:bg-white/10 hover:text-white"><X size={18} /></button>
+          {/* Inline there is no overlay to dismiss — the paper IS the page. */}
+          {!inline && (
+            <button onClick={onClose} title="Close (Esc)"
+              className="rounded-lg p-1.5 text-slate-300 transition hover:bg-white/10 hover:text-white"><X size={18} /></button>
+          )}
         </div>
       </div>
 
@@ -479,7 +539,11 @@ export default function PdfReader({ url, title, open, onClose, spec, section, on
             </div>
           )}
 
-          {doc && !loadErr && (
+          {/* Floating page arrows are `fixed`, i.e. positioned against the
+              VIEWPORT — correct for a fullscreen overlay, wrong for an inline
+              pane, where they would hover over unrelated page content. Inline
+              readers page with the bottom bar's pager or the ← → keys. */}
+          {doc && !loadErr && !inline && (
             <>
               <button onClick={prev} disabled={page <= 1} aria-label="Previous page"
                 className="group fixed left-2 top-1/2 z-[2] -translate-y-1/2 rounded-full border border-white/15 bg-slate-900/70 p-2.5 text-slate-200 shadow-lg backdrop-blur transition hover:bg-slate-800 disabled:opacity-25 sm:left-5">
@@ -518,7 +582,7 @@ export default function PdfReader({ url, title, open, onClose, spec, section, on
             </li>
             <li className="flex gap-2">
               <ArrowLeftRight size={13} className="mt-0.5 shrink-0 text-slate-400" />
-              <span>← → turn pages{marks.length > 0 ? <>, <strong className="text-white">n</strong> jumps to the next passage</> : null} · Esc closes.</span>
+              <span>← → turn pages{marks.length > 0 ? <>, <strong className="text-white">n</strong> jumps to the next passage</> : null}{inline ? "." : " · Esc closes."}</span>
             </li>
           </ul>
           <button onClick={() => { setGuide(false); localStorage.setItem(GUIDE_KEY, "1"); }}
@@ -528,9 +592,14 @@ export default function PdfReader({ url, title, open, onClose, spec, section, on
         </div>
       )}
 
-      {/* ---- selection assist bar ---- */}
-      {sel && onAsk && (
-        // the animation owns `transform`, so positioning lives on the wrapper
+      {/* ---- selection assist bar ----
+       * PORTALLED to <body>. Its coordinates come from getBoundingClientRect,
+       * i.e. the viewport — but `position: fixed` only means "the viewport"
+       * while no ancestor creates a containing block, and inline the reader
+       * lives inside an animated, overflow-hidden section that does. Rendered
+       * in place it was in the DOM and simply never visible. A portal makes
+       * the positioning independent of wherever the reader is mounted. */}
+      {sel && onAsk && createPortal(
         <div
           data-pdfr-assist=""
           onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
@@ -547,7 +616,8 @@ export default function PdfReader({ url, title, open, onClose, spec, section, on
               onClick={() => { navigator.clipboard?.writeText(sel.text).then(() => setCopied(true)).catch(() => {}); }}
             />
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* ---- bottom bar: page counter + what the highlight means ---- */}
@@ -576,6 +646,14 @@ export default function PdfReader({ url, title, open, onClose, spec, section, on
       )}
     </div>
   );
+}
+
+/**
+ * The original fullscreen reader, unchanged for every existing call site: a
+ * thin wrapper that pins PaperReader into its overlay shell.
+ */
+export default function PdfReader(props) {
+  return <PaperReader {...props} variant="modal" />;
 }
 
 function AssistBtn({ icon: Icon, label, onClick, primary }) {

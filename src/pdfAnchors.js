@@ -317,6 +317,51 @@ export const HEAD_LABEL = {
   conclusion: "Conclusion",
 };
 
+/**
+ * The paper's OWN table of contents, for the reading rail: one entry per
+ * detected section in reading order, as { key, label, page }.
+ *
+ * Only the FIRST occurrence of each kind survives. Papers repeat these words in
+ * subsection headings ("3.2 Method for …", "Results of the ablation"), and a
+ * rail that listed every hit would be noise rather than navigation.
+ *
+ * `refs` is dropped: jumping the reader into the bibliography is never what
+ * someone clicking a section rail wants.
+ *
+ * Returns [] when nothing was detected — the caller MUST treat that as "this
+ * paper has no usable outline" and fall back, not render an empty rail. Heading
+ * detection genuinely fails on papers with unusual typography, and inventing a
+ * structure we didn't find would be worse than admitting we didn't find one.
+ */
+export function paperOutline(index) {
+  const heads = index?.headings || [];
+
+  /* Front matter is a minefield of false headings. A journal's first page
+   * carries a graphical abstract, an "In brief" panel and a Highlights list
+   * whose own sub-labels read exactly like section headings — which is how an
+   * outline ends up claiming "Results" is on page 1 and "Introduction" on
+   * page 3. Nothing but the abstract legitimately precedes the Introduction,
+   * so once we've found one, anything else before it is front matter and the
+   * real heading is a later occurrence. */
+  const introAt = heads.find((h) => h.key === "introduction")?.pos ?? -Infinity;
+
+  const seen = new Set();
+  const out = [];
+  for (const h of heads) {
+    if (h.key === "refs" || seen.has(h.key)) continue;
+    if (!HEAD_LABEL[h.key]) continue;
+    // abstract/introduction are allowed to be first; everything else must come
+    // after the introduction to count.
+    if (h.key !== "abstract" && h.key !== "introduction" && h.pos < introAt) continue;
+    seen.add(h.key);
+    out.push({ key: h.key, label: HEAD_LABEL[h.key], page: h.page });
+  }
+
+  /* A one-entry outline is not an outline — it's a single lucky match, and
+   * showing it as "the paper's contents" overstates what we detected. */
+  return out.length >= 3 ? out : [];
+}
+
 /** [start,end) character ranges of the preferred paper sections, with a boost. */
 function preferredSpans(index, prefs) {
   const spans = [];

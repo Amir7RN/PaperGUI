@@ -97,6 +97,46 @@ export const functionsUrl = authEnabled ? `${url}/functions/v1` : "";
 
 export const supabaseAnonKey = anonKey || "";
 
+/* -------------------- the paper file itself --------------------
+ * The reader's PDF is kept in a PRIVATE bucket so the paper's own text can be
+ * the reading surface on every visit, not just in the tab that analyzed it.
+ * Keys are `{user_id}/{uuid}.pdf` — the leading folder is what the storage RLS
+ * policies match on (see the paper_storage migration).
+ */
+
+const PAPER_BUCKET = "papers";
+
+/**
+ * Upload one paper. Returns its storage key, or null if anything went wrong —
+ * a failed upload must never fail the analysis that was already paid for; the
+ * paper simply falls back to the summary-only view.
+ */
+export async function uploadPaperPdf(file) {
+  if (!supabase || !file) return null;
+  const { data: userData } = await supabase.auth.getUser();
+  if (!userData?.user) return null;
+  const id = (crypto?.randomUUID?.() || String(Date.now()));
+  const key = `${userData.user.id}/${id}.pdf`;
+  const { error } = await supabase.storage
+    .from(PAPER_BUCKET)
+    .upload(key, file, { contentType: "application/pdf", upsert: false });
+  if (error) { console.warn("Could not store the paper:", error.message); return null; }
+  return key;
+}
+
+/**
+ * A short-lived read URL for a stored paper. The bucket is private, so this is
+ * the only way to open one — and it only succeeds for the object's owner.
+ */
+export async function signedPaperUrl(pdfPath, expiresInSeconds = 60 * 60) {
+  if (!supabase || !pdfPath) return null;
+  const { data, error } = await supabase.storage
+    .from(PAPER_BUCKET)
+    .createSignedUrl(pdfPath, expiresInSeconds);
+  if (error) { console.warn("Could not open the stored paper:", error.message); return null; }
+  return data?.signedUrl || null;
+}
+
 /* -------------------- saved analyses (paper library) --------------------
  * Every analyzed paper is stored against the signed-in account so it can be
  * reopened later for free instead of burning credit to re-analyze it. The
@@ -105,8 +145,10 @@ export const supabaseAnonKey = anonKey || "";
  * migration.
  */
 
-/** Persist a finished analysis. Returns the stored row (id + metadata). */
-export async function saveAnalysis(spec) {
+/** Persist a finished analysis. Returns the stored row (id + metadata).
+ *  `pdfPath` is the storage key from uploadPaperPdf, or null when the paper
+ *  wasn't stored (upload failed, or the user isn't signed in). */
+export async function saveAnalysis(spec, pdfPath = null) {
   if (!supabase) return null;
   const { data: userData } = await supabase.auth.getUser();
   if (!userData?.user) return null;
@@ -114,7 +156,7 @@ export async function saveAnalysis(spec) {
   const authors = spec?.meta?.authors?.trim() || "";
   const { data, error } = await supabase
     .from("analyses")
-    .insert({ user_id: userData.user.id, title, authors, spec })
+    .insert({ user_id: userData.user.id, title, authors, spec, pdf_path: pdfPath })
     .select("id, title, authors, created_at")
     .single();
   if (error) { console.warn("Could not save analysis:", error.message); return null; }
@@ -132,20 +174,46 @@ export async function listAnalyses() {
   return data || [];
 }
 
-/** Fetch one saved analysis' full spec by id. */
+/**
+ * Fetch one saved analysis' spec by id, with its stored paper resolved to a
+ * signed URL and hung on `spec.paperPdf` — the same field the bundled sample
+ * papers use, so the reader can't tell the two apart. Analyses saved before
+ * paper storage existed simply have no `pdf_path` and open summary-only.
+ */
 export async function getAnalysis(id) {
   if (!supabase) return null;
   const { data, error } = await supabase
     .from("analyses")
-    .select("spec")
+    .select("spec, pdf_path")
     .eq("id", id)
     .maybeSingle();
   if (error || !data) return null;
-  return data.spec;
+  const spec = data.spec;
+  if (spec && data.pdf_path) {
+    const url = await signedPaperUrl(data.pdf_path);
+    if (url) spec.paperPdf = url;
+  }
+  return spec;
 }
 
-/** Delete a saved analysis by id. */
+/**
+ * Delete a saved analysis by id — INCLUDING its stored PDF.
+ *
+ * The upload consent says the paper is deleted with the analysis, so the
+ * storage object has to go first: if the row were removed first and the object
+ * delete then failed, we'd have lost the only pointer to an orphaned file the
+ * user believes is gone.
+ */
 export async function deleteAnalysis(id) {
   if (!supabase) return;
+  const { data } = await supabase
+    .from("analyses")
+    .select("pdf_path")
+    .eq("id", id)
+    .maybeSingle();
+  if (data?.pdf_path) {
+    const { error } = await supabase.storage.from(PAPER_BUCKET).remove([data.pdf_path]);
+    if (error) console.warn("Could not delete the stored paper:", error.message);
+  }
   await supabase.from("analyses").delete().eq("id", id);
 }
