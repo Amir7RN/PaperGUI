@@ -41,6 +41,7 @@ import { buildInlineRefs, locateQuote, matchEvidence, sectionKeyAt, quoteRects, 
 import { scanRobustness } from "./robustness.js";
 import { askSectionAssistant, buildSectionContext } from "./sectionChat.js";
 import { HL_COLORS, colorOf } from "./highlights.js";
+import { DigitizedPanel, isSpecialDigitized } from "./DigitizedPanels.jsx";
 
 const BASE_SCALE = 1.5;
 const THUMB_SCALE = 0.26;
@@ -1384,11 +1385,38 @@ function XrefCard({
                 {p.explanation.length > 420 ? `${p.explanation.slice(0, 420)}…` : p.explanation}
               </p>
             )}
+            {/* The analysis ALREADY traced this exact figure's real numbers off
+             *  the page — every chart family it supports (heatmap, box, violin,
+             *  grouped/stacked bars, radar, radial, scatter, Kaplan–Meier) has a
+             *  dedicated faithful renderer in DigitizedPanels.jsx, the same one
+             *  the Results tab uses. Showing that HERE, for free, is strictly
+             *  better than spending credit asking a model to reconstruct the
+             *  figure from a caption and guess its chart type — which is how a
+             *  calendar heat map came back as an invented line chart. Only
+             *  figures the analysis couldn't honestly digitize (or that have no
+             *  panels at all) fall through to the on-demand builder below. */}
+            {(() => {
+              const readyPanels = (p.panels || []).filter((pn) => pn.reproduce !== false && isSpecialDigitized(pn));
+              if (!readyPanels.length) return null;
+              return (
+                <div className="mt-2 mb-1 flex flex-col gap-2">
+                  <div className="text-[9.5px] font-semibold uppercase tracking-wide text-emerald-400">
+                    Live — traced from this figure's own numbers
+                  </div>
+                  {readyPanels.map((panel, pi) => (
+                    <div key={pi} className="rounded-lg bg-white p-1">
+                      <DigitizedPanel panel={panel} height={180} />
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
             {/* A figure is where a reader most often wants to stop reading and
                 start turning dials — so the live version is offered HERE,
                 against this figure, instead of living in a section they have to
                 go and find. It is generated on demand and it costs, so it says
-                so on the button. */}
+                so on the button. Only offered when the analysis has no already-
+                digitized reproduction of this figure to show for free above. */}
             <div className="mt-2.5 flex flex-col gap-1.5">
               {onAsk && (
                 <button
@@ -1401,7 +1429,7 @@ function XrefCard({
                   <Sparkles size={13} /> Explain this figure
                 </button>
               )}
-              {onBuildPanel && (
+              {onBuildPanel && !(p.panels || []).some((pn) => pn.reproduce !== false && isSpecialDigitized(pn)) && (
                 <button
                   onClick={() => {
                     const digest = digestPanels(p.panels);
