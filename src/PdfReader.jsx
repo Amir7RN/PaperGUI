@@ -432,7 +432,14 @@ export function PaperReader({
     const add = (n, f) => { if (n != null && f?.image && !m.has(n)) m.set(n, f); };
     for (const f of spec?.resultFigures || []) {
       add(numOf(f.figureLabel), {
-        label: f.figureLabel, title: f.title, explanation: f.explanation, image: f.image, page: f.page });
+        label: f.figureLabel, title: f.title, explanation: f.explanation, image: f.image, page: f.page,
+        // Carry the analysis's own faithful reproduction (axis labels, chart
+        // family, and — for box/violin/stacked/heatmap/radar/scatter/KM —
+        // the actual digitized numbers) through to the figure card. Without
+        // this, "Make it live" had nothing but a label and a caption to go
+        // on and was guessing the chart shape blind.
+        panels: f.panels || [],
+      });
     }
     for (const f of spec?.conceptFigures || []) {
       add(numOf(f.title), {
@@ -744,7 +751,7 @@ export function PaperReader({
     // confirmation and the notebook; the reader just hands over the passage
     // and where in the paper it came from.
     if (key === "panel") {
-      onBuildPanel?.({ quote, page, sectionLabel: HEAD_LABEL[sel.head] || "this part of the paper" });
+      onBuildPanel?.({ quote, page, sectionLabel: HEAD_LABEL[sel.head] || "this part of the paper", sectionId: sectionId || "story" });
       done();
       return;
     }
@@ -767,6 +774,7 @@ export function PaperReader({
           (sel.head ? ` (${HEAD_LABEL[sel.head] || "the paper"})` : "") +
           ". These are the paper's OWN numbers or its OWN steps — build the panel on them directly " +
           "rather than inventing a model, and keep the paper's units and row labels.",
+        sectionId: sectionId || "story",
       });
       done();
       return;
@@ -1196,6 +1204,45 @@ function useWhyCited({ entries, citing, paperTitle, spec, enabled }) {
   return state;
 }
 
+/** Turn one figure's already-digitized panels (from the analysis's own
+ *  results-phase read of the figure — see resultFigures[].panels[].digitized
+ *  in paperSpec.js) into a compact, real-numbers digest for the panel
+ *  builder. This is the difference between "build me something that looks
+ *  like a chart called Fig. 4" and "build me something that matches these
+ *  actual axes, this actual chart family, and these actual values" — without
+ *  it, "Make it live" had only a label and a truncated caption to go on and
+ *  was fabricating the chart shape from scratch. Capped hard: this rides
+ *  inside a quote with its own server-side character limit. */
+function digestPanels(panels) {
+  const lines = [];
+  for (const p of (panels || []).slice(0, 6)) {
+    const kind = p.digitized?.kind || p.figureFamily || p.chartKind || "line";
+    lines.push(`PANEL "${p.subplotLabel || ""}" — chart family: ${kind}; x: ${p.xLabel || "?"}; y: ${p.yLabel || "?"}`);
+    const d = p.digitized;
+    if (d?.grid?.length) {
+      lines.push(`  heatmap grid ${d.grid.length}×${d.grid[0]?.length || 0}, rows ${JSON.stringify((d.rowLabels || []).slice(0, 8))}, cols ${JSON.stringify((d.colLabels || []).slice(0, 8))}, range ${d.min}–${d.max}`);
+    } else if (d?.groups?.length) {
+      d.groups.slice(0, 6).forEach((g) =>
+        lines.push(`  ${g.name}: ${(g.bars || []).slice(0, 6).map((b) => `${b.label}=${b.value}`).join(", ")}`));
+    } else if (d?.categories?.length) {
+      d.categories.slice(0, 6).forEach((c) => {
+        if (c.boxes?.length) lines.push(`  ${c.name}: ${c.boxes.map((b) => `${b.label || ""} [${b.min}-${b.q1}-${b.med}-${b.q3}-${b.max}]`).join(", ")}`);
+        else if (c.violins?.length) lines.push(`  ${c.name}: ${c.violins.length} violin(s)`);
+      });
+    } else if (d?.series?.length) {
+      d.series.slice(0, 6).forEach((s) =>
+        lines.push(`  ${s.label}: ${(s.values || []).slice(0, 12).join(", ") || `${(s.points || []).length} points`}`));
+    } else if (d?.km?.groups?.length) {
+      d.km.groups.slice(0, 4).forEach((g) =>
+        lines.push(`  ${g.label || "curve"}: steps ${JSON.stringify((g.steps || []).slice(0, 10))}${g.median != null ? `, median ${g.median}` : ""}`));
+    } else if (p.dataSource === "reported" && p.computeJs) {
+      lines.push(`  reported values come from: ${p.computeJs.slice(0, 300)}`);
+    }
+    if (d?.refLines?.length) lines.push(`  reference lines: ${d.refLines.map((r) => `${r.label}=${r.value}`).join(", ")}`);
+  }
+  return lines.join("\n").slice(0, 2600);
+}
+
 function XrefCard({
   card, onClose, onAsk, onGoToPage, onBuildPanel, onRecolor, onRemoveHighlight,
   paperTitle, spec,
@@ -1356,13 +1403,23 @@ function XrefCard({
               )}
               {onBuildPanel && (
                 <button
-                  onClick={() => onBuildPanel({
-                    quote:
-                      `${p.label || "Figure"}${p.title ? ` — ${p.title}` : ""}\n` +
-                      (p.explanation || "") +
-                      (p.citing ? `\nThe paper says about it: “${p.citing}”` : ""),
-                    sectionLabel: `${p.label || "a figure"} — the paper's own result figure`,
-                  })}
+                  onClick={() => {
+                    const digest = digestPanels(p.panels);
+                    onBuildPanel({
+                      quote:
+                        `${p.label || "Figure"}${p.title ? ` — ${p.title}` : ""}\n` +
+                        (p.explanation || "") +
+                        (p.citing ? `\nThe paper says about it: “${p.citing}”` : "") +
+                        (digest
+                          ? `\n\nTHE PAPER'S OWN DIGITIZED VALUES FOR THIS FIGURE (build the panel from these — do not invent a different chart shape or different numbers):\n${digest}`
+                          : ""),
+                      sectionLabel: `${p.label || "a figure"} — the paper's own result figure`,
+                      // Ground the builder in the results section (the actual
+                      // digitized figures and their axes/claims), not whatever
+                      // section the reader happened to have open elsewhere.
+                      sectionId: "results",
+                    });
+                  }}
                   className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-indigo-300/50 bg-indigo-500/10 py-1.5 text-[11.5px] font-semibold text-indigo-200 transition hover:bg-indigo-500/20 hover:text-white">
                   <SlidersHorizontal size={13} /> Make it live (uses credit)
                 </button>
@@ -1405,6 +1462,7 @@ function XrefCard({
                     (p.plain ? `${p.plain}\n` : "") +
                     ((p.terms || []).map((t) => `${t.sym} = ${t.meaning}`).join("; ")),
                   sectionLabel: `${card.label} — the paper's own equation`,
+                  sectionId: "model",
                 })}
                 className="mt-2.5 flex w-full items-center justify-center gap-1.5 rounded-lg bg-indigo-600 py-1.5 text-[11.5px] font-semibold text-white transition hover:bg-indigo-500">
                 <SlidersHorizontal size={13} /> Try it with your own numbers

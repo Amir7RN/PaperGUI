@@ -4180,9 +4180,14 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
         paperTitle: spec.meta?.title,
         sectionLabel: req.sectionLabel,
         quote: req.quote,
-        // Ground the builder in what the analysis already knows, so the panel
-        // uses the paper's own symbols and numbers instead of inventing its own.
-        context: buildSectionContext(spec, "model"),
+        // Ground the builder in what the analysis already knows about the
+        // section the passage/figure actually came from — a Results-section
+        // figure needs the digitized data and claims from `results`, not the
+        // governing equations from `model`. Was hardcoded to "model" for
+        // every request regardless of origin, which is why panels built from
+        // result figures were grounded in unrelated methodology instead of
+        // the figure's own data.
+        context: buildSectionContext(spec, req.sectionId || "model"),
       });
       setNotebook(addPanel(spec, { panel, quote: req.quote, page: req.page, sectionLabel: req.sectionLabel, cost }));
       setPanelJob(null);
@@ -4742,7 +4747,7 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
       <PanelJobDialog
         job={panelJob}
         onCancel={() => setPanelJob(null)}
-        onConfirm={() => runPanelJob({ quote: panelJob.quote, page: panelJob.page, sectionLabel: panelJob.sectionLabel })}
+        onConfirm={() => runPanelJob({ quote: panelJob.quote, page: panelJob.page, sectionLabel: panelJob.sectionLabel, sectionId: panelJob.sectionId })}
       />
 
       <SelectionExplain onAsk={setChatSection} />

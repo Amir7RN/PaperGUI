@@ -412,6 +412,11 @@ export function panelPrompt({ paperTitle, sectionLabel, quote, context }) {
     "- 1-3 sliders. Every slider must visibly change the plot at its default operating point; a slider that does nothing is a failure.\n" +
     "- At default values the plot must show an obviously shaped, clearly varying curve. Flat or constant output is a failure.\n" +
     "- Calibrate ranges and magnitudes to the paper's own reported numbers wherever the passage or the context gives them.\n" +
+    "- If the passage includes a block of \"THE PAPER'S OWN DIGITIZED VALUES\" for a figure, that data is GROUND TRUTH, already " +
+    "read off the real figure — treat it as the paper's own reported numbers, not a suggestion. Reproduce the chart family it " +
+    "implies as closely as chart kind/chartKind allow (e.g. a heatmap's row/column structure as a categories bar or small-multiple " +
+    "series, not an unrelated invented curve), use its actual labels and magnitudes verbatim in computeJs, and never substitute a " +
+    "different quantity or a synthetic parametric model when real digitized numbers were handed to you.\n" +
     "- xLabel and yLabel MUST name the quantity AND its unit as the paper uses them ('peak demand (GW)', 'iteration', " +
     "'log₁₀ power density (W/m²)'). A bare word with no unit is a failure.\n" +
     "- `source` must be traceable: name the equation, figure, table or section the passage refers to, or say it comes from the selected passage. Never cite a number the paper did not give.\n" +

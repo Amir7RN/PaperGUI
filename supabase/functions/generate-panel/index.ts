@@ -33,7 +33,12 @@ const CORS_HEADERS = {
 
 /* Structural cost bounds, independent of the balance check: one panel is a
  * small artifact, and no request should be able to become an analysis. */
-const MAX_QUOTE_CHARS = 2_000;
+/* Raised from 2,000: a figure's "Make it live" request now appends the
+ * analysis's own digitized values for that figure (real axis labels, chart
+ * family, numbers) so the builder has ground truth instead of a label and a
+ * caption to guess from. That digest alone can run 2-3k chars for a
+ * multi-panel figure, so the old ceiling was truncating it mid-structure. */
+const MAX_QUOTE_CHARS = 4_500;
 const MAX_CONTEXT_CHARS = 12_000;
 
 /* `max_tokens` is a ceiling on THINKING PLUS TEXT, and Sonnet 5 thinks by
