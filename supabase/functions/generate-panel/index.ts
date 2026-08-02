@@ -77,7 +77,12 @@ Deno.serve(async (req) => {
   const quote = String(body?.quote || "").trim().slice(0, MAX_QUOTE_CHARS);
   const context = String(body?.context || "").trim().slice(0, MAX_CONTEXT_CHARS);
   const paperTitle = String(body?.paperTitle || "").trim().slice(0, 300);
-  const sectionLabel = String(body?.sectionLabel || "this part of the paper").slice(0, 120);
+  const sectionLabel = String(body?.sectionLabel || "this part of the paper").slice(0, 400);
+  /* The client's quality gate runs the generated kernel in a real browser and
+   * can therefore say something this prompt cannot know on its own: that the
+   * dials do nothing, that it divides by zero at the end of a slider's range.
+   * When it does, its verdict comes back here. */
+  const retryReason = String(body?.retryReason || "").trim().slice(0, 400);
   if (quote.length < 20) {
     return json(400, { error: "Select a bit more text — a sentence or two — and try again." });
   }
@@ -98,7 +103,19 @@ Deno.serve(async (req) => {
   const priced = MODEL_CATALOG[PANEL_MODEL];
   const client = new Anthropic({ apiKey });
 
-  const prompt = panelPrompt({ paperTitle, sectionLabel, quote, context });
+  const prompt = panelPrompt({ paperTitle, sectionLabel, quote, context }) +
+    (retryReason
+      ? "\n\nTHIS IS A SECOND ATTEMPT. Your previous panel was executed and REJECTED:\n" +
+        `  “${retryReason}”\n` +
+        "Fix that specific fault. The usual causes, in order of likelihood:\n" +
+        "- A slider the code reads but that cannot change the shape of the output, or never reads at all. " +
+        "Every slider must appear in computeJs somewhere that moves the plotted values.\n" +
+        "- A slider whose range includes a value that breaks the maths — a zero denominator, a negative " +
+        "square root, a log of zero. Choose min/max so every value in the range is safe, or clamp inside " +
+        "the kernel. The reader WILL drag it to both ends.\n" +
+        "- Series of different lengths, or a constant output.\n" +
+        "Return a complete panel, not a patch."
+      : "");
 
   /* The old "respond with ONLY one JSON object" instruction, kept for the
    * fallback path below. Structured outputs make it redundant; a rejected
