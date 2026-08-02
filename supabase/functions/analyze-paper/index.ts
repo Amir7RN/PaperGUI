@@ -174,7 +174,10 @@ Deno.serve(async (req) => {
   const stream = new ReadableStream({
     async start(controller) {
       const send = (obj) => controller.enqueue(ndjson(obj));
-      send({ type: "progress", pct: 6, label: `${tier.label} analysis (${run.name}) — reading the paper (text + figures)…` });
+      /* The model's name is never in a label the reader sees — it is an
+       * implementation detail, it dates the product, and it turns a progress
+       * line into a vendor advertisement. `run.name` stays in the cost log. */
+      send({ type: "progress", pct: 6, label: `${tier.label} analysis — reading the paper (text + figures)…` });
 
       try {
         // NOTE: we deliberately do NOT use structured outputs (output_config.format

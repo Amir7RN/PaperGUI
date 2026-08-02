@@ -29,7 +29,7 @@ import { SAMPLE_SPEC_6 } from "./samplePaper6.js";
 import { SAMPLE_SPEC_7 } from "./samplePaper7.js";
 import { SAMPLE_SPEC_8 } from "./samplePaper8.js";
 import { SAMPLE_SPEC_9 } from "./samplePaper9.js";
-import { analyzePaper, MODEL_TIERS, tierModelNames, getModelTier, setModelTier } from "./api.js";
+import { analyzePaper, MODEL_TIERS, getModelTier, setModelTier } from "./api.js";
 import { fileToBase64, renderPdfRegions } from "./pdf.js";
 import {
   compileSpec, buildHelpers, defaultsFromSpec, runSpec, validateResultFigures,
@@ -118,11 +118,10 @@ function TierPicker({ tier, onTier, disabled }) {
               <div className={`text-xs font-semibold ${selected ? "text-blue-700" : "text-slate-700"}`}>
                 {t.label}
               </div>
-              {/* A tier can now run more than one model — Advanced splits the
-                  run between Opus and Sonnet, so name what it actually calls. */}
-              <div className="mt-0.5 text-[9.5px] font-medium uppercase tracking-wide text-slate-400">
-                {tierModelNames(t).join(" + ")}
-              </div>
+              {/* Which vendor or model runs a tier is OUR implementation
+                  detail and is never shown: it dates the product, invites
+                  "why not use X instead", and tells the reader nothing about
+                  what they get. The tier's own name and blurb are the promise. */}
               <div className="mt-0.5 text-[10px] leading-snug text-slate-500">{t.blurb}</div>
             </button>
           );
@@ -583,7 +582,7 @@ function Landing({
                 </button>
               </div>
               <p className="mt-4 text-[12px] text-slate-500">
-                Free to try — $1.00 of analysis credit on signup · live examples need no account.
+                Free to try — one Advanced paper analysis on signup · live examples need no account.
               </p>
             </div>
 
@@ -707,7 +706,7 @@ function Landing({
                       </span>
                       <span className="text-[12.5px] leading-relaxed text-slate-500">
                         {requireAuthToUpload
-                          ? "Sign up free — new accounts get $1.00 of analysis credit, and every paper you analyze is saved to your library."
+                          ? "Sign up free — new accounts get one free Advanced paper analysis, and every paper you analyze is saved to your library."
                           : signedIn && balance !== null && balance <= 0
                             ? "You're out of analysis credit — add credit above, or open a ready-made example."
                             : <>Local drive or synced OneDrive / Google Drive. Built at the <strong>{tier.label}</strong> level below.</>}

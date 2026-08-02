@@ -9,12 +9,12 @@
  * account balance server-side (see supabase/functions/analyze-paper).
  */
 
-import { MERGED_SPEC_KEYS, MODEL_TIERS, modelForPhase, tierModelNames } from "../supabase/functions/_shared/paperSpec.js";
+import { MERGED_SPEC_KEYS, MODEL_TIERS, modelForPhase } from "../supabase/functions/_shared/paperSpec.js";
 import { getAccessToken, functionsUrl, supabaseAnonKey } from "./supabase.js";
 
 const TIER_STORAGE = "paper-playground-model-tier";
 
-export { MODEL_TIERS, tierModelNames };
+export { MODEL_TIERS };
 
 export function getModelTier() {
   try {
@@ -113,15 +113,35 @@ function fallbackTier(tier, phase) {
  *  `repair` is an optional list of validation problems from a previous
  *  attempt, fed back to the analyzer so it regenerates correctly. */
 async function runPhase(pdfBase64, tier, hints, phase, contextSpec, token, report, repair = null, codeText = null) {
-  const res = await fetch(`${functionsUrl}/analyze-paper`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-      apikey: supabaseAnonKey,
-    },
-    body: JSON.stringify({ pdfBase64, tierId: tier.id, hints, phase: phase.id, contextSpec, repair, codeText }),
-  });
+  let res;
+  try {
+    res = await fetch(`${functionsUrl}/analyze-paper`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+        apikey: supabaseAnonKey,
+      },
+      body: JSON.stringify({ pdfBase64, tierId: tier.id, hints, phase: phase.id, contextSpec, repair, codeText }),
+    });
+  } catch (netErr) {
+    /* fetch() rejects only when the request never completed: DNS, TLS, the
+     * connection dropping while the PDF was still going up. The browser's own
+     * text for this is a bare "network error", which is what the reader was
+     * shown when a whole paid analysis died — no stage named, no hint that a
+     * retry would work, and (because it surfaced as an unknown error) no
+     * retry attempted. The upload is the vulnerable part: every phase re-sends
+     * the entire base64 PDF, so a 20 MB paper goes up five times.
+     *
+     * Nothing was billed — the model call never started — so this is always
+     * safe to retry, and it is typed so the caller does. */
+    const e = new Error(
+      `The connection dropped while sending the paper for the "${phase.title}" stage.`,
+    );
+    e.code = "network";
+    e.cause = netErr;
+    throw e;
+  }
 
   if (!res.ok || !res.body) {
     let message = `Analysis request failed (${res.status}).`;
@@ -137,7 +157,21 @@ async function runPhase(pdfBase64, tier, hints, phase, contextSpec, token, repor
   let errorCode = null;
 
   while (true) {
-    const { done, value } = await reader.read();
+    let chunk;
+    try {
+      chunk = await reader.read();
+    } catch {
+      /* The stream died after the model call was already running — which means
+       * it was billed. Retrying the same tier would pay twice for the same
+       * stage, so this is reported as the wall-clock kill it almost always is
+       * and the caller steps DOWN a tier instead. */
+      const e = new Error(
+        `The connection to the analyzer dropped during the "${phase.title}" stage.`,
+      );
+      e.code = "timeout";
+      throw e;
+    }
+    const { done, value } = chunk;
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
 
@@ -185,6 +219,12 @@ async function runPhase(pdfBase64, tier, hints, phase, contextSpec, token, repor
  *  cannot succeed must give up rather than grind down the whole ladder. */
 const MAX_PHASE_ATTEMPTS = 4;
 
+/** Resends of a phase whose upload never reached the server. These cost
+ *  nothing (no model call happened), so they are separate from the paid
+ *  attempt budget above — but not unlimited, because a genuinely offline
+ *  browser should be told so rather than looped on. */
+const MAX_NETWORK_RETRIES = 3;
+
 /**
  * Run one phase, recovering from the two failures that otherwise abandon a
  * half-finished (and already paid for) run:
@@ -201,12 +241,33 @@ const MAX_PHASE_ATTEMPTS = 4;
 async function runPhaseWithFallback(pdfBase64, tier, hints, phase, contextSpec, token, report, codeText) {
   let attempt = tier;
   let retriedThisTier = false;
+  let netRetries = 0;
   for (let calls = 1; ; calls++) {
     try {
       const result = await runPhase(pdfBase64, attempt, hints, phase, contextSpec, token, report, null, codeText);
       return { result, tier: attempt };
     } catch (err) {
       const code = err?.code;
+
+      /* A dropped upload never reached the model, so nothing was charged and
+       * nothing about the request needs to change — just send it again. This
+       * does NOT consume the paid-attempt budget for that reason, and it does
+       * not step down a tier: an interrupted upload says nothing about whether
+       * this paper is too slow for this tier. */
+      if (code === "network") {
+        if (++netRetries > MAX_NETWORK_RETRIES) {
+          const e = new Error(
+            `${err.message} Check your connection and start the analysis again — the stages that already finished are kept and won't be charged twice.`,
+          );
+          e.code = "network";
+          throw e;
+        }
+        report(phase.from, `${phase.title} — connection interrupted, resending the paper (attempt ${netRetries + 1})…`);
+        await new Promise((r) => setTimeout(r, 1500 * netRetries));
+        calls--;   // free retry: it costs nothing, so it buys no paid attempt
+        continue;
+      }
+
       if (code !== "timeout" && code !== "parse") throw err;
       if (calls >= MAX_PHASE_ATTEMPTS) throw err;
 
@@ -220,12 +281,12 @@ async function runPhaseWithFallback(pdfBase64, tier, hints, phase, contextSpec, 
 
       const next = fallbackTier(attempt, phase);
       if (!next) throw err;
-      const nextName = modelForPhase(next, phase.id).name;
+      // The tier's own label, never the model's name — see MODEL_TIERS.
       report(
         phase.from,
         code === "timeout"
-          ? `${phase.title} — took too long, retrying on ${nextName}…`
-          : `${phase.title} — couldn't read the reply, retrying on ${nextName}…`,
+          ? `${phase.title} — took too long, retrying at the ${next.label} level…`
+          : `${phase.title} — couldn't read the reply, retrying at the ${next.label} level…`,
       );
       attempt = next;
       retriedThisTier = false;

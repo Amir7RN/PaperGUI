@@ -9,8 +9,8 @@ baseline-vs-modified plots. Inspired by Wolfram Mathematica's slider-driven modu
 ## How it works
 
 1. **Sign up** — every visitor must create an account (email + password, with email
-   confirmation) before they can analyze a paper. New accounts get **$1.00 of free
-   analysis credit** — no API key, no payment info.
+   confirmation) before they can analyze a paper. New accounts get **one free Advanced
+   paper analysis** — no API key, no payment info.
 2. **Landing page** — load a bundled sample paper (free, no credit used), or upload a PDF.
 3. **Analysis** — the PDF is sent to a **Supabase Edge Function**, which is the only place
    the Anthropic API key exists. It calls Claude at the level you pick on the landing page —
@@ -44,7 +44,7 @@ Browser (GitHub Pages)  →  Supabase Edge Function (analyze-paper)  →  Anthro
 
 - The key is set once via `supabase secrets set` (below) and is never present in any
   file in this repo, any GitHub secret, or any browser request.
-- Every account gets a `credits` row with a **one-time $1.00 balance**. The edge function
+- Every account gets a `credits` row with a **one-time balance covering one Advanced paper** ($1.50). The edge function
   checks it before calling Claude, and after the call computes the *real* cost from
   `response.usage` (input + output tokens × that model's per-token price) and deducts it.
   There's no artificial "N requests" cap — it's metered spend, which is why an Advanced
@@ -69,7 +69,7 @@ defense. Add CAPTCHA (**Authentication → Attack Protection**) later if you see
 
 **SQL Editor** → paste the contents of `supabase/migrations/20260711000000_credits.sql`
 → Run. This creates the `credits` table, its Row-Level Security policy (read-own-row
-only), and a trigger that grants every new signup a $1.00 balance automatically.
+only), and a trigger that grants every new signup that balance automatically.
 
 ### 3. Deploy the edge function and set the API key secret
 
@@ -114,7 +114,7 @@ VITE_SUPABASE_ANON_KEY=eyJ...
 - **Top up or reset a user's balance:** in the SQL Editor,
   `update public.credits set balance_usd = 1.00 where user_id = '<uuid>';`
   (find the uuid via `select id, email from auth.users where email = '...';`).
-- **Change the starting balance for new signups:** edit the `default 1.00` in the
+- **Change the starting balance for new signups:** edit the `default 1.50` in the
   migration's `credits` table definition (or `alter table public.credits alter column
   balance_usd set default 2.00;` directly in the SQL Editor) — this only affects
   accounts created afterward.

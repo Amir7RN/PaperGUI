@@ -65,7 +65,7 @@ export const MODEL_TIERS = [
     id: "advanced",
     label: "Advanced",
     model: "claude-opus-4-8",
-    blurb: "Opus on the model, method and results; Sonnet on the narrative parts",
+    blurb: "Deepest read — best for dense, math-heavy papers",
     /**
      * Per-phase routing: Opus is only worth its 5x/25x price where the work is
      * genuinely hard — reading the governing equations out of the methods
@@ -121,11 +121,12 @@ export function modelForPhase(tier, phase) {
   return { model: id, ...entry };
 }
 
-/** Distinct model names a tier uses, in phase order — for the tier picker. */
-export function tierModelNames(tier) {
-  const ids = tier?.phaseModels ? Object.values(tier.phaseModels) : [tier?.model];
-  return [...new Set(ids)].map((id) => MODEL_CATALOG[id]?.name).filter(Boolean);
-}
+/* There is deliberately NO helper that turns a tier into model names for the
+ * UI. Which vendor and which model runs a phase is an implementation detail:
+ * naming it in a progress line or a tier card dates the product, invites
+ * "why not use <other model>", and tells the reader nothing about what they
+ * get. Tier labels (Advanced / Standard / Basic / Fast) are the only thing
+ * the reader ever sees. Model names stay in logs and billing. */
 
 /**
  * Actual USD cost of one Anthropic response given its `usage` block.

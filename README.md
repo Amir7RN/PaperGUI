@@ -20,7 +20,7 @@ is silently dropped instead of shown.
 
 1. **Landing page** — anyone can open a bundled **sample paper** for free, no account
    needed. Analyzing your **own** PDF requires a (free) account: sign in / sign up from the
-   box in the top-right corner. New accounts get **$1.00 of free analysis credit** — no API
+   box in the top-right corner. New accounts get **one free Advanced paper analysis** — no API
    key, no payment info. Every paper you analyze is saved to your account's **"My papers"**
    library so you can reopen it later without spending credit again.
 2. **Analysis** — the PDF is sent to a **Supabase Edge Function**, which is the only place
@@ -59,7 +59,7 @@ Browser (GitHub Pages)  →  Supabase Edge Function (analyze-paper)  →  Anthro
 
 - The key is set once via `supabase secrets set` (below) and is never present in any
   file in this repo, any GitHub secret, or any browser request.
-- Every account gets a `credits` row with a **one-time $1.00 balance**. The edge function
+- Every account gets a `credits` row with a **one-time balance covering one Advanced paper** ($1.50). The edge function
   checks it before calling Claude, and after the call computes the *real* cost from
   `response.usage` (input + output tokens × that model's per-token price) and deducts it.
   There's no artificial "N requests" cap — it's metered spend, which is why an Advanced
@@ -91,7 +91,7 @@ defense. Add CAPTCHA (**Authentication → Attack Protection**) later if you see
 order**, and Run:
 
 - `20260711000000_credits.sql` — the `credits` table, its read-own-row RLS policy, and a
-  trigger that grants every new signup a $1.00 balance automatically.
+  trigger that grants every new signup that balance automatically.
 - `20260711010000_analyses.sql` — the `analyses` table (the "My papers" library) with
   per-owner insert/read/delete RLS.
 
@@ -313,7 +313,7 @@ publisher TDM API (Elsevier, Springer Nature, Wiley), negotiated per institution
 - **Top up or reset a user's balance:** in the SQL Editor,
   `update public.credits set balance_usd = 1.00 where user_id = '<uuid>';`
   (find the uuid via `select id, email from auth.users where email = '...';`).
-- **Change the starting balance for new signups:** edit the `default 1.00` in the
+- **Change the starting balance for new signups:** edit the `default 1.50` in the
   migration's `credits` table definition (or `alter table public.credits alter column
   balance_usd set default 2.00;` directly in the SQL Editor) — this only affects
   accounts created afterward.
