@@ -23,7 +23,7 @@ import {
   Sparkles, BookMarked, Play, Pause, Puzzle, Rocket, Network, ChevronLeft, FileCode2, Crosshair,
   Shuffle, Wand2, Trophy, Bot, ListChecks, GraduationCap, Images, Link2,
   ShieldCheck, Layers, RotateCw, Check as CheckIcon, GripVertical, Volume2, VolumeX,
-  NotebookPen, Trash2, Loader2, Quote, ShieldAlert,
+  NotebookPen, Trash2, Loader2, Quote, ShieldAlert, Highlighter,
 } from "lucide-react";
 import SectionChat from "./SectionChat.jsx";
 import PdfReader, { PaperReader } from "./PdfReader.jsx";
@@ -38,6 +38,7 @@ import { loadLayout, saveLayout, layoutStyle, sectionByKey } from "./layout.js";
 import { generatePanel, PANEL_SOFT_CAP } from "./panelGen.js";
 import { buildSectionContext } from "./sectionChat.js";
 import { loadNotebook, addPanel, addNote, removeEntry, clearNotebook, panelSpend } from "./notebook.js";
+import { loadHighlights, addHighlight, removeHighlight, colorOf } from "./highlights.js";
 import {
   buildHelpers, defaultsFromSpec, compileSpec, runSpec, buildRows,
   compileResultFigures, runResultPanel, buildPanelRows, makeFigureHelpers,
@@ -3572,7 +3573,7 @@ const GUIDE_TIPS = [
 /** Persistent desktop sidebar — the primary way to move around a paper.
  *  Tracks which sections the reader has already opened and shows overall
  *  progress, so working through a paper feels like clearing a map. */
-function SideNav({ sections, activeId, onSelect, visited, outline, onOutlineJump }) {
+function SideNav({ sections, activeId, onSelect, visited, outline, onOutlineJump, fill = false }) {
   const done = sections.filter((s) => visited?.has(s.id)).length;
   const pct = sections.length ? Math.round((done / sections.length) * 100) : 0;
 
@@ -3609,8 +3610,13 @@ function SideNav({ sections, activeId, onSelect, visited, outline, onOutlineJump
     );
   };
   return (
-    <aside className="hidden shrink-0 lg:block" style={{ width: "var(--sidenav-w, 216px)" }}>
-      <div className="sticky top-4 flex max-h-[calc(100vh-2rem)] flex-col overflow-y-auto pb-4 pr-1">
+    /* `fill`: inside the fixed-height paper shell the rail is a PANE — full
+       height, scrolling itself — rather than a sticky block inside a scrolling
+       page, which would have nothing to be sticky against. */
+    <aside className={`hidden shrink-0 lg:block ${fill ? "min-h-0" : ""}`} style={{ width: "var(--sidenav-w, 216px)" }}>
+      <div className={fill
+        ? "flex h-full flex-col overflow-y-auto pb-2 pr-1"
+        : "sticky top-4 flex max-h-[calc(100vh-2rem)] flex-col overflow-y-auto pb-4 pr-1"}>
         <div className="mb-2.5 rounded-xl border border-slate-200/80 bg-white p-3 shadow-sm">
           <div className="flex items-baseline justify-between">
             <span className="text-[9.5px] font-bold uppercase tracking-[0.14em] text-slate-400">Explored</span>
@@ -3819,7 +3825,7 @@ function EvidenceCheck({ evidence, onGoToPage }) {
  * notebook.js) — a one-shot popup would have charged them twice for the same
  * explanation.
  */
-function NotebookDrawer({ open, entries, onClose, onRemove, onClear, onGoToPage }) {
+function NotebookDrawer({ open, entries, highlights = [], onClose, onRemove, onClear, onGoToPage, onRemoveHighlight }) {
   useEffect(() => {
     if (!open) return undefined;
     const onKey = (e) => { if (e.key === "Escape") onClose(); };
@@ -3857,7 +3863,39 @@ function NotebookDrawer({ open, entries, onClose, onRemove, onClear, onGoToPage 
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto p-4">
-          {entries.length === 0 ? (
+          {/* Highlights live on the page, but a mark on page 12 is invisible
+              from page 3 — so they are also listed here, as one compact strip
+              rather than full cards: the point is to find them again. */}
+          {highlights.length > 0 && (
+            <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50/60 p-3">
+              <div className="mb-2 flex items-center gap-1.5">
+                <Highlighter size={13} className="text-amber-600" />
+                <span className="text-[11px] font-bold uppercase tracking-wider text-amber-800">
+                  {highlights.length} highlight{highlights.length === 1 ? "" : "s"}
+                </span>
+              </div>
+              <ul className="space-y-1.5">
+                {highlights.map((h) => (
+                  <li key={h.id} className="flex items-start gap-2">
+                    <span className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: colorOf(h.color).dot }} />
+                    <button onClick={() => onGoToPage(h.page)}
+                      className="shrink-0 rounded border border-amber-200 px-1.5 text-[9.5px] font-bold tabular-nums text-amber-700 transition hover:border-amber-400">
+                      p{h.page}
+                    </button>
+                    <span className="min-w-0 flex-1 text-[11px] leading-snug text-slate-600">
+                      {h.quote.length > 150 ? `${h.quote.slice(0, 150)}…` : h.quote}
+                    </span>
+                    <button onClick={() => onRemoveHighlight?.(h.id)} aria-label="Remove highlight"
+                      className="shrink-0 rounded p-0.5 text-amber-400 transition hover:bg-red-50 hover:text-red-500">
+                      <Trash2 size={12} />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {entries.length === 0 && highlights.length === 0 ? (
             <div className="mt-16 text-center">
               <NotebookPen size={26} className="mx-auto mb-3 text-slate-300" />
               <p className="mx-auto max-w-sm text-[12.5px] leading-relaxed text-slate-500">
@@ -4159,6 +4197,19 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
     setNotebook(addNote(spec, req));
   }, [spec]);
 
+  /* ---- the reader's highlighter ----
+   * Separate from the notebook on purpose: a clipping is filed away somewhere
+   * else, a highlight stays on the page where it was made. Both are free and
+   * both are kept per paper. */
+  const [highlights, setHighlights] = useState(() => loadHighlights(spec));
+  useEffect(() => { setHighlights(loadHighlights(spec)); }, [spec]);
+  const highlightPassage = useCallback((req) => {
+    setHighlights(addHighlight(spec, req));
+  }, [spec]);
+  const unhighlight = useCallback((id) => {
+    setHighlights(removeHighlight(spec, id));
+  }, [spec]);
+
   /* Entry point from the reader. The cap exists because this spends real
    * credit per click and the reader never sees a price tag on the button —
    * past it, they get told what they've spent and have to say yes again. */
@@ -4278,8 +4329,9 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
       content: (
         <PaperReader
           variant="inline" url={spec.paperPdf} title={spec.meta?.title} open
-          spec={spec} onAsk={setChatSection} onPin={setPin} onBuildPanel={requestPanel} onKeep={keepPassage}
+          spec={spec} onAsk={setChatSection} onBuildPanel={requestPanel} onKeep={keepPassage}
           onOutline={handleOutline} onEvidence={handleEvidence} gotoPage={paperPage}
+          highlights={highlights} onHighlight={highlightPassage} onUnhighlight={unhighlight}
         />
       ),
     },
@@ -4331,8 +4383,13 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
       content: <ExplorablesLab explorables={spec.explorables} />,
     },
     {
+      /* The results lab is `lab` for the same reason the concept walkthrough
+       * is: with the paper itself on screen, a figure's live version belongs
+       * ON the figure — click "Fig. 4" in the text, or select its caption, and
+       * build it there. A pre-baked section of every figure made the analysis
+       * slow and expensive up front for panels most readers never opened. */
       id: "results", boxId: "sec-results", boxLabel: "Results lab", navLabel: "Results", ariaLabel: "The paper's result figures",
-      show: !!spec.resultFigures?.length && sec("results").on, tone: "emerald", icon: LineChartIcon,
+      show: !!spec.resultFigures?.length && sec("results").on, tone: "emerald", icon: LineChartIcon, lab: spineOn,
       content: (
         <ResultsLab
           spec={spec} pipelineCompiled={compiled} helpers={helpers} baseOutputs={baseline.outputs} actOutputs={active.outputs}
@@ -4343,7 +4400,7 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
     },
     {
       id: "reverse", boxId: "sec-reverse", boxLabel: "Reverse-engineer", navLabel: "Reverse", ariaLabel: "Reverse-engineer the paper's results",
-      show: hasPipeline && fitTargets.length > 0 && sec("reverse").on, tone: "fuchsia", icon: Crosshair,
+      show: hasPipeline && fitTargets.length > 0 && sec("reverse").on, tone: "fuchsia", icon: Crosshair, lab: spineOn,
       content: (
         <ReverseLab
           spec={spec} pipelineCompiled={compiled} helpers={helpers} actOutputs={active.outputs}
@@ -4354,12 +4411,12 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
     },
     {
       id: "claims", boxId: "sec-claims", boxLabel: "Claims vs evidence", navLabel: "Claims", ariaLabel: "The paper's claims tagged by evidence",
-      show: !!spec.claims?.length && sec("claims").on, tone: "emerald", icon: ShieldCheck,
+      show: !!spec.claims?.length && sec("claims").on, tone: "emerald", icon: ShieldCheck, lab: spineOn,
       content: <ClaimsEvidence claims={spec.claims} />,
     },
     {
       id: "flashcards", boxId: "sec-flashcards", boxLabel: "Remember this paper", navLabel: "Recall", ariaLabel: "Flashcards for this paper",
-      show: !!spec.flashcards?.length && sec("flashcards").on, tone: "violet", icon: Layers,
+      show: !!spec.flashcards?.length && sec("flashcards").on, tone: "violet", icon: Layers, lab: spineOn,
       content: <Flashcards cards={spec.flashcards} paperKey={spec.meta?.title || "paper"} />,
     },
   ].filter((s) => s.show);
@@ -4369,6 +4426,15 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
    * them over, and they stay ordinary sections. */
   const pins = spineOn
     ? [
+        !!spec.conclusion && {
+          id: "findings", label: "Findings", title: "What the paper found", tone: "emerald", icon: Trophy,
+          content: (
+            <>
+              <TakeawayBox conclusion={spec.conclusion} modifiedCount={modifiedCount} onReset={() => { setParams(defaults); setPinnedT(null); }} />
+              {active.error && <div className="mt-3 rounded-xl border-2 border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800"><strong>Pipeline error:</strong> {active.error}</div>}
+            </>
+          ),
+        },
         !!spec.story && sec("story").on && {
           id: "story", label: "Story", title: sec("story").title, tone: "rose", icon: Sparkles,
           content: <StoryPlayer story={spec.story} />,
@@ -4423,6 +4489,17 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
     return () => window.removeEventListener("keydown", onKey);
   }); // re-bound every render so it always sees the current section list
 
+  /* ---- the paper view is an app, not a document ----
+   * Reading the paper, the page itself must not scroll. It used to: the hero,
+   * the takeaway card and the section pager all sat in the flow above and
+   * below a fixed-height reader, so the reader was chasing three scrollbars —
+   * the window's, the PDF stage's and the thumbnail rail's — to do one thing.
+   * Here the window is pinned to the viewport and the reader owns the space
+   * that is left; the stage fits a whole page into it (see PdfReader's `fit`),
+   * and the rail is opt-in. That is zero scrollbars for reading a page and
+   * one keystroke to turn it. */
+  const onPaper = !free && activeS?.id === "paper";
+
   // hero at-a-glance stats — what's interactive inside this analysis
   const liveDials = (spec.blocks || []).reduce((n, b) => n + (b.params?.length || 0), 0);
   const heroStats = [
@@ -4433,21 +4510,30 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
   ].filter(Boolean);
 
   return (
-    <div className="pp-app-bg min-h-screen pb-16" style={{ fontFamily: "system-ui, -apple-system, 'Segoe UI', sans-serif", ...layoutStyle(layout) }}>
-      {/* ===== dark lab hero — same identity as the landing page ===== */}
-      <header className="pp-hero relative overflow-hidden">
-        <div className="pointer-events-none absolute inset-0" aria-hidden="true">
-          <div className="pp-orb absolute -top-24 right-[12%] h-72 w-72 rounded-full bg-indigo-600/25 blur-3xl" />
-          <div className="pp-orb absolute -bottom-32 left-[8%] h-80 w-80 rounded-full bg-cyan-500/15 blur-3xl" style={{ animationDelay: "-4s" }} />
-          <div className="pp-orb absolute -top-16 left-[38%] h-56 w-56 rounded-full bg-fuchsia-600/15 blur-3xl" style={{ animationDelay: "-8s" }} />
-          <div className="pp-grid-lines absolute inset-0" />
-        </div>
+    <div
+      className={`pp-app-bg ${onPaper ? "flex h-screen flex-col overflow-hidden" : "min-h-screen pb-16"}`}
+      style={{ fontFamily: "system-ui, -apple-system, 'Segoe UI', sans-serif", ...layoutStyle(layout) }}
+    >
+      {/* ===== dark lab hero — same identity as the landing page =====
+          On the paper itself it collapses to a title bar. The hero is an
+          arrival screen; once you are READING, everything it holds is either
+          already known (the title) or a click away (the abstract), and its
+          height was the first of the three scrollbars the reader had to fight. */}
+      <header className={`pp-hero relative overflow-hidden ${onPaper ? "shrink-0" : ""}`}>
+        {!onPaper && (
+          <div className="pointer-events-none absolute inset-0" aria-hidden="true">
+            <div className="pp-orb absolute -top-24 right-[12%] h-72 w-72 rounded-full bg-indigo-600/25 blur-3xl" />
+            <div className="pp-orb absolute -bottom-32 left-[8%] h-80 w-80 rounded-full bg-cyan-500/15 blur-3xl" style={{ animationDelay: "-4s" }} />
+            <div className="pp-orb absolute -top-16 left-[38%] h-56 w-56 rounded-full bg-fuchsia-600/15 blur-3xl" style={{ animationDelay: "-8s" }} />
+            <div className="pp-grid-lines absolute inset-0" />
+          </div>
+        )}
         {/* full-bleed to match the reader shell below — the hero used to be a
             centred column, which left a visible margin mismatch */}
-        <div className="relative w-full py-6" style={{ paddingLeft: "calc(var(--page-pad, 12px) + 8px)", paddingRight: "calc(var(--page-pad, 12px) + 8px)" }}>
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div className="min-w-0 max-w-3xl">
-              <div className="mb-2 flex items-center gap-2.5">
+        <div className={`relative w-full ${onPaper ? "py-2" : "py-6"}`} style={{ paddingLeft: "calc(var(--page-pad, 12px) + 8px)", paddingRight: "calc(var(--page-pad, 12px) + 8px)" }}>
+          <div className={`flex flex-wrap gap-x-4 gap-y-2 ${onPaper ? "items-center justify-between" : "items-start justify-between"}`}>
+            <div className={`min-w-0 ${onPaper ? "flex-1" : "max-w-3xl"}`}>
+              <div className={`flex items-center gap-2.5 ${onPaper ? "hidden" : "mb-2"}`}>
                 <span className="relative flex h-2 w-2" aria-hidden="true">
                   <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
                   <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-400" />
@@ -4459,39 +4545,51 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
                   </span>
                 </span>
               </div>
-              <h1 className="font-bold leading-snug text-white" style={{ fontSize: "var(--title-size, 22px)" }}>
+              <h1 className={`font-bold text-white ${onPaper ? "truncate leading-tight" : "leading-snug"}`}
+                style={{ fontSize: onPaper ? "15px" : "var(--title-size, 22px)" }}
+                title={onPaper ? spec.meta.title : undefined}>
                 {spec.meta.title}
               </h1>
-              <p className="mt-1 text-slate-400" style={{ fontSize: "var(--author-size, 12px)" }}>
+              <p className={`text-slate-400 ${onPaper ? "truncate text-[11px]" : "mt-1"}`}
+                style={onPaper ? undefined : { fontSize: "var(--author-size, 12px)" }}>
                 {spec.meta.authors}
                 {spec.meta.venue ? <> · <span className="italic text-slate-500">{spec.meta.venue}</span></> : null}
               </p>
-              <details className="group mt-2 max-w-2xl">
-                <summary className="cursor-pointer select-none list-none text-[11px] font-semibold text-slate-400 transition hover:text-cyan-300 [&::-webkit-details-marker]:hidden">
-                  <span className="group-open:hidden">▸ Read the abstract</span>
-                  <span className="hidden group-open:inline">▾ Hide the abstract</span>
-                </summary>
-                <p className="mt-1.5 leading-relaxed text-slate-300" style={{ fontSize: "var(--abstract-size, 13px)" }}>{spec.meta.abstract}</p>
-              </details>
-              {heroStats.length > 0 && (
-                <div className="mt-3 flex flex-wrap gap-1.5">
-                  {heroStats.map((s, i) => (
-                    <span key={i} className="flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10.5px] font-semibold text-slate-300 backdrop-blur">
-                      <s.Icon size={11} className="text-cyan-300/90" /> {s.label}
-                    </span>
-                  ))}
-                </div>
+              {!onPaper && (
+                <>
+                  <details className="group mt-2 max-w-2xl">
+                    <summary className="cursor-pointer select-none list-none text-[11px] font-semibold text-slate-400 transition hover:text-cyan-300 [&::-webkit-details-marker]:hidden">
+                      <span className="group-open:hidden">▸ Read the abstract</span>
+                      <span className="hidden group-open:inline">▾ Hide the abstract</span>
+                    </summary>
+                    <p className="mt-1.5 leading-relaxed text-slate-300" style={{ fontSize: "var(--abstract-size, 13px)" }}>{spec.meta.abstract}</p>
+                  </details>
+                  {heroStats.length > 0 && (
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      {heroStats.map((s, i) => (
+                        <span key={i} className="flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10.5px] font-semibold text-slate-300 backdrop-blur">
+                          <s.Icon size={11} className="text-cyan-300/90" /> {s.label}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </>
               )}
             </div>
 
-            <div className="flex shrink-0 flex-col gap-2">
+            {/* Reading the paper, these are a toolbar; on a lab page they're a
+                sidebar of choices. Same buttons, laid out for the job. */}
+            <div className={onPaper
+              ? "flex shrink-0 flex-wrap items-center justify-end gap-1.5 [&>*]:!py-1.5 [&>*]:!text-[11px]"
+              : "flex shrink-0 flex-col gap-2"}>
               <button
                 onClick={onBack}
                 className="flex items-center gap-2 rounded-lg border border-white/12 bg-white/5 px-3 py-2 text-xs font-medium text-slate-200 shadow-sm backdrop-blur transition hover:border-cyan-400/40 hover:bg-white/10 hover:text-white"
               >
                 <ArrowLeft size={14} /> Analyze another paper
               </button>
-              {hasPdf && (
+              {/* Pointless while the paper is what's on screen. */}
+              {hasPdf && !onPaper && (
                 <button
                   onClick={() => setPdfOpen(true)}
                   className="flex items-center gap-2 rounded-lg border border-cyan-400/40 bg-cyan-400/10 px-3 py-2 text-xs font-semibold text-cyan-200 shadow-sm backdrop-blur transition hover:border-cyan-300/70 hover:bg-cyan-400/20 hover:text-white"
@@ -4574,25 +4672,36 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
           <SectionTabBar sections={sections} activeId={activeS?.id} onSelect={selectSection} />
           {/* App shell, not a centred document: the section rail sits hard
               against the left edge (Gmail-style) and the reading column takes
-              everything that is left, so nothing is wasted to page margins. */}
-          <div className="flex w-full items-start gap-5 pt-4" style={{ paddingLeft: "var(--page-pad, 12px)", paddingRight: "var(--page-pad, 12px)" }}>
+              everything that is left, so nothing is wasted to page margins.
+              On the paper this shell also OWNS the viewport height — the panes
+              inside it scroll, the page does not. */}
+          <div
+            className={`flex w-full gap-5 ${onPaper ? "min-h-0 flex-1 items-stretch pt-2" : "items-start pt-4"}`}
+            style={{ paddingLeft: "var(--page-pad, 12px)", paddingRight: "var(--page-pad, 12px)" }}
+          >
             <SideNav
               sections={sections} activeId={activeS?.id} onSelect={selectSection} visited={visited}
               outline={spineOn ? outline : null}
               onOutlineJump={(h) => { selectSection("paper"); setPaperPage({ page: h.page }); }}
+              fill={onPaper}
             />
-            <main ref={canvasRef} className="min-w-0 flex-1" style={{ maxWidth: "var(--content-max, 2600px)" }}>
-              <DesignBox id="conclusion" label="Conclusion" mode="flow" rect={layout.boxes.conclusion} onRect={setBox} register={registerBox}>
-                <TakeawayBox conclusion={spec.conclusion} modifiedCount={modifiedCount} onReset={() => { setParams(defaults); setPinnedT(null); }} />
-                {active.error && <div className="mt-3 rounded-xl border-2 border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800"><strong>Pipeline error:</strong> {active.error}</div>}
-              </DesignBox>
+            <main ref={canvasRef} className={`min-w-0 flex-1 ${onPaper ? "flex min-h-0 flex-col pb-2" : ""}`} style={{ maxWidth: "var(--content-max, 2600px)" }}>
+              {/* "What the paper found" is an arrival summary. On the paper it
+                  is one of the pins (bottom right) instead of a card the reader
+                  has to scroll past to reach the document. */}
+              {!onPaper && (
+                <DesignBox id="conclusion" label="Conclusion" mode="flow" rect={layout.boxes.conclusion} onRect={setBox} register={registerBox}>
+                  <TakeawayBox conclusion={spec.conclusion} modifiedCount={modifiedCount} onReset={() => { setParams(defaults); setPinnedT(null); }} />
+                  {active.error && <div className="mt-3 rounded-xl border-2 border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800"><strong>Pipeline error:</strong> {active.error}</div>}
+                </DesignBox>
+              )}
 
               {/* The paper renders bare: no card chrome, no numbered section
                   header, no drag box. It is the document, not a panel about
                   the document — and it has no entry in the editable section
                   list, so sec("paper") would be undefined. */}
               {activeS?.raw ? (
-                <section className="pp-section-in" aria-label={activeS.ariaLabel} data-section-id={activeS.id}>
+                <section className="pp-section-in flex min-h-0 flex-1 flex-col" aria-label={activeS.ariaLabel} data-section-id={activeS.id}>
                   {activeS.content}
                 </section>
               ) : activeS ? (
@@ -4606,7 +4715,9 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
                 </DesignBox>
               ) : null}
 
-              <SectionPager sections={sections} activeIdx={activeIdx} onSelect={selectSection} />
+              {/* Prev/Next is for walking the guided labs. On the paper, "next"
+                  is the next PAGE, and the reader already has ← →. */}
+              {!onPaper && <SectionPager sections={sections} activeIdx={activeIdx} onSelect={selectSection} />}
             </main>
           </div>
         </>
@@ -4616,14 +4727,15 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
           two floating buttons competing with the section rail for the same job. */}
       {activeS?.id === "paper" && (
         <PaperPins pins={pins} onOpen={setPin}
-          notebookCount={notebook.length} onNotebook={() => setNotebookOpen(true)} />
+          notebookCount={notebook.length + highlights.length} onNotebook={() => setNotebookOpen(true)} />
       )}
       <PinOverlay pin={openPin} onClose={() => setPin(null)} />
 
       <NotebookDrawer
-        open={notebookOpen} entries={notebook}
+        open={notebookOpen} entries={notebook} highlights={highlights}
         onClose={() => setNotebookOpen(false)}
         onRemove={(id) => setNotebook(removeEntry(spec, id))}
+        onRemoveHighlight={unhighlight}
         onClear={() => setNotebook(clearNotebook(spec))}
         onGoToPage={(p) => { setNotebookOpen(false); selectSection("paper"); setPaperPage({ page: p }); }}
       />

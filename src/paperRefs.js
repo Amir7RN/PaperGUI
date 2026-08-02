@@ -101,6 +101,72 @@ function readBibliography(index) {
   return entries;
 }
 
+/* ---------------- reading a bibliography entry as fields ----------------
+ * A citation card that dumps the raw entry makes the reader parse a wall of
+ * abbreviations to answer the only two questions they had: which paper is this,
+ * and who wrote it. So the entry is split into title / authors / venue — but
+ * ONLY when the split is confident. `ok:false` means the caller must show the
+ * raw entry rather than a confidently mis-cut one.
+ */
+const INITIALS_FIRST = /^(?:[A-Z]\.?\s*){1,4}[A-Z][\p{L}'’-]+(?:\s+(?:Jr|Sr|II|III|IV)\.?)?$/u;
+const SURNAME_FIRST  = /^[A-Z][\p{L}'’-]+(?:\s+(?:van|von|de|der|del|di|da|el))?\s+(?:[A-Z]\.?\s*){1,4}$/u;
+const BARE_SURNAME   = /^[A-Z][\p{L}'’-]+$/u;
+const BARE_INITIALS  = /^(?:[A-Z]\.?\s*){1,4}$/;
+/* What a venue segment looks like: a year, a "7 (1)" volume/issue, page range
+ * or an explicit volume word. Digits alone are not enough — plenty of titles
+ * contain a number. */
+const VENUE_HINT = /\b(?:19|20)\d{2}\b|\b\d+\s*\(\d+\)|\bpp?\.\s*\d|\bvol\.?\s*\d|\bno\.?\s*\d/i;
+
+const surnameOf = (author) => {
+  const words = author.replace(/\s+/g, " ").trim().split(" ");
+  const last = words[words.length - 1];
+  // "Sadeghi AH" / "Sadeghi A.H." put the initials last; "A.H. Sadeghi" doesn't.
+  return BARE_INITIALS.test(last) && words.length > 1 ? words[0] : last;
+};
+
+export function parseBibEntry(text) {
+  const raw = String(text || "").replace(/\s+/g, " ").trim();
+  const fail = { ok: false, raw };
+  if (raw.length < 12) return fail;
+
+  const yearM = raw.match(/\b(19|20)\d{2}\b/g);
+  const year = yearM ? yearM[yearM.length - 1] : null;
+
+  const segs = raw.split(/\s*,\s*/).filter(Boolean);
+  if (segs.length < 2) return fail;
+
+  // 1) the leading run of author-shaped segments
+  const authors = [];
+  let i = 0;
+  while (i < segs.length) {
+    const s = segs[i].replace(/\.$/, "");
+    if (INITIALS_FIRST.test(s) || SURNAME_FIRST.test(s)) { authors.push(s); i++; continue; }
+    // "Sadeghi, A. H." — one author split across two comma segments.
+    if (BARE_SURNAME.test(s) && i + 1 < segs.length && BARE_INITIALS.test(segs[i + 1].replace(/\.$/, ""))) {
+      authors.push(`${s} ${segs[i + 1].replace(/\.$/, "")}`);
+      i += 2; continue;
+    }
+    break;
+  }
+  if (!authors.length || i >= segs.length) return fail;
+
+  // 2) the title runs until a segment that reads like a venue
+  const titleParts = [];
+  while (i < segs.length && !VENUE_HINT.test(segs[i])) { titleParts.push(segs[i]); i++; }
+  const title = titleParts.join(", ").replace(/[.,;]\s*$/, "").trim();
+  if (title.split(/\s+/).length < 3) return fail;
+
+  const venue = segs.slice(i).join(", ").replace(/[.,;]\s*$/, "").trim();
+
+  const first = surnameOf(authors[0]);
+  const authorsShort =
+    (authors.length === 1 ? first
+      : authors.length === 2 ? `${first} & ${surnameOf(authors[1])}`
+        : `${first} et al.`) + (year ? `, ${year}` : "");
+
+  return { ok: true, raw, authors, authorsShort, title, venue, year };
+}
+
 /* ---------------- resolving a pointer to something showable ---------------- */
 
 /** Pull the figure number out of a label the analyzer wrote ("Fig. 6", "Fig. 1 — …"). */
@@ -166,9 +232,10 @@ function equationIndex(spec) {
  * Returns null when the quote can't be found — the caller must degrade rather
  * than assume a position.
  */
-export function locateQuote(index, pageNo, quote) {
-  const p = index?.pages?.find((pg) => pg.page === pageNo);
-  if (!p || !quote) return null;
+function findQuoteSpan(index, pageNo, quote) {
+  const pageIdx = index?.pages?.findIndex((pg) => pg.page === pageNo);
+  if (pageIdx == null || pageIdx < 0 || !quote) return null;
+  const p = index.pages[pageIdx];
 
   const map = [];           // stripped index -> original index
   let stripped = "";
@@ -181,7 +248,30 @@ export function locateQuote(index, pageNo, quote) {
   if (needle.length < 4) return null;
   const at = stripped.indexOf(needle);
   if (at === -1) return null;
-  return p.base + map[at];
+  // The span is measured in the ORIGINAL text, so it has to end at the original
+  // position of the needle's LAST character — not at start + needle.length,
+  // which would stop short by however much whitespace the passage contains.
+  const last = map[Math.min(at + needle.length - 1, map.length - 1)];
+  return { page: p, pageIdx, start: map[at], end: last + 1 };
+}
+
+export function locateQuote(index, pageNo, quote) {
+  const span = findQuoteSpan(index, pageNo, quote);
+  return span ? span.page.base + span.start : null;
+}
+
+/**
+ * Page-fraction rectangles covering a quoted passage — what a reader's own
+ * highlight is drawn from.
+ *
+ * Deliberately re-derived from the text index at render time rather than
+ * stored: a rectangle captured at 150% zoom sits in the wrong place at
+ * fit-to-height, whereas the quote is true at every scale.
+ */
+export function quoteRects(index, pageNo, quote) {
+  const span = findQuoteSpan(index, pageNo, quote);
+  if (!span) return [];
+  return rectsForSpan(index, span.pageIdx, span.start, span.end);
 }
 
 /**
