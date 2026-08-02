@@ -25,6 +25,15 @@
  * parameter (both 400), and a 200K context window (≈100 PDF pages max).
  */
 export const MODEL_CATALOG = {
+  "claude-opus-5": {
+    // Reserved for the vision work that has to be RIGHT: reading a published
+    // figure's axis ticks and legend colours off the pixels. Everything
+    // downstream of that read (the traced curve, the fit, the reverse-
+    // engineered parameters) inherits its errors, so this is the one place
+    // where paying Opus rates buys something the cheaper tier can't.
+    name: "Opus 5", adaptive: true, effort: "high", effortLong: "high",
+    priceIn: 5.0, priceOut: 25.0,
+  },
   "claude-opus-4-8": {
     // Fast mode is NOT used: this org's Anthropic plan has a fast-mode limit
     // of 0 (gated preview), so speed:"fast" 429s.
@@ -278,6 +287,114 @@ export const PANEL_SCHEMA = {
     demo: demoSchema,
   },
 };
+
+/* ---------------- on-demand digitizer assist ----------------
+ * Reading a figure has two halves, and they belong to different readers.
+ *
+ * A vision model is good at the half that is TEXT: which number is printed at
+ * which tick, what the axis is called, whether the scale is decades, which
+ * colour belongs to which legend entry. It is bad — unfixably bad — at the
+ * half that is PIXELS: where a curve actually sits at x = 3.7.
+ *
+ * So this call does only the first half, and hands the result to the local
+ * tracer as a calibration. Nothing it returns is data; everything it returns
+ * is a frame the digitizer then reads the real data inside of. That division
+ * is why the output can be trusted: a mis-read tick is visible and editable in
+ * one number field, whereas a mis-read curve would be a plausible-looking lie.
+ */
+const tickSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["atFrac", "value"],
+  properties: {
+    atFrac: { type: "number", description: "Where this tick sits as a fraction (0-1) of the CROPPED IMAGE's width (x ticks, left→right) or height (y ticks, top→bottom). The crop is what you were shown — measure against its edges, not the page's." },
+    value: { type: "number", description: "The number printed at that tick. For a log axis give the value itself (100, not 2)." },
+  },
+};
+
+export const DIGITIZE_ASSIST_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["subplots"],
+  properties: {
+    subplots: {
+      type: "array",
+      description: "One entry per plot panel in this image, in reading order (left→right, top→bottom). A figure with a single plot returns exactly one.",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["label", "kind", "xLabel", "yLabel", "xLog", "yLog", "region", "xTicks", "yTicks", "curves"],
+        properties: {
+          label: { type: "string", description: "The panel's own label as printed ('(a)', 'L1', 'Casual'), or a short description if unlabelled." },
+          kind: {
+            type: "string",
+            enum: ["line", "radar", "box", "heatmap", "violin", "other"],
+            description: "The chart form. 'line' covers line, scatter and bar plots over numeric axes — anything the curve tracer handles. 'other' for photographs, schematics and anything with no numeric axes; give it empty ticks and curves.",
+          },
+          xLabel: { type: "string", description: "The x-axis label WITH ITS UNIT, verbatim from the figure." },
+          yLabel: { type: "string", description: "The y-axis label WITH ITS UNIT, verbatim from the figure." },
+          xLog: { type: "boolean", description: "true only if the x axis is logarithmic (tick values step by decades)." },
+          yLog: { type: "boolean", description: "true only if the y axis is logarithmic." },
+          region: {
+            type: "object",
+            additionalProperties: false,
+            required: ["fx0", "fy0", "fx1", "fy1"],
+            properties: {
+              fx0: { type: "number" }, fy0: { type: "number" },
+              fx1: { type: "number" }, fy1: { type: "number" },
+            },
+            description: "The PLOT AREA of this panel — the box bounded by its axes, excluding tick labels, axis titles and legend — as fractions (0-1) of the cropped image. For a single-panel figure this is still the plot box, NOT the whole image: it is what stops a neighbouring panel's ink from bleeding into this one's trace.",
+          },
+          xTicks: { type: "array", items: tickSchema, description: "The LABELLED x ticks, left→right. At least the two extremes; more is better, and they must be the ticks whose numbers are actually printed." },
+          yTicks: { type: "array", items: tickSchema, description: "The LABELLED y ticks, top→bottom. At least the two extremes." },
+          curves: {
+            type: "array",
+            description: "One entry per plotted series in this panel, in legend order.",
+            items: {
+              type: "object",
+              additionalProperties: false,
+              required: ["label", "colorHex"],
+              properties: {
+                label: { type: "string", description: "The series' legend text, verbatim." },
+                colorHex: { type: "string", description: "#rrggbb sampled from the LINE OR MARKER ITSELF at a solid, unshaded part of it — not from the legend swatch if the swatch is a different tint." },
+              },
+            },
+          },
+        },
+      },
+    },
+    notes: { type: "string", description: "One short line for the human about anything they must fix by hand: an unlabelled axis, an overlapping pair of curves, a broken axis, a panel you could not read. Empty string if the read was clean." },
+  },
+};
+
+export function digitizeAssistPrompt({ figureLabel, title, caption }) {
+  return (
+    "You are calibrating a plot digitizer. The image is one figure cropped out of a scientific paper.\n\n" +
+    (figureLabel ? `FIGURE: ${figureLabel}\n` : "") +
+    (title ? `TITLE: ${title}\n` : "") +
+    (caption ? `WHAT THE ANALYSIS SAYS IT SHOWS: ${caption}\n` : "") +
+    "\nYOUR JOB IS THE TEXT, NOT THE CURVES.\n" +
+    "Read, for every plot panel in this image: its axis labels and units, whether either axis is " +
+    "logarithmic, the printed tick numbers and where they sit, the plot box, and each series' legend " +
+    "label and line colour.\n\n" +
+    "DO NOT report any data values off the curves. The digitizer reads those from the pixels and is " +
+    "far more accurate at it than you are. Reading tick text and colours is your half; reading curve " +
+    "values is its half. A y-value you 'read' here would silently corrupt everything downstream.\n\n" +
+    "MEASURING POSITIONS:\n" +
+    "- Every fraction is measured against the CROPPED IMAGE you were shown: 0 is its left/top edge, " +
+    "1 is its right/bottom edge.\n" +
+    "- A tick's `atFrac` is the position of the TICK MARK on the axis, not the centre of its printed label.\n" +
+    "- `region` is the axes box only. Get this right for multi-panel figures — it is what keeps one " +
+    "panel's curves out of another's trace.\n\n" +
+    "HONESTY:\n" +
+    "- If an axis has no printed numbers, return its ticks as an empty array and say so in `notes`. " +
+    "Do not invent a scale.\n" +
+    "- If a panel is a photograph, a schematic, or otherwise has no numeric axes, set `kind` to " +
+    "\"other\" with empty ticks and curves rather than describing it as a plot.\n" +
+    "- If two series are the same colour, or a colour is ambiguous where it crosses another, say which " +
+    "in `notes`. The human is about to check your work — tell them where to look."
+  );
+}
 
 /** The instruction for one on-demand panel. Deliberately short: this is a
  *  single small artifact on a metered per-click budget, not an analysis. */

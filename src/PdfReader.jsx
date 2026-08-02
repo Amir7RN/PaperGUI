@@ -32,7 +32,7 @@ import {
   MessageCircle, Copy, Check, Crosshair, HelpCircle,
   MousePointerClick, ArrowLeftRight, LineChart, ShieldQuestion,
   Undo2, GitCompare, Target, Gauge, Quote, Sigma, BookMarked, SlidersHorizontal,
-  NotebookPen, Ruler, Trash2, Scan, ScanLine, Image as ImageIcon,
+  NotebookPen, Ruler, Trash2, Scan, ScanLine, Image as ImageIcon, Table2,
 } from "lucide-react";
 import { TextLayer } from "pdfjs-dist";
 import { loadPdfDoc, renderPdfPage, extractPageItems } from "./pdf.js";
@@ -288,6 +288,12 @@ const ACTIONS = {
   // clicking the in-text "Fig. 4", so it opens the same card: the crop, what
   // it shows, and the option to make it live.
   figure:   { label: "This figure", icon: ImageIcon, kind: "figure" },
+  /* Tables and pseudocode listings ARE real text in the PDF — the analyzer
+   * crops them as pictures, but the reader's text layer has every cell and
+   * every line of the algorithm. So selecting one is the honest way to hand
+   * it to the panel builder: the model gets the numbers and the steps, not a
+   * JPEG it has to squint at. Offered wherever a selection looks like one. */
+  table:    { label: "Build from this table", icon: Table2, kind: "panel-table" },
   // The one action that costs money and generates code — see panelGen.js.
   panel:    { label: "Build me a panel", icon: SlidersHorizontal, kind: "panel" },
   highlight:{ label: "Highlight", icon: Highlighter, kind: "highlight" },
@@ -658,12 +664,30 @@ export function PaperReader({
         // already clickable where it sits.
         const capM = text.slice(0, 400)
           .match(/\bFigs?\.?\s*(\d{1,2})[a-d]?\s*[.:—–-]\s+[A-Z]|\bFigures?\s+(\d{1,2})[a-d]?\s*[.:—–-]\s+[A-Z]/);
+
+        // Does this selection look like a table or an algorithm listing?
+        //
+        // Either it says so (a caption or heading is in the selection), or it
+        // reads like one: a wall of numbers, or the control-flow keywords a
+        // pseudocode block is built from. This is deliberately generous — the
+        // cost of a false positive is one extra button, and the thing it
+        // unlocks (handing the paper's own numbers or its own steps to the
+        // panel builder as TEXT rather than as a cropped picture) is the whole
+        // point of the reader having a real text layer.
+        const head = text.slice(0, 400);
+        const numerals = (text.match(/-?\d+(?:[.,]\d+)?/g) || []).length;
+        const tabular =
+          /\b(?:Table|Algorithm|Procedure|Pseudo-?code|Listing)\s*\d/i.test(head) ||
+          /\b(?:Require|Ensure|Input|Output)\s*:/i.test(head) ||
+          /\bend\s+(?:for|while|if|procedure|function)\b/i.test(text) ||
+          (numerals >= 12 && numerals / Math.max(1, text.split(/\s+/).length) > 0.35);
         setSel({
           x: Math.min(window.innerWidth - 220, Math.max(220, r.left + r.width / 2)),
           y: r.top - 10,
           text,
           head: at == null ? null : sectionKeyAt(index, at),
           figNum: capM ? +(capM[1] || capM[2]) : null,
+          tabular,
         });
       }, 10);
     };
@@ -684,8 +708,13 @@ export function PaperReader({
     // Selecting a caption puts the figure first: it is what the reader was
     // looking at, and the generic "explain this passage" is the weaker answer.
     const capFig = sel?.figNum != null && figByNum.has(sel.figNum);
-    return capFig ? ["figure", ...base.filter((k) => k !== "panel")] : base;
-  }, [sel?.head, sel?.figNum, spec, onBuildPanel, figByNum]);
+    if (capFig) return ["figure", ...base.filter((k) => k !== "panel")];
+    // A table or an algorithm listing is the most panel-able thing in a paper
+    // — it is already the numbers or already the steps — so it gets the offer
+    // wherever it appears, not only in the sections that carry `panel`.
+    if (sel?.tabular && onBuildPanel) return ["table", ...base.filter((k) => k !== "panel")];
+    return base;
+  }, [sel?.head, sel?.figNum, sel?.tabular, spec, onBuildPanel, figByNum]);
 
   /* Highlighting and clipping are offered everywhere, after the
    * section-specific actions: neither is something one part of a paper needs
@@ -716,6 +745,29 @@ export function PaperReader({
     // and where in the paper it came from.
     if (key === "panel") {
       onBuildPanel?.({ quote, page, sectionLabel: HEAD_LABEL[sel.head] || "this part of the paper" });
+      done();
+      return;
+    }
+
+    /* Same builder, different handling of the text.
+     *
+     * Two things would corrupt a table or a listing on the way through the
+     * generic path. The hyphen-healing that turns "informa- tion" back into
+     * "information" also turns "Loafers- 5.4" into "Loafers5.4", welding a
+     * label onto a number; and the 900-character clip that is plenty for a
+     * sentence cuts a table off mid-row. So this branch sends the raw
+     * selection, at the server's own 2,000-character limit. */
+    if (key === "panel-table") {
+      const raw = sel.text.length > 1800 ? `${sel.text.slice(0, 1800)}…` : sel.text;
+      onBuildPanel?.({
+        quote: raw,
+        page,
+        sectionLabel:
+          `a table or algorithm listing on page ${page}` +
+          (sel.head ? ` (${HEAD_LABEL[sel.head] || "the paper"})` : "") +
+          ". These are the paper's OWN numbers or its OWN steps — build the panel on them directly " +
+          "rather than inventing a model, and keep the paper's units and row labels.",
+      });
       done();
       return;
     }

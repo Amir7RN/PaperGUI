@@ -35,7 +35,15 @@ const CORS_HEADERS = {
  * small artifact, and no request should be able to become an analysis. */
 const MAX_QUOTE_CHARS = 2_000;
 const MAX_CONTEXT_CHARS = 12_000;
-const MAX_OUTPUT_TOKENS = 4_000;
+
+/* `max_tokens` is a ceiling on THINKING PLUS TEXT, and Sonnet 5 thinks by
+ * default (adaptive thinking is on unless you turn it off). The old 4,000
+ * budget was set when a model's whole budget went to the answer — here the
+ * reasoning that writes the simulation code ate most of it and the JSON came
+ * back cut off mid-string, which is what "the panel came back malformed"
+ * actually was. This is a ceiling, not a spend: a typical panel still emits
+ * ~2-3k tokens. */
+const MAX_OUTPUT_TOKENS = 16_000;
 
 const PANEL_MODEL = "claude-sonnet-5";
 
@@ -90,26 +98,73 @@ Deno.serve(async (req) => {
   const priced = MODEL_CATALOG[PANEL_MODEL];
   const client = new Anthropic({ apiKey });
 
+  const prompt = panelPrompt({ paperTitle, sectionLabel, quote, context });
+
+  /* The old "respond with ONLY one JSON object" instruction, kept for the
+   * fallback path below. Structured outputs make it redundant; a rejected
+   * schema makes it the only thing standing between us and a fenced reply. */
+  const promptWithSchema =
+    prompt +
+    "\n\nOUTPUT FORMAT (critical):\nRespond with ONLY one JSON object — no markdown fences, no commentary. " +
+    "Escape newlines inside strings as \\n. It must validate against this JSON Schema:\n" +
+    JSON.stringify(PANEL_SCHEMA);
+
   let response;
+  let structured = true;
   try {
     response = await client.messages.create({
       model: PANEL_MODEL,
       max_tokens: MAX_OUTPUT_TOKENS,
-      messages: [{
-        role: "user",
-        content:
-          panelPrompt({ paperTitle, sectionLabel, quote, context }) +
-          "\n\nOUTPUT FORMAT (critical):\nRespond with ONLY one JSON object — no markdown fences, no commentary. " +
-          "Escape newlines inside strings as \\n. It must validate against this JSON Schema:\n" +
-          JSON.stringify(PANEL_SCHEMA),
-      }],
+      /* Structured outputs, not "please reply with only JSON".
+       *
+       * The schema is enforced by the decoder, so the response cannot come
+       * back fenced, prefaced with commentary, or missing a field — the whole
+       * class of "malformed panel" failures the lenient parser below existed
+       * to paper over. `effort` bounds what the thinking costs. */
+      output_config: {
+        effort: "medium",
+        format: { type: "json_schema", schema: PANEL_SCHEMA },
+      },
+      messages: [{ role: "user", content: prompt }],
     });
   } catch (e) {
-    return json(502, { error: `The panel builder failed: ${e?.message || e}` });
+    /* Structured outputs compile the schema into a decoding grammar, and that
+     * compilation can be refused — analyze-paper already hit "The compiled
+     * grammar is too large" on the full PaperSpec and had to give it up.
+     * PANEL_SCHEMA is far smaller and should be fine, but a panel builder that
+     * dies outright if the API changes its mind about that is worse than one
+     * that quietly drops back to the path that worked before. Any 4xx from the
+     * request itself falls back; a 5xx or a network failure is a real outage
+     * and is reported as one. */
+    const status = e?.status;
+    if (!(status >= 400 && status < 500)) {
+      return json(502, { error: `The panel builder failed: ${e?.message || e}` });
+    }
+    console.warn("panel structured output rejected, falling back", { status, message: e?.message });
+    structured = false;
+    try {
+      response = await client.messages.create({
+        model: PANEL_MODEL,
+        max_tokens: MAX_OUTPUT_TOKENS,
+        output_config: { effort: "medium" },
+        messages: [{ role: "user", content: promptWithSchema }],
+      });
+    } catch (e2) {
+      return json(502, { error: `The panel builder failed: ${e2?.message || e2}` });
+    }
   }
 
   if (response.stop_reason === "refusal") {
     return json(422, { error: "The panel builder declined this passage." });
+  }
+
+  /* Truncation has to be reported as truncation. Retrying an identical request
+   * that ran out of room just runs out of room again, so "try again" would be
+   * advice that cannot work. */
+  if (response.stop_reason === "max_tokens") {
+    return json(422, {
+      error: "That passage needed a bigger panel than the budget allows. Try selecting a smaller, more specific piece of it.",
+    });
   }
 
   const answer = (response.content || [])
@@ -119,7 +174,10 @@ Deno.serve(async (req) => {
   try {
     demo = parseJson(answer);
   } catch (e) {
-    console.error("panel parse failed", { length: answer.length, head: answer.slice(0, 300), reason: e?.message });
+    console.error("panel parse failed", {
+      structured, length: answer.length, head: answer.slice(0, 300),
+      stopReason: response.stop_reason, reason: e?.message,
+    });
     return json(422, { error: "The panel came back malformed. Trying again usually fixes it." });
   }
 
@@ -127,6 +185,7 @@ Deno.serve(async (req) => {
   const cost = usageCostUsd(priced, response.usage);
   console.log("panel cost", JSON.stringify({
     model: PANEL_MODEL,
+    structured,
     costUsd: +cost.toFixed(4),
     inputTokens: response.usage?.input_tokens || 0,
     outputTokens: response.usage?.output_tokens || 0,

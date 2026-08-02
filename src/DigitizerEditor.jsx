@@ -13,14 +13,16 @@
  * on-screen preview stays valid for the natural-resolution pixel read.
  */
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   X, Crosshair, Pipette, MousePointerClick, Wand2, Trash2, Plus, Save, Copy, Check, SquareDashedMousePointer,
+  ScanEye, Loader2, TriangleAlert,
 } from "lucide-react";
 import {
   makeCalibration, autoTraceColor, sampleColor, hexToRgb, rgbToHex,
   fracPointsToData, bboxFracToCropFrac, buildColorLUT, readHeatmapGrid,
 } from "./digitizer.js";
+import { assistDigitize, hintToSubplots } from "./digitizeAssist.js";
 
 const CURVE_HUES = ["#2a78d6", "#1baf7a", "#eda100", "#e34948", "#4a3aa7", "#e87ba4"];
 const num = (v, d = 0) => { const n = parseFloat(v); return Number.isFinite(n) ? n : d; };
@@ -355,8 +357,44 @@ export default function DigitizerEditor({ fig, onSave, onClose }) {
   const [mode, setMode] = useState("idle"); // idle | region | xA|xB|yA|yB | eyedrop | points
   const [dragRect, setDragRect] = useState(null); // live region preview
   const [copied, setCopied] = useState(false);
+  // The on-demand figure read: { status, message, cost, skipped[] } | null
+  const [assist, setAssist] = useState(null);
 
   const sub = subs[Math.min(activeSub, subs.length - 1)];
+
+  /* ---- read the figure's calibration with the vision model ----
+   * Replaces the subplot list wholesale rather than merging into it: this is
+   * "start from the machine's read of the axes", and half-merging it into
+   * hand-set marks would leave a calibration nobody could reason about. Any
+   * tracing already done is lost, so it is confirmed when there is some. */
+  const runAssist = useCallback(async () => {
+    setAssist({ status: "working" });
+    try {
+      const { hint, cost } = await assistDigitize({
+        image: fig?.image,
+        figureLabel: fig?.figureLabel,
+        title: fig?.title,
+        caption: fig?.explanation,
+      });
+      const { subplots, skipped } = hintToSubplots(hint, (label, region) => newSubplot(label, region));
+      if (!subplots.length) throw new Error("No panels came back — trace it by hand.");
+      setSubs(subplots);
+      setActiveSub(0);
+      setMode("idle");
+      setAssist({ status: "done", cost, skipped, notes: hint.notes || "" });
+    } catch (e) {
+      setAssist({ status: "error", message: e?.message || String(e) });
+    }
+  }, [fig]);
+
+  const tracedAnything = subs.some((s) => s.curves?.some((c) => c.points?.length));
+  const askAssist = useCallback(() => {
+    if (assist?.status === "working") return;
+    if (tracedAnything && !window.confirm(
+      "Reading the figure replaces every subplot, including the points you've already traced. Continue?"
+    )) return;
+    runAssist();
+  }, [assist?.status, tracedAnything, runAssist]);
 
   useEffect(() => {
     if (!fig?.image) return;
@@ -585,12 +623,52 @@ export default function DigitizerEditor({ fig, onSave, onClose }) {
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-slate-900/95 backdrop-blur">
-      <div className="flex items-center justify-between border-b border-slate-700 px-4 py-2.5 text-white">
+      <div className="flex flex-wrap items-center gap-2 border-b border-slate-700 px-4 py-2.5 text-white">
         <div className="flex items-center gap-2 text-sm font-semibold">
           <Crosshair size={16} className="text-blue-400" />
           Trace the real figure — {fig?.figureLabel} · {subs.length} subplot{subs.length === 1 ? "" : "s"}
         </div>
+
+        {/* The one metered control in this editor. It buys the CALIBRATION —
+            panels, axis labels, tick numbers, legend colours — and never the
+            curve values, which the tracer below reads off the pixels. */}
+        <button
+          onClick={askAssist}
+          disabled={!fig?.image || assist?.status === "working"}
+          title="Have the vision model read this figure's panels, axes, ticks and legend colours"
+          className="ml-auto flex items-center gap-1.5 rounded-lg border border-fuchsia-400/50 bg-fuchsia-500/15 px-3 py-1.5 text-[12px] font-semibold text-fuchsia-200 transition hover:bg-fuchsia-500/25 hover:text-white disabled:opacity-40"
+        >
+          {assist?.status === "working"
+            ? <><Loader2 size={13} className="animate-spin" /> Reading the figure…</>
+            : <><ScanEye size={13} /> Read axes with AI <span className="font-normal text-fuchsia-300/80">(uses credit)</span></>}
+        </button>
+
         <button onClick={onClose} className="rounded-lg p-1.5 hover:bg-white/10"><X size={18} /></button>
+
+        {/* What the read did and, more importantly, what it couldn't do.
+            A panel whose ticks were unreadable is named here rather than
+            handed over silently with a made-up scale. */}
+        {(assist?.status === "done" || assist?.status === "error") && (
+          <div className={`w-full rounded-lg border px-3 py-2 text-[11.5px] leading-snug ${
+            assist.status === "error"
+              ? "border-red-400/40 bg-red-500/10 text-red-200"
+              : "border-fuchsia-400/30 bg-fuchsia-500/10 text-fuchsia-100"
+          }`}>
+            {assist.status === "error" ? (
+              <span className="flex items-start gap-1.5"><TriangleAlert size={13} className="mt-px shrink-0" /> {assist.message}</span>
+            ) : (
+              <>
+                <strong>Axes read.</strong> Check every tick value before tracing — this is the
+                one number a wrong read makes invisible.
+                {assist.cost > 0 ? <> Cost ${assist.cost.toFixed(3)}.</> : null}
+                {assist.skipped?.length > 0 && (
+                  <> <span className="text-amber-300">Couldn’t calibrate {assist.skipped.join(", ")} — set those axes by hand.</span></>
+                )}
+                {assist.notes ? <> <span className="text-fuchsia-200/80">{assist.notes}</span></> : null}
+              </>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
