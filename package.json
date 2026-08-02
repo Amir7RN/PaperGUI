@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite --open",
     "build": "vite build",
+    "check:panels": "node scripts/checkPanelFamilies.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

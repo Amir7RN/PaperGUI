@@ -61,8 +61,44 @@ const VARIES = 1e-6;
  * the reader a panel they already paid for, so every rule here has to be one
  * a human would agree with while looking at the chart.
  */
+/* The carrier each digitized family MUST have filled, and what "filled" means.
+ * A heat map with no grid, a box plot with no boxes and a survival plot with
+ * no steps all decode as valid JSON and render as an empty rectangle — the
+ * reader paid for that rectangle, so it is rejected here the same way a dead
+ * slider is. */
+const DIGITIZED_CARRIERS = {
+  heatmap: (d) => (d.grid || []).some((r) => (r || []).some(Number.isFinite)) || "no grid values",
+  groupedBar: (d) => (d.groups || []).some((g) => (g.bars || []).length) || "no bars",
+  radialBar: (d) => ((d.groups || []).some((g) => (g.bars || []).length) || (d.sectors || []).length) || "no bars",
+  stackedBar: (d) => (d.subPanels || []).some((p) => (p.groups || []).length) || "no stacked groups",
+  stackedBarH: (d) => (d.rows || []).some((r) => (r.segments || []).length) || "no stacked rows",
+  box: (d) => (d.categories || []).some((c) => (c.boxes || []).length) || "no boxes",
+  violin: (d) => (d.categories || []).some((c) => (c.violins || []).length) || "no violin outlines",
+  radar: (d) => ((d.axes || []).length >= 3 && (d.series || []).some((s) => (s.values || []).length)) || "no radar axes or values",
+  scatter: (d) => (d.series || []).some((s) => (s.points || []).length) || "no scatter points",
+  kaplanMeier: (d) => (d.km?.groups || []).some((g) => (g.steps || []).length >= 2) || "no survival steps",
+};
+
+/** A digitized panel carries values, not code — so the audit is about whether
+ *  the values are actually there and in the family they claim. */
+function auditDigitized(demo) {
+  const d = demo?.digitized;
+  const kind = d?.kind;
+  if (!kind) return "the panel claimed to reproduce a figure but came back with no chart family";
+  const check = DIGITIZED_CARRIERS[kind];
+  if (!check) return `the panel came back as a “${kind}” chart, which there's no renderer for`;
+  const verdict = check(d);
+  if (verdict !== true) return `the ${kind} came back with ${verdict}`;
+  return null;
+}
+
 export function auditPanel(panel) {
   const demo = panel?.demo;
+  /* A figure reproduced in its own chart family (heat map, box, violin,
+   * stacked, radar, survival…) has no kernel and no dials by design: the
+   * paper's values ARE the panel. Running the x-y audit over it would reject
+   * every one of them for having no computeJs. */
+  if (demo?.kind === "digitized") return auditDigitized(demo);
   if (!demo?.computeJs) return "the panel came back without any code";
 
   let fn;

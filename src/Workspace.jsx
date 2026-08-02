@@ -32,7 +32,7 @@ import { buildExplainer, fetchSceneAudio } from "./narrate.js";
 import { useVoiceOutput } from "./useVoice.js";
 import LayoutEditor from "./LayoutEditor.jsx";
 import DigitizerEditor from "./DigitizerEditor.jsx";
-import { DigitizedPanel, isSpecialDigitized, PALETTE } from "./DigitizedPanels.jsx";
+import { DigitizedPanel, isSpecialDigitized, isDigitizedDemo, panelFromDemo, PALETTE } from "./DigitizedPanels.jsx";
 import DesignBox from "./DesignBox.jsx";
 import { loadLayout, saveLayout, layoutStyle, sectionByKey } from "./layout.js";
 import { generatePanel, PANEL_SOFT_CAP } from "./panelGen.js";
@@ -3948,10 +3948,17 @@ function NotebookDrawer({ open, entries, highlights = [], onClose, onRemove, onC
                   {e.panel?.story && (
                     <p className="mb-2 text-[12px] leading-snug text-slate-600">{e.panel.story}</p>
                   )}
+                  {/* An on-demand panel can now come back as a faithful
+                      reproduction of a real figure (heat map, box, violin,
+                      stacked, radar, survival) rather than an x-y kernel — the
+                      same dispatch the Results tab does, so a built panel looks
+                      like its figure instead of being flattened into a line. */}
                   {e.panel?.demo && (
-                    e.panel.demo.kind === "frames"
-                      ? <DemoFrames demo={e.panel.demo} />
-                      : <DemoChart demo={e.panel.demo} />
+                    isDigitizedDemo(e.panel.demo)
+                      ? <DigitizedPanel panel={panelFromDemo(e.panel.demo, e.panel.title)} height={220} />
+                      : e.panel.demo.kind === "frames"
+                        ? <DemoFrames demo={e.panel.demo} />
+                        : <DemoChart demo={e.panel.demo} />
                   )}
                 </div>
               ))}

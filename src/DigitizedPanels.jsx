@@ -19,6 +19,7 @@ import {
   RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar,
   ResponsiveContainer, Tooltip, Legend,
 } from "recharts";
+import { buildHelpers } from "./engine.js";
 
 /** Categorical palette — order fixed, never cycled mid-chart. Validated:
  *  worst adjacent-pair ΔE(Lab) = 46.4 in both normal vision and deuteranopia
@@ -1056,4 +1057,161 @@ export function DigitizedPanel({ panel, height }) {
 /** True when this panel needs one of the special (non x–y) renderers. */
 export function isSpecialDigitized(panel) {
   return SPECIAL_DIGITIZED_KINDS.includes(panel?.digitized?.kind);
+}
+
+/* ---------------- the paper's own reported x–y values, standalone ----------------
+ *
+ * The Results tab renders plain line/bar/scatter panels through PanelChart,
+ * which needs `baseRun`/`actRun` from the live simulation pipeline. Everywhere
+ * ELSE a figure can be asked for — the reader's figure card, a text selection
+ * naming "Fig. 4" — that pipeline isn't running, and a panel whose dataSource
+ * is "reported" doesn't need it: its computeJs returns the paper's published
+ * numbers as literals, so it evaluates to the same values on every call. This
+ * is what lets those figures come back for free instead of being handed to the
+ * metered builder to reinvent. */
+
+/** Run a `dataSource: "reported"` panel's kernel once. Returns
+ *  {x?, categories?, series} or null if it can't be evaluated honestly. */
+export function evalReportedPanel(panel) {
+  if (!panel || panel.reproduce === false) return null;
+  if (panel.dataSource !== "reported") return null;
+  const code = String(panel.computeJs || "").trim();
+  if (!code) return null;
+  try {
+    // eslint-disable-next-line no-new-func
+    const fn = new Function("outputs", "params", "helpers", code);
+    const out = fn({}, {}, buildHelpers({ T: 10, dt: 0.05 }));
+    const series = (out?.series || []).filter((s) => Array.isArray(s?.data) && s.data.length);
+    if (!series.length) return null;
+    return { x: out.x, categories: out.categories, series };
+  } catch {
+    return null;
+  }
+}
+
+/** Plain line/bar/scatter of the paper's own reported values — no model
+ *  overlay, no sliders, because there is nothing here to vary. */
+export function ReportedPanel({ panel, height = 200 }) {
+  const [hover, setHover] = useState(null);
+  const run = React.useMemo(() => evalReportedPanel(panel), [panel]);
+  if (!run) return null;
+
+  const kind = panel.chartKind || "line";
+  const { series, categories } = run;
+  const n = Math.max(...series.map((s) => s.data.length));
+  const xs = run.x && run.x.length >= n ? run.x.slice(0, n) : Array.from({ length: n }, (_, i) => i);
+
+  let y0 = Infinity, y1 = -Infinity;
+  for (const s of series) for (const v of s.data) {
+    if (!Number.isFinite(v)) continue;
+    if (v < y0) y0 = v;
+    if (v > y1) y1 = v;
+  }
+  if (!Number.isFinite(y0)) return null;
+  if (kind === "bar" && y0 > 0) y0 = 0;          // bars must be read from a baseline
+  const pad = (y1 - y0) * 0.08 || Math.abs(y1) * 0.08 || 1;
+  y0 -= pad; y1 += pad;
+
+  const x0 = Math.min(...xs), x1 = Math.max(...xs);
+  const W = 320, H = height, padL = 40, padR = 8, padT = 8, padB = categories ? 30 : 24;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const px = (v) => padL + plotW * ((v - x0) / ((x1 - x0) || 1));
+  const py = (v) => padT + plotH * (1 - (v - y0) / ((y1 - y0) || 1));
+  const shell = { ...panel, digitized: { source: panel.digitized?.source || "the paper's reported values" } };
+
+  const bandW = plotW / Math.max(1, n);
+  const barW = Math.max(2, (bandW * 0.7) / series.length);
+
+  return (
+    <PanelShell panel={shell} footer={
+      <>
+        <Readout idle={`${panel.yLabel || "value"} — the paper's own reported numbers`}
+          hover={hover && <><strong>{hover.label}</strong> · {hover.at} → {fmt(hover.value, 3)}</>} />
+        <ChipLegend items={series.map((s, i) => ({ label: s.label || `series ${i + 1}`, color: s.color || HUES[i % HUES.length] }))} />
+      </>}>
+      <div className="overflow-x-auto">
+        <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ minWidth: 260 }}>
+          {[0, 0.25, 0.5, 0.75, 1].map((t, i) => (
+            <g key={i}>
+              <line x1={padL} y1={padT + plotH * t} x2={W - padR} y2={padT + plotH * t} stroke="#eceae4" strokeWidth="1" />
+              <text x={padL - 4} y={padT + plotH * t + 3} textAnchor="end" fontSize="7.5" fill="#94a3b8">
+                {fmt(y1 - (y1 - y0) * t, Math.abs(y1 - y0) < 10 ? 2 : 0)}
+              </text>
+            </g>
+          ))}
+          {series.map((s, si) => {
+            const col = s.color || HUES[si % HUES.length];
+            if (kind === "bar") {
+              return s.data.map((v, i) => Number.isFinite(v) && (
+                <rect key={`${si}-${i}`}
+                  x={padL + bandW * i + bandW * 0.15 + barW * si}
+                  y={Math.min(py(v), py(Math.max(0, y0)))}
+                  width={barW} height={Math.abs(py(v) - py(Math.max(0, y0)))}
+                  fill={col} opacity="0.85"
+                  onMouseEnter={() => setHover({ label: s.label || `series ${si + 1}`, at: categories?.[i] ?? fmt(xs[i], 2), value: v })}
+                  onMouseLeave={() => setHover(null)} />
+              ));
+            }
+            if (kind === "scatter") {
+              return s.data.map((v, i) => Number.isFinite(v) && (
+                <circle key={`${si}-${i}`} cx={px(xs[i])} cy={py(v)} r="2.6" fill={col} opacity="0.8"
+                  onMouseEnter={() => setHover({ label: s.label || `series ${si + 1}`, at: fmt(xs[i], 2), value: v })}
+                  onMouseLeave={() => setHover(null)} />
+              ));
+            }
+            const dpath = s.data
+              .map((v, i) => (Number.isFinite(v) ? `${i && Number.isFinite(s.data[i - 1]) ? "L" : "M"}${px(xs[i])} ${py(v)}` : ""))
+              .join(" ");
+            return <path key={si} d={dpath} fill="none" stroke={col} strokeWidth="1.8" strokeLinejoin="round" />;
+          })}
+          {categories && n <= 12 && categories.slice(0, n).map((c, i) => (
+            <text key={i} x={padL + bandW * (i + 0.5)} y={H - 14} textAnchor="middle" fontSize="7.5" fill="#94a3b8">
+              {String(c).length > 9 ? `${String(c).slice(0, 8)}…` : c}
+            </text>
+          ))}
+          <text x={padL + plotW / 2} y={H - 3} textAnchor="middle" fontSize="8.5" fill="#94a3b8">{panel.xLabel || ""}</text>
+        </svg>
+      </div>
+    </PanelShell>
+  );
+}
+
+/** One panel, rendered faithfully and for FREE wherever the simulation
+ *  pipeline isn't running: the special families through their own renderer,
+ *  plain reported x–y through ReportedPanel. Returns null when neither path
+ *  can honestly draw it — the caller then falls through to the metered
+ *  builder. */
+export function FreePanel({ panel, height }) {
+  if (isSpecialDigitized(panel)) return <DigitizedPanel panel={panel} height={height} />;
+  return <ReportedPanel panel={panel} height={height} />;
+}
+
+/** Which of a figure's panels can be drawn for free, right now. This is the
+ *  single predicate every "make it live" entry point asks before spending
+ *  credit — the bug was that only ONE of them asked, and only about the
+ *  special families. */
+export function freePanels(panels) {
+  return (panels || []).filter(
+    (p) => p && p.reproduce !== false && (isSpecialDigitized(p) || !!evalReportedPanel(p)),
+  );
+}
+
+/* ---------------- on-demand panels that came back digitized ----------------
+ * `generate-panel` can now answer with a full digitized carrier instead of an
+ * x-y kernel (see DIGITIZED_SCHEMA in paperSpec.js). Its output is a `demo`,
+ * not a resultFigures panel, so it gets adapted into the shape the renderers
+ * above already read. */
+
+export function isDigitizedDemo(demo) {
+  return demo?.kind === "digitized" && SPECIAL_DIGITIZED_KINDS.includes(demo?.digitized?.kind);
+}
+
+export function panelFromDemo(demo, title) {
+  return {
+    subplotLabel: title || demo?.caption || "Live figure",
+    xLabel: demo?.xLabel || "",
+    yLabel: demo?.yLabel || "",
+    chartKind: demo?.chartKind || "line",
+    digitized: demo?.digitized || {},
+  };
 }

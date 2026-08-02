@@ -41,7 +41,8 @@ import { buildInlineRefs, locateQuote, matchEvidence, sectionKeyAt, quoteRects, 
 import { scanRobustness } from "./robustness.js";
 import { askSectionAssistant, buildSectionContext } from "./sectionChat.js";
 import { HL_COLORS, colorOf } from "./highlights.js";
-import { DigitizedPanel, isSpecialDigitized } from "./DigitizedPanels.jsx";
+import { FreePanel, freePanels } from "./DigitizedPanels.jsx";
+import { resolveFigureForPanel } from "./figureResolve.js";
 
 const BASE_SCALE = 1.5;
 const THUMB_SCALE = 0.26;
@@ -450,6 +451,14 @@ export function PaperReader({
     return m;
   }, [spec]);
 
+  /* Every "make it live" gesture resolves through the SAME function (see
+   * figureResolve.js) — that a figure came back faithful from the figure card
+   * and fabricated from a text selection was the whole bug. */
+  const resolveFigure = useCallback(
+    (quote, figNum) => resolveFigureForPanel(quote, figNum, figByNum),
+    [figByNum],
+  );
+
   /* ---- hand the paper's own outline to whoever owns the rail ---- */
   useEffect(() => {
     if (!index || !onOutline) return;
@@ -752,6 +761,15 @@ export function PaperReader({
     // confirmation and the notebook; the reader just hands over the passage
     // and where in the paper it came from.
     if (key === "panel") {
+      // …unless the passage is about a figure the analysis already traced. Then
+      // the honest, faithful, free answer exists and the metered one would be a
+      // reconstruction of it from a sentence.
+      const fig = resolveFigure(quote, sel.figNum);
+      if (fig) {
+        setCard({ at: { x: sel.x, y: sel.y }, kind: "figure", label: fig.label, payload: { ...fig, citing: quote } });
+        done();
+        return;
+      }
       onBuildPanel?.({ quote, page, sectionLabel: HEAD_LABEL[sel.head] || "this part of the paper", sectionId: sectionId || "story" });
       done();
       return;
@@ -767,6 +785,14 @@ export function PaperReader({
      * selection, at the server's own 2,000-character limit. */
     if (key === "panel-table") {
       const raw = sel.text.length > 1800 ? `${sel.text.slice(0, 1800)}…` : sel.text;
+      // Same short-circuit: a "table" selection that is really a figure caption
+      // (numerals-dense text under a plot) must not be sent off to be invented.
+      const figT = resolveFigure(raw, sel.figNum);
+      if (figT) {
+        setCard({ at: { x: sel.x, y: sel.y }, kind: "figure", label: figT.label, payload: { ...figT, citing: quote } });
+        done();
+        return;
+      }
       onBuildPanel?.({
         quote: raw,
         page,
@@ -822,7 +848,7 @@ export function PaperReader({
     if (!payload.initialAsk && !payload.initialDraft) return;
     onAsk(payload);
     done();
-  }, [sel, onAsk, onBuildPanel, onKeep, onHighlight, spec, page, sectionId, section?.title, figByNum]);
+  }, [sel, onAsk, onBuildPanel, onKeep, onHighlight, spec, page, sectionId, section?.title, figByNum, resolveFigure]);
 
   if (!open) return null;
 
@@ -1396,16 +1422,16 @@ function XrefCard({
              *  figures the analysis couldn't honestly digitize (or that have no
              *  panels at all) fall through to the on-demand builder below. */}
             {(() => {
-              const readyPanels = (p.panels || []).filter((pn) => pn.reproduce !== false && isSpecialDigitized(pn));
-              if (!readyPanels.length) return null;
+              const ready = freePanels(p.panels);
+              if (!ready.length) return null;
               return (
                 <div className="mt-2 mb-1 flex flex-col gap-2">
                   <div className="text-[9.5px] font-semibold uppercase tracking-wide text-emerald-400">
                     Live — traced from this figure's own numbers
                   </div>
-                  {readyPanels.map((panel, pi) => (
+                  {ready.map((panel, pi) => (
                     <div key={pi} className="rounded-lg bg-white p-1">
-                      <DigitizedPanel panel={panel} height={180} />
+                      <FreePanel panel={panel} height={180} />
                     </div>
                   ))}
                 </div>
@@ -1429,7 +1455,7 @@ function XrefCard({
                   <Sparkles size={13} /> Explain this figure
                 </button>
               )}
-              {onBuildPanel && !(p.panels || []).some((pn) => pn.reproduce !== false && isSpecialDigitized(pn)) && (
+              {onBuildPanel && !freePanels(p.panels).length && (
                 <button
                   onClick={() => {
                     const digest = digestPanels(p.panels);
