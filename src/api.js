@@ -112,7 +112,7 @@ function fallbackTier(tier, phase) {
 /** One phase call: streams NDJSON progress, returns {spec, cost, remainingBalance}.
  *  `repair` is an optional list of validation problems from a previous
  *  attempt, fed back to the analyzer so it regenerates correctly. */
-async function runPhase(pdfBase64, tier, hints, phase, contextSpec, token, report, repair = null, codeText = null) {
+async function runPhase(paper, tier, hints, phase, contextSpec, token, report, repair = null, codeText = null) {
   let res;
   try {
     res = await fetch(`${functionsUrl}/analyze-paper`, {
@@ -122,7 +122,11 @@ async function runPhase(pdfBase64, tier, hints, phase, contextSpec, token, repor
         Authorization: `Bearer ${token}`,
         apikey: supabaseAnonKey,
       },
-      body: JSON.stringify({ pdfBase64, tierId: tier.id, hints, phase: phase.id, contextSpec, repair, codeText }),
+      /* `paper` is either { pdfPath } — the paper already in private storage,
+       * named once per phase — or { pdfBase64 } for callers with nothing
+       * stored. The path form is what stops a five-phase analysis re-uploading
+       * the whole PDF five times over the reader's uplink. */
+      body: JSON.stringify({ ...paper, tierId: tier.id, hints, phase: phase.id, contextSpec, repair, codeText }),
     });
   } catch (netErr) {
     /* fetch() rejects only when the request never completed: DNS, TLS, the
@@ -238,13 +242,13 @@ const MAX_NETWORK_RETRIES = 3;
  * Returns { result, tier } — the tier that succeeded, so a follow-up quality
  * retry doesn't jump back to one we already know is too slow for this paper.
  */
-async function runPhaseWithFallback(pdfBase64, tier, hints, phase, contextSpec, token, report, codeText) {
+async function runPhaseWithFallback(paper, tier, hints, phase, contextSpec, token, report, codeText) {
   let attempt = tier;
   let retriedThisTier = false;
   let netRetries = 0;
   for (let calls = 1; ; calls++) {
     try {
-      const result = await runPhase(pdfBase64, attempt, hints, phase, contextSpec, token, report, null, codeText);
+      const result = await runPhase(paper, attempt, hints, phase, contextSpec, token, report, null, codeText);
       return { result, tier: attempt };
     } catch (err) {
       const code = err?.code;
@@ -295,13 +299,18 @@ async function runPhaseWithFallback(pdfBase64, tier, hints, phase, contextSpec, 
 }
 
 /**
- * Analyze a paper PDF (base64 string, no newlines) with the given model tier
- * (defaults to the stored/most-capable tier). `hints` is optional reader
- * guidance {domain, focus, signal, notes} appended to the prompt.
- * onProgress({pct,label}) is called as the request advances.
- * Returns { spec, cost, remainingBalance }.
+ * Analyze a paper PDF with the given model tier (defaults to the stored/most-
+ * capable tier). `hints` is optional reader guidance {domain, focus, signal,
+ * notes} appended to the prompt. onProgress({pct,label}) is called as the
+ * request advances. Returns { spec, cost, remainingBalance }.
+ *
+ * `pdfBase64` is always needed for the session phase cache (it identifies the
+ * document). `pdfPath` — the paper's key in private storage — is what actually
+ * travels: naming it once per phase replaces five full uploads of the same
+ * bytes. Without a path the base64 goes up as before, so a deployment or an
+ * account with no storage still analyses fine.
  */
-export async function analyzePaper(pdfBase64, onProgress, tier = getModelTier(), hints = null, validators = null, codeText = null) {
+export async function analyzePaper(pdfBase64, onProgress, tier = getModelTier(), hints = null, validators = null, codeText = null, pdfPath = null) {
   const report = (pct, label) => onProgress?.({ pct, label });
 
   if (!functionsUrl) {
@@ -314,6 +323,8 @@ export async function analyzePaper(pdfBase64, onProgress, tier = getModelTier(),
   }
 
   report(2, "Uploading the paper…");
+
+  const paper = pdfPath ? { pdfPath } : { pdfBase64 };
 
   const spec = {};
   let totalCost = 0;
@@ -343,7 +354,7 @@ export async function analyzePaper(pdfBase64, onProgress, tier = getModelTier(),
       // A timed-out stage retries down the tier ladder, so one slow stage
       // never wastes the whole (paid) run.
       const attempt = await runPhaseWithFallback(
-        pdfBase64, tier, hints, phase, contextSpec, token, report, codeText,
+        paper, tier, hints, phase, contextSpec, token, report, codeText,
       );
       result = attempt.result;
       const ranOn = attempt.tier;
@@ -362,7 +373,7 @@ export async function analyzePaper(pdfBase64, onProgress, tier = getModelTier(),
             // `ranOn`, not `tier`: if this phase already had to drop to a
             // faster level to finish, the regeneration must not climb back to
             // one that just timed out on this paper.
-            const retry = await runPhase(pdfBase64, ranOn, hints, phase, contextSpec, token, report, problems, codeText);
+            const retry = await runPhase(paper, ranOn, hints, phase, contextSpec, token, report, problems, codeText);
             const candidate2 = mergePhase({ ...spec }, phase, retry.spec);
             let problems2 = null;
             try { problems2 = validator(candidate2); } catch { /* keep retry */ }

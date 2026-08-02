@@ -125,6 +125,21 @@ export async function uploadPaperPdf(file) {
 }
 
 /**
+ * Remove a stored paper.
+ *
+ * The paper is uploaded BEFORE the analysis runs, so the five phases can name
+ * its key instead of re-sending the file five times. If the analysis then
+ * fails there is no library row pointing at that object, and a paper the
+ * reader never got an analysis for must not sit in storage — this is how it
+ * goes away.
+ */
+export async function deletePaperPdf(pdfPath) {
+  if (!supabase || !pdfPath) return;
+  const { error } = await supabase.storage.from(PAPER_BUCKET).remove([pdfPath]);
+  if (error) console.warn("Could not remove the stored paper:", error.message);
+}
+
+/**
  * A short-lived read URL for a stored paper. The bucket is private, so this is
  * the only way to open one — and it only succeeds for the object's owner.
  */

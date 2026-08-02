@@ -35,7 +35,7 @@ import {
   compileSpec, buildHelpers, defaultsFromSpec, runSpec, validateResultFigures,
   auditPipeline, auditResultFiguresQuality, auditFigureFidelity, auditFoundations, auditExplorables,
 } from "./engine.js";
-import { authEnabled, onAuthChange, signOut, getBalance, saveAnalysis, uploadPaperPdf } from "./supabase.js";
+import { authEnabled, onAuthChange, signOut, getBalance, saveAnalysis, uploadPaperPdf, deletePaperPdf } from "./supabase.js";
 
 const BG_URL = `${import.meta.env.BASE_URL}Background.png`;
 
@@ -974,7 +974,32 @@ export default function App() {
         ? codeFiles.map((f) => `\n===== FILE: ${f.name} =====\n${f.text}`).join("\n")
         : null;
 
-      const { spec: newSpec, remainingBalance } = await analyzePaper(base64, setProgress, tier, hints, validators, codeText);
+      /* Store the paper BEFORE the analysis, not after.
+       *
+       * The analysis is five sequential edge calls, and each one used to carry
+       * the whole base64 PDF up from the browser — a 20 MB paper went up five
+       * times, which is minutes of a home uplink and the thing that was
+       * dropping mid-flight and killing paid runs. Uploaded once, every phase
+       * just names the key and the function reads it same-region.
+       *
+       * The paper was going to be stored anyway (that is what makes it
+       * re-readable later), so this is the same consent, taken earlier. If the
+       * analysis then fails, the orphan is removed below — an unanalyzed paper
+       * must not linger in storage.
+       */
+      let pdfPath = null;
+      if (authEnabled && session) {
+        setProgress({ pct: 3, label: "Uploading the paper…" });
+        try { pdfPath = await uploadPaperPdf(file); } catch { /* fall back to inline base64 */ }
+      }
+
+      let newSpec, remainingBalance;
+      try {
+        ({ spec: newSpec, remainingBalance } = await analyzePaper(base64, setProgress, tier, hints, validators, codeText, pdfPath));
+      } catch (e) {
+        if (pdfPath) { try { await deletePaperPdf(pdfPath); } catch { /* best effort */ } }
+        throw e;
+      }
       if (typeof remainingBalance === "number") setBalance(remainingBalance);
 
       setProgress({ pct: 86, label: "Cropping figures from the paper…" });
@@ -1021,11 +1046,15 @@ export default function App() {
       // itself rides along, privately, so a reopened analysis can still show the
       // paper — the reading surface, not just our summary of it.
       if (authEnabled && session) {
-        setProgress({ pct: 97, label: "Storing the paper privately…" });
-        // Never let a storage failure sink an analysis that was already paid
-        // for: a null path just means this paper opens summary-only.
-        let pdfPath = null;
-        try { pdfPath = await uploadPaperPdf(file); } catch { /* summary-only */ }
+        // The paper is already in storage — it was uploaded before the analysis
+        // so the phases could name it instead of re-sending it. Only if that
+        // upload failed (and the run fell back to inline base64) is there
+        // anything left to store; a null path just means summary-only, which
+        // must never sink an analysis that was already paid for.
+        if (!pdfPath) {
+          setProgress({ pct: 97, label: "Storing the paper privately…" });
+          try { pdfPath = await uploadPaperPdf(file); } catch { /* summary-only */ }
+        }
         setProgress({ pct: 98, label: "Saving to your library…" });
         // Keep the row id on the spec: making a figure live later writes its
         // panels back to this row rather than charging for the same read again.

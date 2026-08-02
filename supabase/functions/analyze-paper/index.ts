@@ -102,7 +102,38 @@ Deno.serve(async (req) => {
     return json(400, { error: "Invalid JSON body." });
   }
 
-  const { pdfBase64, tierId, hints, phase, contextSpec, repair, codeText } = body || {};
+  const { tierId, hints, phase, contextSpec, repair, codeText, pdfPath } = body || {};
+
+  /* The paper reaches this function one of two ways.
+   *
+   * `pdfPath` is the normal one: the browser uploads the PDF to private
+   * storage ONCE, and every phase names it. An analysis is five sequential
+   * calls, so the old inline route pushed the whole base64 paper up the
+   * reader's uplink five times — a 20 MB paper became a 130 MB upload, which
+   * is slow on any home connection and is exactly what was dropping mid-flight
+   * and failing whole paid runs. Fetching it here instead is a same-region
+   * read measured in milliseconds.
+   *
+   * `pdfBase64` stays supported for callers with nothing stored (a failed
+   * upload, a deployment without the papers bucket) so analysis never becomes
+   * contingent on storage.
+   */
+  let pdfBase64 = body?.pdfBase64;
+  if (!pdfBase64 && typeof pdfPath === "string" && pdfPath) {
+    /* Storage keys are `{user_id}/{uuid}.pdf`. This function holds the service
+     * role key, which bypasses row-level security — so ownership has to be
+     * checked HERE. Without it, any signed-in caller could name another
+     * account's key and have their paper read back to them. */
+    if (!pdfPath.startsWith(`${userId}/`)) {
+      return json(403, { error: "That paper doesn't belong to this account." });
+    }
+    const { data: file, error: dlErr } = await admin.storage.from("papers").download(pdfPath);
+    if (dlErr || !file) {
+      return json(404, { error: "The stored paper couldn't be read — re-upload it and try again." });
+    }
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    pdfBase64 = base64FromBytes(bytes);
+  }
   if (!pdfBase64 || typeof pdfBase64 !== "string") {
     return json(400, { error: "Missing pdfBase64." });
   }
@@ -402,6 +433,21 @@ Deno.serve(async (req) => {
     headers: { ...CORS_HEADERS, "Content-Type": "application/x-ndjson; charset=utf-8" },
   });
 });
+
+/** Base64 for up to ~32 MB of PDF bytes.
+ *
+ *  Chunked deliberately: String.fromCharCode(...bytes) spreads every byte as
+ *  an argument and blows the call-stack limit somewhere in the low hundreds of
+ *  kB — on a real paper it would throw rather than return a wrong answer, but
+ *  it would throw on exactly the papers this path exists to carry. */
+function base64FromBytes(bytes) {
+  const CHUNK = 0x8000;
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(binary);
+}
 
 function json(status, body) {
   return new Response(JSON.stringify(body), {
