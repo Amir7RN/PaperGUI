@@ -1027,7 +1027,12 @@ export default function App() {
         let pdfPath = null;
         try { pdfPath = await uploadPaperPdf(file); } catch { /* summary-only */ }
         setProgress({ pct: 98, label: "Saving to your library…" });
-        try { await saveAnalysis(newSpec, pdfPath); } catch { /* library save is best-effort */ }
+        // Keep the row id on the spec: making a figure live later writes its
+        // panels back to this row rather than charging for the same read again.
+        try {
+          const row = await saveAnalysis(newSpec, pdfPath);
+          if (row?.id) newSpec.analysisId = row.id;
+        } catch { /* library save is best-effort */ }
       }
 
       // The paper is readable in THIS session regardless of whether it was

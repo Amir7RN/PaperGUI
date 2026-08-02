@@ -1172,6 +1172,42 @@ const explainerHalf = (half) => ({
   properties: { [half]: explainerSectionSchema },
 });
 
+/* ---------------- figures: identified up front, digitized on demand --------
+ *
+ * Digitizing a figure — classifying its family, reading its values off the
+ * plot, filling the matching carrier — is by far the most expensive thing the
+ * analysis does, and it was done for EVERY result figure of EVERY paper during
+ * phase 5, whether or not the reader ever opened one. That is what made the
+ * up-front run slow and dear.
+ *
+ * So phase 5 now identifies the figures (crop box, title, guided tour,
+ * hotspots, digitize seed) and stops there, and the digitization moves to the
+ * moment a reader asks for THAT figure — see `digitize-figure` and
+ * FIGURE_PANELS_SCHEMA below. Same schema, same rules, same renderers; the
+ * only thing that changed is when it is paid for.
+ */
+const withoutKey = (obj, key) =>
+  Object.fromEntries(Object.entries(obj).filter(([k]) => k !== key));
+
+const resultFiguresIdentifyOnly = {
+  ...P.resultFigures,
+  items: {
+    ...P.resultFigures.items,
+    required: P.resultFigures.items.required.filter((k) => k !== "panels"),
+    properties: withoutKey(P.resultFigures.items.properties, "panels"),
+  },
+};
+
+/** One figure's interactive panels — the whole output of the on-demand
+ *  digitizer. Byte-identical to what phase 5 used to emit inline, so the
+ *  client renderers and validators need no special case. */
+export const FIGURE_PANELS_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["panels"],
+  properties: { panels: P.resultFigures.items.properties.panels },
+};
+
 export const PHASE_SCHEMAS = {
   overview: {
     type: "object",
@@ -1209,7 +1245,7 @@ export const PHASE_SCHEMAS = {
     type: "object",
     additionalProperties: false,
     required: ["resultFigures", "checkpoints", "claims", "flashcards"],
-    properties: { resultFigures: P.resultFigures, checkpoints: P.checkpoints, claims: P.claims, flashcards: P.flashcards },
+    properties: { resultFigures: resultFiguresIdentifyOnly, checkpoints: P.checkpoints, claims: P.claims, flashcards: P.flashcards },
   },
 };
 
@@ -1359,28 +1395,77 @@ export function phaseInstruction(phase, contextSpec) {
         : "")
     );
   }
-  const hasPipeline = !!contextSpec?.blocks?.length;
   return (
-    "\n\nTHIS CALL IS PHASE 5 of 5: produce the fields {resultFigures, checkpoints} per the rules above. " +
-    "Every figure needs page + bbox, 3-6 hotspot markers, and a guided-tour explanation. " +
-    "For EVERY panel, first classify figureFamily + confidence, then make the reproduce decision (honest-degrade) before writing any chart. " +
-    "On the 1-3 most instructive reproduced panels, add a `predict` quiz (predict-then-reveal). " +
-    "Then produce the learning artifacts: `checkpoints` (6-10 active-recall MCQs), `claims` (5-8 headline claims each tagged direct/indirect/asserted with their in-paper evidence), and `flashcards` (8-14 must-remember cards). " +
-    fieldLexiconBlock(contextSpec?.field) + " " +
-    (hasPipeline
-      ? "The pipeline was already produced in the previous call and is given below — 'simulated' panels' " +
-        "computeJs receive ITS block outputs (by block key) and ITS slider params, and helpers.simulate " +
-        "re-runs THIS pipeline; use its exact block keys and param keys. For subplots the pipeline cannot " +
-        "honestly regenerate, use dataSource 'reported' with the paper's own published values instead.\n\n" +
-        "THE PIPELINE (protocol + blocks):\n" +
-        JSON.stringify({ protocol: contextSpec.protocol, blocks: contextSpec.blocks })
-      : "This paper has NO simulation pipeline, so every panel you emit MUST use dataSource 'reported': " +
-        "the paper's own published numbers (from its tables, or values read off its plots) returned as " +
-        "literals — keeping the figures interactive (hover, compare, toggle) without faking a simulation. " +
-        "Omit a subplot only when no honest numbers exist for it (e.g. photographs)." +
-        (contextSpec?.archetype?.reproductionAdvice
-          ? " Phase 1 advice: " + contextSpec.archetype.reproductionAdvice
-          : ""))
+    "\n\nTHIS CALL IS PHASE 5 of 5: produce the fields {resultFigures, checkpoints, claims, flashcards} per the rules above.\n\n" +
+    "FIND AND FRAME THE FIGURES — DO NOT REPRODUCE THEM. " +
+    "For each key result figure emit its page + bbox (so the real figure is cropped and shown), its title, " +
+    "3-6 hotspot markers pinned on the exact visual events that prove something, a guided-tour `explanation`, " +
+    "and — for quantitative plots with readable numeric axes — the `digitizeHint` seed (axis labels, log flags, " +
+    "labelled ticks, curve colours; never curve VALUES). " +
+    "You emit NO `panels` in this call: the interactive reproduction of a figure is built later, on demand, " +
+    "when a reader actually opens that figure, by a separate call that sees that one figure at its own " +
+    "resolution and does nothing else. Reproducing all of them here — for readers who will open one or none " +
+    "— is what made this stage slow and expensive, and reading a whole page while also writing eight panels " +
+    "is what made it inaccurate. Your job is to pick the RIGHT figures and explain them; getting their " +
+    "numbers off the plot is the other call's job.\n\n" +
+    "Then produce the learning artifacts: `checkpoints` (6-10 active-recall MCQs), `claims` (5-8 headline claims " +
+    "each tagged direct/indirect/asserted with their in-paper evidence), and `flashcards` (8-14 must-remember cards)." +
+    fieldLexiconBlock(contextSpec?.field)
+  );
+}
+
+/* ---------------- on-demand figure digitization ----------------
+ * One figure, one crop, one job. This is the deferred half of phase 5.
+ */
+
+/**
+ * @param figureLabel  the paper's own label, e.g. "Fig. 4"
+ * @param title        what the analysis says this figure demonstrates
+ * @param explanation  the analysis's guided tour of it
+ * @param field        meta.field, for the domain lens
+ * @param pipeline     {protocol, blocks} when the paper HAS a live pipeline, else null
+ */
+export function figureDigitizePrompt({ paperTitle, figureLabel, title, explanation, field, pipeline }) {
+  return (
+    "You turn ONE figure of a scientific paper into a faithful interactive reproduction. The image is that " +
+    "figure, cropped out of the paper at its own resolution. A reader has just asked to make it live.\n\n" +
+    (paperTitle ? `PAPER: ${paperTitle}\n` : "") +
+    `FIGURE: ${figureLabel || "(unlabelled)"}\n` +
+    (title ? `WHAT IT DEMONSTRATES: ${title}\n` : "") +
+    (explanation ? `THE ANALYSIS'S GUIDED TOUR OF IT: ${explanation}\n` : "") +
+    "\nEmit one `panels` array: one entry per SUBPLOT in this figure, in reading order.\n\n" +
+    "FOR EVERY SUBPLOT, IN THIS ORDER:\n" +
+    "1. CLASSIFY — set `figureFamily` by LOOKING at the subplot, from the schema's list. A grid of coloured " +
+    "cells is heatmap, never line. A box is box, never bar. A survival staircase is kaplanMeier, never line. " +
+    "Stacked segments are never side-by-side groups, and a horizontal stacked bar is never rotated vertical.\n" +
+    "2. SET `confidence` — 'low' whenever the subplot is small or ambiguous, the axes are unreadable, or you " +
+    "would be guessing values.\n" +
+    "3. DECIDE `reproduce` — TRUE only when the family is one of the 12 renderable ones (line, bar, groupedBar, " +
+    "scatter, box, violin, heatmap, stackedBar, stackedBarH, radar, radialBar, kaplanMeier) AND confidence is " +
+    "high/medium AND honest values exist. Otherwise FALSE with a one-line `degradeReason` the reader sees — " +
+    "no chart at all, and they keep the real cropped figure with its hotspots and tour. Drawing a wrong-family " +
+    "chart to avoid a FALSE is the worst possible outcome and an automatic rejection. Honest-degrade is a " +
+    "correct answer, never a shortfall.\n" +
+    "4. CARRY THE VALUES — when the family is NOT a plain x-y line/bar/scatter, fill the `digitized` object " +
+    "with the matching carrier (grid+rowLabels+colLabels+palette for heatmap; categories[].boxes for box; " +
+    "categories[].violins for violin; groups for groupedBar/radialBar; subPanels for stackedBar; rows for " +
+    "stackedBarH; axes+series for radar; series[].points for scatter; km for kaplanMeier) and set computeJs " +
+    "to the empty string. Match the ORIGINAL'S colours and orientation — read them off the image.\n" +
+    "5. LABEL THE AXES — xLabel and yLabel name the quantity AND its unit exactly as the subplot's own axes " +
+    "read ('unit sales', 'MAPE (%)', 'log₁₀ power density (W/m²)'). A bare word with no unit is a rejection.\n\n" +
+    "You are looking at the real figure — read its actual numbers off it. Do NOT invent a parametric model, " +
+    "do NOT substitute a different quantity, and do NOT pad the figure with subplots it does not have. " +
+    "Fewer subplots read perfectly beats all of them read poorly.\n\n" +
+    (pipeline?.blocks?.length
+      ? "This paper HAS a live simulation pipeline, given below. A subplot the pipeline honestly regenerates " +
+        "may use dataSource 'simulated' with computeJs over ITS block outputs (by block key) and ITS param " +
+        "keys; anything else uses dataSource 'reported'.\n\nTHE PIPELINE (protocol + blocks):\n" +
+        JSON.stringify({ protocol: pipeline.protocol, blocks: pipeline.blocks })
+      : "This paper has NO simulation pipeline, so every panel you emit MUST use dataSource 'reported': the " +
+        "paper's own values, read off this figure or its tables, returned as literals.") +
+    fieldLexiconBlock(field) +
+    "\n\nOn the 1-2 most instructive reproduced panels, add a `predict` quiz (predict-then-reveal) about a " +
+    "relationship the reader must reason about, not something readable straight off the static figure."
   );
 }
 

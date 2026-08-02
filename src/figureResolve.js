@@ -42,5 +42,11 @@ export function resolveFigureForPanel(quote, figNum, figByNum) {
   if (n == null || !figByNum) return null;
   const fig = figByNum.get(n);
   if (!fig) return null;
-  return freePanels(fig.panels).length ? fig : null;
+  /* Two ways a figure answers the request honestly: it is already digitized
+   * (render it, free), or it is one of the paper's own result figures we hold
+   * a crop for, in which case the figure's card offers to digitize THAT figure
+   * — reading the real plot — instead of asking the panel builder to invent a
+   * model of a figure it cannot see. Either beats a fabrication. */
+  if (freePanels(fig.panels).length) return fig;
+  return Number.isInteger(fig.figIndex) ? fig : null;
 }

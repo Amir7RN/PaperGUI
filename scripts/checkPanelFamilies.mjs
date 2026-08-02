@@ -34,6 +34,8 @@ export { default as React } from "react";
 export * from "${path.join(ROOT, "src/DigitizedPanels.jsx").replace(/\\/g, "/")}";
 export { resolveFigureForPanel, figureNumberIn } from "${path.join(ROOT, "src/figureResolve.js").replace(/\\/g, "/")}";
 export { auditPanel } from "${path.join(ROOT, "src/panelGen.js").replace(/\\/g, "/")}";
+export { auditFigurePanels } from "${path.join(ROOT, "src/figureDigitize.js").replace(/\\/g, "/")}";
+export { PHASE_SCHEMAS, FIGURE_PANELS_SCHEMA } from "${path.join(ROOT, "supabase/functions/_shared/paperSpec.js").replace(/\\/g, "/")}";
 export * from "${path.join(ROOT, "scripts/panelFamilies.fixture.js").replace(/\\/g, "/")}";
 `;
 
@@ -147,6 +149,41 @@ ok("an empty carrier is REJECTED rather than shown as a blank rectangle",
   typeof M.auditPanel(emptyHeat) === "string");
 ok("an unrenderable family is rejected by name",
   /forest/.test(M.auditPanel({ demo: { kind: "digitized", digitized: { kind: "forest" } } }) || ""));
+
+/* ---- 4. deferred digitization: phase 5 identifies, the reader's click reads ---- */
+console.log("\ndeferred digitization — figures are found up front, read on demand");
+
+const figProps = M.PHASE_SCHEMAS.results.properties.resultFigures.items;
+ok("phase 5 no longer asks for panels", !("panels" in figProps.properties));
+ok("phase 5 still asks for the crop box and the guided tour",
+  ["figureLabel", "page", "bbox", "title", "explanation"].every((k) => figProps.required.includes(k)));
+ok("the on-demand call carries the full panel schema", !!M.FIGURE_PANELS_SCHEMA.properties.panels);
+
+for (const [kind, panel] of Object.entries(M.DIGITIZED_PANELS)) {
+  const { panels, problems } = M.auditFigurePanels([panel]);
+  ok(`${kind} — survives the on-demand figure check`, panels.length === 1, problems || "");
+}
+for (const [kind, panel] of Object.entries(M.XY_PANELS)) {
+  const { panels } = M.auditFigurePanels([panel]);
+  ok(`${kind} — reported x-y survives the on-demand figure check`, panels.length === 1);
+}
+{
+  const { panels, problems } = M.auditFigurePanels([
+    { subplotLabel: "(a)", reproduce: false, degradeReason: "This is a forest plot — shown as the paper's own figure." },
+  ]);
+  ok("an honest-degrade panel is KEPT, not treated as a failure", panels.length === 1 && !problems);
+}
+{
+  const { panels, problems } = M.auditFigurePanels([{ subplotLabel: "(a)", reproduce: false, degradeReason: "" }]);
+  ok("a degrade with no reason is sent back for a retry", panels.length === 0 && /degradeReason/.test(problems || ""));
+}
+{
+  const { panels, problems } = M.auditFigurePanels([
+    { subplotLabel: "(a)", reproduce: true, digitized: { kind: "heatmap", source: "Fig. 4", grid: [] } },
+  ]);
+  ok("an empty heatmap is dropped with a reason, never drawn blank",
+    panels.length === 0 && /heatmap/.test(problems || ""));
+}
 
 /* ---- coverage: the family list itself must not quietly shrink ---- */
 console.log("\ncoverage");

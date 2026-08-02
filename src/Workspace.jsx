@@ -36,6 +36,8 @@ import { DigitizedPanel, isSpecialDigitized, isDigitizedDemo, panelFromDemo, PAL
 import DesignBox from "./DesignBox.jsx";
 import { loadLayout, saveLayout, layoutStyle, sectionByKey } from "./layout.js";
 import { generatePanel, PANEL_SOFT_CAP } from "./panelGen.js";
+import { digitizeFigure } from "./figureDigitize.js";
+import { updateAnalysisSpec } from "./supabase.js";
 import { buildSectionContext } from "./sectionChat.js";
 import { loadNotebook, addPanel, addNote, removeEntry, clearNotebook, panelSpend } from "./notebook.js";
 import { loadHighlights, addHighlight, removeHighlight, colorOf } from "./highlights.js";
@@ -2651,7 +2653,7 @@ function ConceptLab({ spec, params, defaults, setParam, rows, compiled, pinnedT,
 
 /* ---------------- results lab window ---------------- */
 
-function ResultsLab({ spec, pipelineCompiled, helpers, baseOutputs, actOutputs, defaults, params, setParam, onOpenFig, layout, isOwner = false, onTrace }) {
+function ResultsLab({ spec, pipelineCompiled, helpers, baseOutputs, actOutputs, defaults, params, setParam, onOpenFig, layout, isOwner = false, onTrace, onMakeLive, liveJob }) {
   const figs = spec.resultFigures || [];
   const [pageId, setPageId] = useState(figs[0]?.figureLabel || "");
   const [showParams, setShowParams] = useState(false);
@@ -2735,6 +2737,21 @@ function ResultsLab({ spec, pipelineCompiled, helpers, baseOutputs, actOutputs, 
                 <button onClick={() => onTrace(figIndex)}
                   className="flex items-center gap-1.5 rounded-lg border border-blue-300 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-100">
                   <Crosshair size={13} /> Trace figure → real data
+                </button>
+              )}
+              {/* The analysis finds and explains every figure but reproduces
+                  none of them: digitizing eight figures for a reader who opens
+                  one was most of what made a run slow and dear. This is where
+                  that cost is paid, one figure at a time, by the reader who
+                  actually wants THIS figure live. */}
+              {!hasPanels && fig.image && onMakeLive && (
+                <button
+                  onClick={() => onMakeLive(figIndex)}
+                  disabled={liveJob?.status === "working"}
+                  className="flex items-center gap-1.5 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100 disabled:opacity-50">
+                  {liveJob?.status === "working" && liveJob.figIndex === figIndex
+                    ? <><Loader2 size={13} className="animate-spin" /> Reading the figure…</>
+                    : <><SlidersHorizontal size={13} /> Make this figure live (uses credit)</>}
                 </button>
               )}
               {hasPanels && (
@@ -2823,9 +2840,21 @@ function ResultsLab({ spec, pipelineCompiled, helpers, baseOutputs, actOutputs, 
                     {fig.explanation}
                   </p>
                 </div>
+                {fig.image && onMakeLive && (
+                  <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
+                    <strong>Make this figure live</strong> reads this figure at its own resolution and rebuilds
+                    each subplot in its real chart family, from the paper's own values. Only the figures you
+                    ask for are read, so an analysis costs what you actually use.
+                  </p>
+                )}
+                {liveJob?.figIndex === figIndex && liveJob.status === "error" && (
+                  <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] leading-snug text-amber-800">
+                    {liveJob.message}
+                  </p>
+                )}
                 {isOwner && fig.image && (
                   <p className="mt-2 text-[11px] text-slate-400">
-                    Use <strong>Trace figure → real data</strong> above to turn each subplot of this figure into an interactive plot.
+                    Or use <strong>Trace figure → real data</strong> above to trace each subplot by hand.
                   </p>
                 )}
               </div>
@@ -4122,6 +4151,11 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
   // filled in. onSave from the editor writes into this map.
   const [digitizedOverrides, setDigitizedOverrides] = useState({}); // figIndex -> panels[]
   const [traceTarget, setTraceTarget] = useState(null); // figIndex
+  /* On-demand figure digitization lands in the SAME overrides map as the
+   * owner's hand-tracing — one merge path, so a figure made live by a reader
+   * and one traced by hand are indistinguishable downstream.
+   * { figIndex, status: "working" | "error", message? } while one is running. */
+  const [liveJob, setLiveJob] = useState(null);
   const spec = useMemo(() => {
     if (!Object.keys(digitizedOverrides).length) return baseSpec;
     const figs = (baseSpec.resultFigures || []).map((f, fi) =>
@@ -4201,6 +4235,30 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
       setNotebookOpen(true);
     } catch (e) {
       setPanelJob({ ...req, status: "error", message: e?.message || String(e) });
+    }
+  }, [spec]);
+
+  /* Make ONE figure live, on demand — the deferred half of the analysis.
+   *
+   * The result goes into `digitizedOverrides`, the same map the owner's manual
+   * tracer writes to, and is then persisted so the reader never pays twice for
+   * the same figure: reopening the paper from the library brings its live
+   * figures back with it. A failed persist is not a failed digitization — the
+   * figure is live in this session either way. */
+  const makeFigureLive = useCallback(async (figIndex) => {
+    const fig = spec.resultFigures?.[figIndex];
+    if (!fig) return;
+    setLiveJob({ figIndex, status: "working" });
+    try {
+      const { panels } = await digitizeFigure({ figure: fig, spec });
+      setDigitizedOverrides((prev) => ({ ...prev, [figIndex]: panels }));
+      setLiveJob(null);
+      if (spec.analysisId) {
+        const figures = (spec.resultFigures || []).map((f, i) => (i === figIndex ? { ...f, panels } : f));
+        try { await updateAnalysisSpec(spec.analysisId, { ...spec, resultFigures: figures }); } catch { /* live this session regardless */ }
+      }
+    } catch (e) {
+      setLiveJob({ figIndex, status: "error", message: e?.message || String(e) });
     }
   }, [spec]);
 
@@ -4342,6 +4400,7 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
         <PaperReader
           variant="inline" url={spec.paperPdf} title={spec.meta?.title} open
           spec={spec} onAsk={setChatSection} onBuildPanel={requestPanel} onKeep={keepPassage}
+          onMakeFigureLive={makeFigureLive} liveJob={liveJob}
           onOutline={handleOutline} onEvidence={handleEvidence} gotoPage={paperPage}
           highlights={highlights} onHighlight={highlightPassage} onUnhighlight={unhighlight}
         />
@@ -4407,6 +4466,7 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
           spec={spec} pipelineCompiled={compiled} helpers={helpers} baseOutputs={baseline.outputs} actOutputs={active.outputs}
           defaults={defaults} params={params} setParam={setParam} onOpenFig={setLightbox} layout={layout}
           isOwner={isOwner} onTrace={(figIndex) => setTraceTarget(figIndex)}
+          onMakeLive={makeFigureLive} liveJob={liveJob}
         />
       ),
     },

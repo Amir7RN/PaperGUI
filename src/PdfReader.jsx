@@ -335,6 +335,7 @@ const DEFAULT_ACTIONS = ["explain"];
 
 export function PaperReader({
   url, title, open, onClose, spec, section, onAsk, onBuildPanel, onKeep,
+  onMakeFigureLive, liveJob,
   variant = "modal", onOutline, onEvidence, gotoPage,
   highlights, onHighlight, onUnhighlight,
 }) {
@@ -432,9 +433,12 @@ export function PaperReader({
     const m = new Map();
     const numOf = (s) => { const x = String(s || "").match(/(\d{1,2})/); return x ? +x[1] : null; };
     const add = (n, f) => { if (n != null && f?.image && !m.has(n)) m.set(n, f); };
-    for (const f of spec?.resultFigures || []) {
+    (spec?.resultFigures || []).forEach((f, idx) => {
       add(numOf(f.figureLabel), {
         label: f.figureLabel, title: f.title, explanation: f.explanation, image: f.image, page: f.page,
+        // Its index in spec.resultFigures — what "make this figure live" needs
+        // to write the digitized panels back onto the right figure.
+        figIndex: idx,
         // Carry the analysis's own faithful reproduction (axis labels, chart
         // family, and — for box/violin/stacked/heatmap/radar/scatter/KM —
         // the actual digitized numbers) through to the figure card. Without
@@ -442,7 +446,7 @@ export function PaperReader({
         // on and was guessing the chart shape blind.
         panels: f.panels || [],
       });
-    }
+    });
     for (const f of spec?.conceptFigures || []) {
       add(numOf(f.title), {
         label: (String(f.title).split(/[—–-]/)[0] || "").trim() || `Fig. ${numOf(f.title)}`,
@@ -1119,6 +1123,7 @@ export function PaperReader({
           } : null}
           onGoToPage={(p) => { setCard(null); go(p); }}
           onBuildPanel={onBuildPanel ? (req) => { setCard(null); onBuildPanel({ ...req, page }); } : null}
+          onMakeFigureLive={onMakeFigureLive} liveJob={liveJob}
           onRecolor={onHighlight ? (h, color) => onHighlight({ quote: h.quote, page: h.page, sectionLabel: h.sectionLabel, color }) : null}
           onRemoveHighlight={onUnhighlight ? (h) => { setCard(null); onUnhighlight(h.id); } : null}
         />,
@@ -1271,7 +1276,7 @@ function digestPanels(panels) {
 }
 
 function XrefCard({
-  card, onClose, onAsk, onGoToPage, onBuildPanel, onRecolor, onRemoveHighlight,
+  card, onClose, onAsk, onGoToPage, onBuildPanel, onMakeFigureLive, liveJob, onRecolor, onRemoveHighlight,
   paperTitle, spec,
 }) {
   useEffect(() => {
@@ -1455,7 +1460,30 @@ function XrefCard({
                   <Sparkles size={13} /> Explain this figure
                 </button>
               )}
-              {onBuildPanel && !freePanels(p.panels).length && (
+              {/* A REAL result figure gets read, not imagined. The analysis
+                  identified this figure and kept its crop but no longer
+                  digitizes every figure up front, so the honest way to make it
+                  live is to read THIS figure at its own resolution — which is
+                  what onMakeFigureLive does. Handing its caption to the panel
+                  builder instead is how a calendar heat map became an invented
+                  line chart, and it is only the right call for passages and
+                  equations that have no figure behind them at all. */}
+              {onMakeFigureLive && Number.isInteger(p.figIndex) && !freePanels(p.panels).length && (
+                <button
+                  onClick={() => onMakeFigureLive(p.figIndex)}
+                  disabled={liveJob?.status === "working"}
+                  className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-emerald-300/50 bg-emerald-500/10 py-1.5 text-[11.5px] font-semibold text-emerald-200 transition hover:bg-emerald-500/20 hover:text-white disabled:opacity-50">
+                  {liveJob?.status === "working" && liveJob.figIndex === p.figIndex
+                    ? <>Reading this figure…</>
+                    : <><SlidersHorizontal size={13} /> Make this figure live (uses credit)</>}
+                </button>
+              )}
+              {liveJob?.status === "error" && liveJob.figIndex === p.figIndex && (
+                <p className="rounded-lg border border-amber-400/30 bg-amber-500/10 px-2 py-1.5 text-[10.5px] leading-snug text-amber-200">
+                  {liveJob.message}
+                </p>
+              )}
+              {onBuildPanel && !Number.isInteger(p.figIndex) && !freePanels(p.panels).length && (
                 <button
                   onClick={() => {
                     const digest = digestPanels(p.panels);

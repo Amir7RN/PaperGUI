@@ -163,6 +163,27 @@ export async function saveAnalysis(spec, pdfPath = null) {
   return data;
 }
 
+/**
+ * Overwrite a saved analysis' spec in place.
+ *
+ * Used when a reader makes a figure live: that read costs credit, so its
+ * panels have to survive closing the paper rather than being re-bought on
+ * every reopen. Only the spec changes — title, authors and the stored PDF
+ * belong to the original analysis and are left alone.
+ */
+export async function updateAnalysisSpec(id, spec) {
+  if (!supabase || !id) return false;
+  // `paperPdf` is a per-session object/signed URL, never storage. Persisting it
+  // would save a link that is dead by the next open.
+  const { paperPdf, ...persisted } = spec || {};
+  const { error } = await supabase
+    .from("analyses")
+    .update({ spec: persisted })
+    .eq("id", id);
+  if (error) { console.warn("Could not update analysis:", error.message); return false; }
+  return true;
+}
+
 /** List the signed-in user's saved analyses (newest first), metadata only. */
 export async function listAnalyses() {
   if (!supabase) return [];
@@ -189,9 +210,14 @@ export async function getAnalysis(id) {
     .maybeSingle();
   if (error || !data) return null;
   const spec = data.spec;
-  if (spec && data.pdf_path) {
-    const url = await signedPaperUrl(data.pdf_path);
-    if (url) spec.paperPdf = url;
+  if (spec) {
+    // The row this spec came from, so an on-demand figure digitization can be
+    // written back to it instead of being lost on close.
+    spec.analysisId = id;
+    if (data.pdf_path) {
+      const url = await signedPaperUrl(data.pdf_path);
+      if (url) spec.paperPdf = url;
+    }
   }
   return spec;
 }
