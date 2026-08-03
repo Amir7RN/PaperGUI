@@ -10,7 +10,7 @@
  */
 
 import { MERGED_SPEC_KEYS, MODEL_TIERS, modelForPhase } from "../supabase/functions/_shared/paperSpec.js";
-import { getAccessToken, functionsUrl, supabaseAnonKey } from "./supabase.js";
+import { getAccessToken, refreshAccessToken, functionsUrl, supabaseAnonKey } from "./supabase.js";
 
 const TIER_STORAGE = "paper-playground-model-tier";
 
@@ -73,10 +73,75 @@ function mergePhase(spec, phase, phaseSpec) {
   return spec;
 }
 
-/* Completed phases are cached for the session (keyed by document), so a
- * failed or retried analysis NEVER re-pays for stages that already
- * succeeded — retrying resumes where it left off. */
+/* Completed phases are cached (keyed by document), so a failed or retried
+ * analysis NEVER re-pays for stages that already succeeded — retrying resumes
+ * where it left off.
+ *
+ * This used to be an in-memory Map, which meant it only survived a retry in
+ * the same tab, on the same page load. Every real failure mode breaks that: a
+ * reader whose run dies on the last phase closes the error, reloads, presses
+ * go again — and buys all four finished phases a second time. That is money
+ * out of their balance for work already done, and it is the single most
+ * expensive bug this file can have. So it is written to localStorage as each
+ * phase lands.
+ *
+ * Everything here is best-effort: a full quota or a private-mode browser must
+ * degrade to the old in-memory behaviour, never fail an analysis.
+ */
 const phaseCache = new Map();
+
+const PHASE_STORE = "paper-playground-phases-v1";
+/* Long enough that "I'll finish it tomorrow" works; short enough that a
+ * changed analyzer doesn't serve stale phases forever. */
+const PHASE_TTL_MS = 24 * 60 * 60 * 1000;
+/* localStorage is typically 5 MB per origin and is shared with the layout,
+ * notebook and highlights. Phase slices are JSON text (no images yet at this
+ * point), so this ceiling holds several papers without crowding them out. */
+const PHASE_STORE_MAX_CHARS = 3_000_000;
+
+function loadPhaseStore() {
+  try {
+    const raw = localStorage.getItem(PHASE_STORE);
+    if (!raw) return {};
+    const all = JSON.parse(raw);
+    const now = Date.now();
+    let changed = false;
+    for (const [k, v] of Object.entries(all)) {
+      if (!v?.at || now - v.at > PHASE_TTL_MS) { delete all[k]; changed = true; }
+    }
+    if (changed) localStorage.setItem(PHASE_STORE, JSON.stringify(all));
+    return all;
+  } catch { return {}; }
+}
+
+/** Every phase this document has already paid for, newest wins. */
+function restorePhases(key) {
+  const all = loadPhaseStore();
+  for (const [id, entry] of Object.entries(all)) {
+    if (id.startsWith(`${key}:`) && entry?.result && !phaseCache.has(id)) {
+      phaseCache.set(id, entry.result);
+    }
+  }
+}
+
+function rememberPhase(cacheId, result) {
+  phaseCache.set(cacheId, result);
+  try {
+    const all = loadPhaseStore();
+    all[cacheId] = { at: Date.now(), result };
+    let text = JSON.stringify(all);
+    // Over budget: drop whole documents oldest-first until it fits. Dropping a
+    // document rather than a phase keeps every survivor a usable resume point.
+    while (text.length > PHASE_STORE_MAX_CHARS) {
+      const oldest = Object.entries(all).sort((a, b) => (a[1]?.at || 0) - (b[1]?.at || 0))[0];
+      if (!oldest || oldest[0] === cacheId) break;
+      const doc = oldest[0].split(":").slice(0, -1).join(":");
+      for (const id of Object.keys(all)) if (id.startsWith(`${doc}:`)) delete all[id];
+      text = JSON.stringify(all);
+    }
+    localStorage.setItem(PHASE_STORE, text);
+  } catch { /* quota or private mode — the in-memory cache still works */ }
+}
 
 /** Cheap stable key for a base64 document (sampled — full hashing of a
  *  30MB string on the main thread isn't worth it for a session cache). */
@@ -112,7 +177,23 @@ function fallbackTier(tier, phase) {
 /** One phase call: streams NDJSON progress, returns {spec, cost, remainingBalance}.
  *  `repair` is an optional list of validation problems from a previous
  *  attempt, fed back to the analyzer so it regenerates correctly. */
-async function runPhase(paper, tier, hints, phase, contextSpec, token, report, repair = null, codeText = null) {
+async function runPhase(paper, tier, hints, phase, contextSpec, report, repair = null, codeText = null) {
+  /* A FRESH token per call, never the one the run started with.
+   *
+   * An analysis is five sequential calls plus retries and can run for tens of
+   * minutes; a Supabase access token expires (an hour by default, and it may
+   * already be most of an hour old when the reader presses go). The run used
+   * to capture one token up front and reuse it, so a long analysis died at the
+   * gateway with 401 — after the earlier phases had been billed. getSession()
+   * hands back a refreshed token when the old one is close to expiry, so
+   * asking again per phase is the whole fix, and it costs nothing. */
+  const token = await getAccessToken();
+  if (!token) {
+    const e = new Error("Your session expired during the analysis — sign in again and retry; the stages already finished are kept and won't be charged twice.");
+    e.code = "auth";
+    throw e;
+  }
+
   let res;
   try {
     res = await fetch(`${functionsUrl}/analyze-paper`, {
@@ -148,9 +229,21 @@ async function runPhase(paper, tier, hints, phase, contextSpec, token, report, r
   }
 
   if (!res.ok || !res.body) {
+    /* Two different things answer this endpoint with an error, and they do not
+     * agree on where the text goes. Our own function returns {error}; the
+     * platform's gateway — which rejects a bad or EXPIRED JWT before our code
+     * ever runs — returns {message} (sometimes {msg}). Reading only `error`
+     * turned every gateway rejection into a bare "Analysis request failed
+     * (401)", which told the reader nothing and hid the fact that all they
+     * needed was a fresh session. */
     let message = `Analysis request failed (${res.status}).`;
-    try { message = (await res.json())?.error || message; } catch { /* non-JSON error body */ }
-    throw new Error(message);
+    try {
+      const body = await res.json();
+      message = body?.error || body?.message || body?.msg || message;
+    } catch { /* non-JSON error body */ }
+    const e = new Error(message);
+    if (res.status === 401) e.code = "auth";
+    throw e;
   }
 
   const reader = res.body.getReader();
@@ -242,16 +335,30 @@ const MAX_NETWORK_RETRIES = 3;
  * Returns { result, tier } — the tier that succeeded, so a follow-up quality
  * retry doesn't jump back to one we already know is too slow for this paper.
  */
-async function runPhaseWithFallback(paper, tier, hints, phase, contextSpec, token, report, codeText) {
+async function runPhaseWithFallback(paper, tier, hints, phase, contextSpec, report, codeText) {
   let attempt = tier;
   let retriedThisTier = false;
   let netRetries = 0;
+  let refreshedAuth = false;
   for (let calls = 1; ; calls++) {
     try {
-      const result = await runPhase(paper, attempt, hints, phase, contextSpec, token, report, null, codeText);
+      const result = await runPhase(paper, attempt, hints, phase, contextSpec, report, null, codeText);
       return { result, tier: attempt };
     } catch (err) {
       const code = err?.code;
+
+      /* A rejected token is not a rejected paper. The gateway refuses the
+       * request before the model is ever called, so nothing was billed — and
+       * the fix is one refresh, not a cheaper tier and not an abandoned run.
+       * Once only: if a fresh token is refused too, the session is genuinely
+       * gone and the reader has to sign in. */
+      if (code === "auth" && !refreshedAuth) {
+        refreshedAuth = true;
+        report(phase.from, `${phase.title} — renewing your session…`);
+        const fresh = await refreshAccessToken();
+        if (fresh) { calls--; continue; }   // free: nothing was charged
+        throw err;
+      }
 
       /* A dropped upload never reached the model, so nothing was charged and
        * nothing about the request needs to change — just send it again. This
@@ -317,11 +424,9 @@ export async function analyzePaper(pdfBase64, onProgress, tier = getModelTier(),
     throw new Error("Sign-in is not configured for this deployment — analysis is unavailable.");
   }
 
-  const token = await getAccessToken();
-  if (!token) {
+  if (!(await getAccessToken())) {
     throw new Error("Your session has expired. Please sign in again.");
   }
-
   report(2, "Uploading the paper…");
 
   const paper = pdfPath ? { pdfPath } : { pdfBase64 };
@@ -331,7 +436,15 @@ export async function analyzePaper(pdfBase64, onProgress, tier = getModelTier(),
   let remainingBalance = null;
   // cache key covers the code too — analyzing the same PDF with vs without
   // uploaded code must never reuse the other run's phases
-  const key = docKey(pdfBase64) + (codeText ? `+${docKey(codeText)}` : "");
+  /* The tier is part of the key now that this cache outlives the page.
+   * Resuming a failed Advanced run must reuse its Advanced phases — but a
+   * reader who was unhappy with a Fast pass and re-runs at Advanced is asking
+   * for a better analysis, and silently handing back yesterday's Fast phases
+   * would be the wrong kind of free. */
+  const key = `${tier.id}|` + docKey(pdfBase64) + (codeText ? `+${docKey(codeText)}` : "");
+  // Anything this document already paid for in an earlier, failed run — the
+  // whole point being that a retry resumes instead of re-buying.
+  restorePhases(key);
 
   for (const phase of PHASES) {
     // NOTE: the method phase always runs. For papers whose method isn't
@@ -354,7 +467,7 @@ export async function analyzePaper(pdfBase64, onProgress, tier = getModelTier(),
       // A timed-out stage retries down the tier ladder, so one slow stage
       // never wastes the whole (paid) run.
       const attempt = await runPhaseWithFallback(
-        paper, tier, hints, phase, contextSpec, token, report, codeText,
+        paper, tier, hints, phase, contextSpec, report, codeText,
       );
       result = attempt.result;
       const ranOn = attempt.tier;
@@ -373,7 +486,7 @@ export async function analyzePaper(pdfBase64, onProgress, tier = getModelTier(),
             // `ranOn`, not `tier`: if this phase already had to drop to a
             // faster level to finish, the regeneration must not climb back to
             // one that just timed out on this paper.
-            const retry = await runPhase(paper, ranOn, hints, phase, contextSpec, token, report, problems, codeText);
+            const retry = await runPhase(paper, ranOn, hints, phase, contextSpec, report, problems, codeText);
             const candidate2 = mergePhase({ ...spec }, phase, retry.spec);
             let problems2 = null;
             try { problems2 = validator(candidate2); } catch { /* keep retry */ }
@@ -387,7 +500,9 @@ export async function analyzePaper(pdfBase64, onProgress, tier = getModelTier(),
         }
       }
 
-      phaseCache.set(cacheId, result);
+      // Written to disk the moment it lands, not at the end of the run: the
+      // failures that cost money are the ones that happen AFTER this.
+      rememberPhase(cacheId, result);
     }
 
     // Copy only this phase's expected fields — without strict structured

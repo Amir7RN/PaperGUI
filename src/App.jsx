@@ -1072,7 +1072,16 @@ export default function App() {
       setProgress({ pct: 100, label: "Done" });
       setSpec(newSpec);
     } catch (e) {
-      setError(e?.message || String(e));
+      /* Say the one thing a reader needs to hear after a paid run died: the
+       * stages that finished are kept, so pressing go again resumes rather
+       * than re-buying them. Without this the rational move looks like "don't
+       * retry", which is both wrong and the expensive choice. */
+      const msg = e?.message || String(e);
+      setError(
+        /won't be charged twice|already finished/i.test(msg)
+          ? msg
+          : `${msg} Press analyze again to resume — the stages that already finished are kept for 24 hours and won't be charged twice.`,
+      );
     } finally {
       setBusy(false);
       setProgress(null);

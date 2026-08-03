@@ -76,6 +76,23 @@ export async function getAccessToken() {
   return data.session?.access_token || "";
 }
 
+/**
+ * Force a token refresh and return the new access token ("" if it failed).
+ *
+ * getSession() renews a token that is close to expiry, but a request can still
+ * be refused — a clock skew, a token that went stale while the tab slept. An
+ * analysis is a long, already-paid-for run, so one explicit refresh before
+ * giving up is worth far more than it costs.
+ */
+export async function refreshAccessToken() {
+  if (!supabase) return "";
+  try {
+    const { data, error } = await supabase.auth.refreshSession();
+    if (error) return "";
+    return data.session?.access_token || "";
+  } catch { return ""; }
+}
+
 /** Remaining USD credit for the signed-in user (null if unknown/signed out). */
 export async function getBalance() {
   if (!supabase) return null;
