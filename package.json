@@ -7,6 +7,8 @@
     "dev": "vite --open",
     "build": "vite build",
     "check:panels": "node scripts/checkPanelFamilies.mjs",
+    "fixture:prompt": "node scripts/phase-prompt.mjs",
+    "fixture:write": "node scripts/fixture-write.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

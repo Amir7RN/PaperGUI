@@ -6,6 +6,9 @@ playground/
 .env
 .env.*
 
+# assembled phase prompts — regenerable from paperSpec.js at any time
+scratch/
+
 # user papers
 *.pdf
 

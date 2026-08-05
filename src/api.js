@@ -9,7 +9,9 @@
  * account balance server-side (see supabase/functions/analyze-paper).
  */
 
-import { MERGED_SPEC_KEYS, MODEL_TIERS, modelForPhase } from "../supabase/functions/_shared/paperSpec.js";
+import { MODEL_TIERS, modelForPhase } from "../supabase/functions/_shared/paperSpec.js";
+import { PHASES, mergePhase, contextSpecFor } from "./phases.js";
+import { docKey, fixtureKey } from "./fixtureKey.js";
 import { getAccessToken, refreshAccessToken, functionsUrl, supabaseAnonKey } from "./supabase.js";
 
 const TIER_STORAGE = "paper-playground-model-tier";
@@ -45,33 +47,10 @@ export function setModelTier(id) {
  * models — the Advanced tier routes the narrative phases (overview,
  * foundations) to Sonnet and the hard ones (model, method, results) to Opus.
  * See MODEL_TIERS.phaseModels in paperSpec.js.
+ *
+ * PHASES, mergePhase and contextSpecFor now live in ./phases.js so the offline
+ * fixture harness can build byte-identical prompts from the same definitions.
  */
-const PHASES = [
-  { id: "overview",    title: "Story & framing", from: 3,  to: 22,
-    keys: ["meta", "archetype", "story", "mindmap", "conclusion", "references", "conceptFigures"] },
-  { id: "foundations", title: "Background", from: 22, to: 38,
-    keys: ["foundations", "explainer"] },
-  { id: "model",       title: "The model & equations", from: 38, to: 55,
-    keys: ["model", "explainer"] },
-  { id: "method",      title: "Interactive method layer", from: 55, to: 76,
-    keys: ["protocol", "blocks", "explorables"] },
-  { id: "results",     title: "Result figures", from: 76, to: 99,
-    keys: ["resultFigures", "checkpoints", "claims", "flashcards"] },
-];
-
-/** Merge one phase's returned slice into the accumulating spec. Most keys just
- *  overwrite; MERGED_SPEC_KEYS (`explainer`) are produced in halves by two
- *  phases, so overwriting would throw the first half away. */
-function mergePhase(spec, phase, phaseSpec) {
-  for (const k of phase.keys) {
-    const v = phaseSpec?.[k];
-    if (v === undefined) continue;
-    spec[k] = MERGED_SPEC_KEYS.includes(k) && v && typeof v === "object"
-      ? { ...(spec[k] || {}), ...v }
-      : v;
-  }
-  return spec;
-}
 
 /* Completed phases are cached (keyed by document), so a failed or retried
  * analysis NEVER re-pays for stages that already succeeded — retrying resumes
@@ -143,15 +122,55 @@ function rememberPhase(cacheId, result) {
   } catch { /* quota or private mode — the in-memory cache still works */ }
 }
 
-/** Cheap stable key for a base64 document (sampled — full hashing of a
- *  30MB string on the main thread isn't worth it for a session cache). */
-function docKey(pdfBase64) {
-  const n = pdfBase64.length;
-  let h = 0;
-  for (let i = 0; i < n; i += Math.max(1, Math.floor(n / 512))) {
-    h = ((h << 5) - h + pdfBase64.charCodeAt(i)) | 0;
-  }
-  return `${n}:${h}`;
+/* ------------------------------------------------------------------ *
+ * Fixtures — recorded analyses replayed from disk, for development.
+ *
+ * A fixture is what the analyzer produced for one paper, one JSON file per
+ * phase, written by scripts/fixture-write.mjs into public/fixtures/<key>/.
+ * When replay is on, those files prime the phase cache exactly as a resumed
+ * run would, so the app takes the SAME code path with no API call and no
+ * charge — the point being to stop re-buying the same three sample papers
+ * while iterating on the frontend.
+ *
+ * Off unless asked for: VITE_FIXTURES=1, or ?fixtures=1 on a dev server. It
+ * must never engage in production, where a stale recording served as a real
+ * analysis would be indistinguishable from a bug.
+ * ------------------------------------------------------------------ */
+
+function fixturesEnabled() {
+  try {
+    if (import.meta.env.VITE_FIXTURES === "1") return true;
+    return (
+      import.meta.env.DEV &&
+      new URLSearchParams(window.location.search).get("fixtures") === "1"
+    );
+  } catch { return false; }
+}
+
+/** Fetch every recorded phase for this document. Missing files are normal —
+ *  a half-recorded paper replays what exists and pays for the rest. */
+async function loadFixtures(pdfBase64, codeText) {
+  if (!fixturesEnabled()) return new Map();
+  const dir = `${import.meta.env.BASE_URL}fixtures/${fixtureKey(pdfBase64, codeText)}`;
+  const found = new Map();
+  await Promise.all(
+    PHASES.map(async (phase) => {
+      try {
+        const res = await fetch(`${dir}/${phase.id}.json`, { cache: "no-store" });
+        if (!res.ok) return;
+        /* A dev server answers a missing path with index.html rather than a
+         * 404, so res.ok alone would hand JSON.parse a page of markup. */
+        const text = await res.text();
+        if (!text.trimStart().startsWith("{")) return;
+        found.set(phase.id, JSON.parse(text));
+      } catch { /* absent or malformed — just pay for this phase */ }
+    }),
+  );
+  /* Loud on purpose: the failure mode of a content-addressed cache is silence.
+   * A key that doesn't match what the harness wrote looks exactly like replay
+   * being off, and you'd only notice from the bill. */
+  console.info(`[fixtures] ${found.size}/${PHASES.length} phases from ${dir}`);
+  return found;
 }
 
 /**
@@ -420,6 +439,18 @@ async function runPhaseWithFallback(paper, tier, hints, phase, contextSpec, repo
 export async function analyzePaper(pdfBase64, onProgress, tier = getModelTier(), hints = null, validators = null, codeText = null, pdfPath = null) {
   const report = (pct, label) => onProgress?.({ pct, label });
 
+  /* Recorded phases are read BEFORE the sign-in checks: a fully recorded paper
+   * replays with no network at all, which is what makes it usable against a
+   * dev build with no Supabase session. A partial recording still needs an
+   * account for the phases it is missing, so it falls through. */
+  const fixtures = await loadFixtures(pdfBase64, codeText);
+  if (fixtures.size === PHASES.length) {
+    const replayed = {};
+    for (const phase of PHASES) mergePhase(replayed, phase, fixtures.get(phase.id));
+    report(100, "Replayed from a recorded analysis (no charge)");
+    return { spec: replayed, cost: 0, remainingBalance: null };
+  }
+
   if (!functionsUrl) {
     throw new Error("Sign-in is not configured for this deployment — analysis is unavailable.");
   }
@@ -445,6 +476,14 @@ export async function analyzePaper(pdfBase64, onProgress, tier = getModelTier(),
   // Anything this document already paid for in an earlier, failed run — the
   // whole point being that a retry resumes instead of re-buying.
   restorePhases(key);
+  /* A partial recording joins the same cache the resume path uses, so the loop
+   * below treats a replayed phase and a resumed one identically. Recordings are
+   * tier-independent by design (see fixtureKey), hence priming under whatever
+   * tier this run asked for. */
+  for (const [phaseId, phaseSpec] of fixtures) {
+    const id = `${key}:${phaseId}`;
+    if (!phaseCache.has(id)) phaseCache.set(id, { spec: phaseSpec, cost: 0 });
+  }
 
   for (const phase of PHASES) {
     // NOTE: the method phase always runs. For papers whose method isn't
@@ -458,12 +497,7 @@ export async function analyzePaper(pdfBase64, onProgress, tier = getModelTier(),
       // Already produced in a previous (failed or retried) run — free.
       report(phase.to, `${phase.title} — already done, reusing it (no charge)`);
     } else {
-      const contextSpec =
-        phase.id === "results"
-          ? { protocol: spec.protocol, blocks: spec.blocks, archetype: spec.archetype, field: spec.meta?.field }
-          : phase.id === "method" || phase.id === "foundations" || phase.id === "model"
-            ? { archetype: spec.archetype }
-            : null;
+      const contextSpec = contextSpecFor(phase.id, spec);
       // A timed-out stage retries down the tier ladder, so one slow stage
       // never wastes the whole (paid) run.
       const attempt = await runPhaseWithFallback(
