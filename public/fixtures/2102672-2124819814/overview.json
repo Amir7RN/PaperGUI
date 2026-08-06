@@ -1,0 +1,215 @@
+{
+  "meta": {
+    "title": "Decoupling the Feedback and Feedforward Components of Impedance Controllers: Theory and Experiments in Lower-Limb Prostheses",
+    "authors": "T. Kevin Best, Elliott J. Rouse, Robert D. Gregg",
+    "venue": "TechRxiv preprint, 28 October 2025 (not peer reviewed)",
+    "abstract": "Robotic prostheses commonly use joint-space impedance controllers parameterized by stiffness, damping, and an equilibrium angle. Although often read as equilibrium-angle tracking controllers, their parameters are chosen so that ground and user interaction produce a different kinematic pattern, complicating design, tuning, and interpretation. The authors introduce an equivalent formulation combining a feedback position term with a feedforward torque term, clarifying how the impedance parameters shape nominal and perturbed behavior. In theory and in experiments with an above-knee amputee participant, controllers with appropriately designed feedforward torque produce identical nominal behavior despite different stiffness and damping, which instead govern the response to perturbations. Tuning stiffness and damping on nominal walking alone is therefore insufficient.",
+    "field": "engineering-control-signals"
+  },
+  "archetype": {
+    "kind": "simulation-control",
+    "pipelineFeasible": true,
+    "reproductionAdvice": "The paper's core object is a closed-form control law, so the theory figures are honestly computable: Fig. 3a/3b and Fig. 5 are direct evaluations of Eqs. (1), (3) and (4) on a prescribed gait-cycle trajectory, and a reduced-order joint model driven by the paper's own equations regenerates them faithfully — build the pipeline around theta_d, theta_dot_d, tau_ff, K and B as a function of gait phase, and expose K and B as sliders since the paper's whole argument is what they do and do not change. Fig. 6 and Fig. 7 are motion-capture and inverse-dynamics measurements from a single above-knee amputee walking on the Open-Source Leg v2; no simulation can honestly regenerate a human's stride-to-stride variability or the belt-perturbation response, so those must stay original-only (reproduce:false) or use dataSource 'reported' for values the text states outright. Fig. 2 rests on a neural network trained on an external able-bodied dataset [15]; do not fabricate a retrained network — keep Fig. 2 original-only and teach it through the crop and hotspots. Fig. 4 is a conceptual spectrum diagram with no data at all and must never become a chart."
+  },
+  "story": {
+    "problem": "A powered leg prosthesis has to decide, many times per second, how hard to push. Nearly all of them use impedance control, which treats the joint as a spring and a damper pulling toward a resting position. Those three dials are usually set by trial and error, and what they actually do to someone's walk is not what their names suggest.",
+    "gap": "The resting position is not the motion the designer wants; it is a control input that only yields the intended walk once the ground and the user push back. Worse, the three dials are tangled together, so many different combinations produce exactly the same walk — and watching someone walk on a treadmill cannot tell you which combination you have.",
+    "contribution": [
+      {
+        "headline": "Impedance control is PD plus feedforward torque",
+        "detail": "The authors rewrite the standard spring-damper law as an ordinary position controller tracking the truly desired trajectory, plus a feedforward torque that does not depend on how the joint is moving. The two forms are mathematically identical, but the new one separates what the controller is trying to do from how hard it fights back when something goes wrong."
+      },
+      {
+        "headline": "Any torque policy hides an impedance controller",
+        "detail": "Expanding an arbitrary torque policy around a nominal trajectory shows that stiffness and damping are just its slopes with respect to joint angle and velocity. They demonstrate this on a neural network trained to output ankle torque: differentiating it recovers stiffness and damping trajectories that reproduce the network's behavior to first order."
+      },
+      {
+        "headline": "Stiffness and damping vanish during nominal walking",
+        "detail": "When the joint actually follows the desired trajectory, the feedback term is exactly zero and the commanded torque is the feedforward term alone. Two controllers sharing that feedforward term therefore walk identically no matter how different their stiffness and damping are — which the authors show both on paper and on a prosthesis."
+      },
+      {
+        "headline": "Only perturbations reveal the tuning difference",
+        "detail": "Because stiffness and damping have almost no effect on steady walking, tuning them against steady-state measures like symmetry or metabolic cost has essentially no gradient to follow. Their real effect appears only when the joint is knocked off its trajectory, so evaluation protocols have to include deliberate perturbations."
+      }
+    ],
+    "whyItMatters": "Designers can set how a prosthesis walks and how it reacts to a stumble as two independent decisions, instead of hunting for one combination of dials that happens to do both. It also means a short perturbation test reveals differences that hours of steady-state tuning would miss entirely."
+  },
+  "mindmap": {
+    "nodes": [
+      {
+        "id": "paper",
+        "label": "Decoupled impedance controller",
+        "kind": "paper",
+        "detail": "Rewrites the joint-space impedance law as a PD position controller tracking the desired trajectory plus an independent feedforward torque. Mathematically identical to the traditional form, but the parameters now mean what they appear to mean."
+      },
+      {
+        "id": "prob",
+        "label": "Impedance dials are tangled",
+        "kind": "problem",
+        "detail": "Stiffness, damping and equilibrium angle jointly determine both the intended walking pattern and the reaction to disturbance. Changing one changes both, so tuning is iterative and empirical rather than designed."
+      },
+      {
+        "id": "prior1",
+        "label": "Spring-damper impedance law",
+        "kind": "prior",
+        "detail": "The standard form used throughout lab and commercial prostheses commands torque from the joint angle error against an equilibrium angle and from joint velocity. Its equilibrium angle is routinely mistaken for the desired trajectory."
+      },
+      {
+        "id": "prior2",
+        "label": "Measured human joint impedance",
+        "kind": "prior",
+        "detail": "Perturbation studies of the biological ankle and knee during walking supply the stiffness and damping trajectories that controller alpha uses. They are what makes a biomimetic parameter choice possible at all."
+      },
+      {
+        "id": "prior3",
+        "label": "Data-driven impedance fitting",
+        "kind": "prior",
+        "detail": "Recent work fits impedance parameters to able-bodied datasets for varying speed, incline, sitting and stairs. In the traditional form this fit is non-convex because stiffness multiplies the equilibrium angle."
+      },
+      {
+        "id": "m1",
+        "label": "Split into PD plus torque",
+        "kind": "method",
+        "detail": "Defining the deviation angle as equilibrium minus desired, then adding and subtracting the damping term, regroups the law into a feedback part that vanishes at nominal and a feedforward part that does not. This is Property 1."
+      },
+      {
+        "id": "m2",
+        "label": "Linearize any torque policy",
+        "kind": "method",
+        "detail": "A first-order Taylor expansion of any torque policy about a nominal trajectory identifies the feedforward term with the policy's nominal output and stiffness and damping with its negative partial derivatives. This is Property 2."
+      },
+      {
+        "id": "c1",
+        "label": "Nominal behavior ignores stiffness",
+        "kind": "contribution",
+        "detail": "At nominal kinematics the feedback term is exactly zero, so stiffness and damping can be varied arbitrarily without changing the commanded torque. Two controllers sharing a feedforward trajectory produce the same torque and angle behavior."
+      },
+      {
+        "id": "r1",
+        "label": "Perturbations expose the difference",
+        "kind": "result",
+        "detail": "Off nominal, each controller becomes a distinct surface in the torque-perturbation plane whose slopes are its stiffness and damping. The surfaces intersect exactly along the nominal condition, which is why steady walking cannot distinguish them."
+      },
+      {
+        "id": "r2",
+        "label": "Amputee trial confirms theory",
+        "kind": "result",
+        "detail": "One above-knee amputee walked on the Open-Source Leg v2 at 1.0 m/s under both controllers. Steady walking looked nearly identical; deliberate treadmill-belt decelerations produced substantially different knee and ankle responses."
+      }
+    ],
+    "edges": [
+      {
+        "from": "prob",
+        "to": "paper",
+        "label": "motivates"
+      },
+      {
+        "from": "prior1",
+        "to": "paper",
+        "label": "builds on"
+      },
+      {
+        "from": "prior2",
+        "to": "paper",
+        "label": "supplies gains"
+      },
+      {
+        "from": "prior3",
+        "to": "paper",
+        "label": "builds on"
+      },
+      {
+        "from": "paper",
+        "to": "m1",
+        "label": "introduces"
+      },
+      {
+        "from": "paper",
+        "to": "m2",
+        "label": "introduces"
+      },
+      {
+        "from": "m1",
+        "to": "c1",
+        "label": "implies"
+      },
+      {
+        "from": "m2",
+        "to": "c1",
+        "label": "generalizes"
+      },
+      {
+        "from": "c1",
+        "to": "r1",
+        "label": "predicts"
+      },
+      {
+        "from": "r1",
+        "to": "r2",
+        "label": "confirmed by"
+      }
+    ]
+  },
+  "conclusion": "Writing the impedance law as tau = -K(theta - theta_d) - B(theta_dot - theta_dot_d) + tau_ff separates what the controller commands at nominal from how it reacts off nominal, with the traditional equilibrium angle recovered as theta_eq = theta_d + (tau_ff + B*theta_dot_d)/K. Because the feedback term is exactly zero when the joint tracks the desired trajectory, stiffness K and damping B have no effect on nominal torque, and two controllers sharing tau_ff walk identically: controller alpha used biological knee and ankle stiffness and damping trajectories while controller beta used constant medium values, yet both produced nearly the same kinematics and kinetics at 1.0 m/s. The difference appeared only under deliberate treadmill-belt perturbations of plus or minus 50 percent of walking speed held for 25 percent of the gait cycle, where the lower-impedance controller alpha allowed substantially larger knee and ankle deviations than beta. Selecting K and B from nominal walking alone is therefore under-constrained, because the parameters being tuned have almost no gradient in that regime.",
+  "references": [
+    "R. Gehlhar, M. Tucker, A. J. Young, and A. D. Ames, \"A review of current state-of-the-art control methods for lower-limb powered prostheses,\" Annu. Rev. Control., vol. 55, pp. 142-164, 2023.",
+    "N. Hogan, \"Impedance Control: An Approach to Manipulation,\" in American Control Conference. IEEE, 1984, pp. 304-313.",
+    "F. Sup, A. Bohara, and M. Goldfarb, \"Design and control of a powered transfemoral prosthesis,\" Int. J. Robotics Research, vol. 27, no. 2, pp. 263-273, 2008.",
+    "S. Au, M. Berniker, and H. Herr, \"Powered ankle-foot prosthesis to assist level-ground and stair-descent gaits,\" Neural Networks, vol. 21, no. 4, pp. 654-666, 2008.",
+    "T. K. Best, C. G. Welker, E. J. Rouse, and R. D. Gregg, \"Data-driven variable impedance control of a powered knee-ankle prosthesis for adaptive speed and incline walking,\" IEEE Trans. Robot., vol. 39, no. 3, pp. 2151-2169, 2023.",
+    "C. G. Welker, T. K. Best, and R. D. Gregg, \"Improving Sit/Stand Loading Symmetry and Timing Through Unified Variable Impedance Control of a Powered Knee-Ankle Prosthesis,\" IEEE Trans. Neural Syst. Rehabil. Eng., vol. 31, pp. 4146-4155, 2023.",
+    "R. J. Cortino, T. K. Best, and R. D. Gregg, \"Data-driven phase-based control of a powered knee-ankle prosthesis for variable-incline stair ascent and descent,\" IEEE Trans. Med. Robot. Bionics, vol. 6, no. 1, pp. 175-188, 2024.",
+    "E. Reznick, K. R. Embry, R. Neuman, E. Bolivar-Nieto, N. P. Fey, and R. D. Gregg, \"Lower-limb kinematics and kinetics during continuously varying human locomotion,\" Sci. Data, vol. 8, 2021.",
+    "E. J. Rouse, R. D. Gregg, L. J. Hargrove, and J. W. Sensinger, \"The difference between stiffness and quasi-stiffness in the context of biomechanical modeling,\" IEEE Trans. Biomedical Engineering, vol. 60, no. 2, pp. 562-568, 2013.",
+    "H. Lee, E. J. Rouse, and H. I. Krebs, \"Summary of Human Ankle Mechanical Impedance during Walking,\" IEEE J. Trans. Eng. in Health and Med., vol. 4, pp. 1-7, 2016.",
+    "T. K. Best, G. C. Thomas, S. R. Ayyappan, R. D. Gregg, and E. J. Rouse, \"A Compensated Open-Loop Impedance Controller Evaluated on the Second-Generation Open-Source Leg Prosthesis,\" IEEE ASME Trans. Mechatron., pp. 1-13, 2024.",
+    "E. J. Rouse, L. J. Hargrove, E. J. Perreault, and T. A. Kuiken, \"Estimation of human ankle impedance during the stance phase of walking,\" IEEE Trans. Neural Sys. and Rehabil. Eng., vol. 22, pp. 870-878, 2014."
+  ],
+  "conceptFigures": [
+    {
+      "page": 3,
+      "title": "Fig. 1 - Two equivalent readings of the same controller",
+      "explanation": "Both block diagrams compute exactly the same torque; the difference is where the designer's intent lives. In the top diagram the only reference signal is the equilibrium angle, and the stiffness gain multiplies the error between it and the measured joint angle, so any torque the controller produces must be paid for with position error - and because ground contact and the user constantly push the joint, the equilibrium angle has to be placed somewhere other than the motion actually wanted. The bottom diagram adds and subtracts the damping term applied to the desired velocity, which regroups the same algebra into a PD controller tracking the true desired trajectory plus a feedforward torque injected after the feedback sum. That injection point is the whole mechanism: a signal entering after the feedback summation is unaffected by the gains ahead of it, so the feedforward torque sets the nominal behavior while the stiffness and damping set only the response to deviation. The conversion back to the traditional form, theta_eq = theta_d + (tau_ff + B*theta_dot_d)/K, shows why the traditional parameters are tangled - the equilibrium angle depends on the feedforward torque and both gains at once, and it blows up as stiffness approaches zero, which is exactly why the authors argue the decoupled form is also the numerically safer one to fit.",
+      "svg": "<svg id=\"icf1\" viewBox=\"0 0 720 340\" xmlns=\"http://www.w3.org/2000/svg\" role=\"img\" aria-label=\"Traditional and decoupled impedance controller block diagrams\"><defs><marker id=\"icf1ah\" viewBox=\"0 0 10 10\" refX=\"9\" refY=\"5\" markerWidth=\"7\" markerHeight=\"7\" orient=\"auto-start-reverse\"><path d=\"M0 0 L10 5 L0 10 z\" fill=\"#475569\"/></marker><marker id=\"icf1af\" viewBox=\"0 0 10 10\" refX=\"9\" refY=\"5\" markerWidth=\"7\" markerHeight=\"7\" orient=\"auto-start-reverse\"><path d=\"M0 0 L10 5 L0 10 z\" fill=\"#0891b2\"/></marker></defs><style>#icf1 text{font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;fill:#1f2937}#icf1 .hd{font-size:13px;font-weight:600}#icf1 .lb{font-size:12px}#icf1 .sm{font-size:10px;fill:#475569}#icf1 .gain{fill:#e0f2fe;stroke:#0369a1;stroke-width:1.5}#icf1 .ff{fill:#fae8ff;stroke:#a21caf;stroke-width:1.5}#icf1 .plant{fill:#f1f5f9;stroke:#334155;stroke-width:1.5}#icf1 .sum{fill:#ffffff;stroke:#475569;stroke-width:1.5}#icf1 .ln{stroke:#475569;stroke-width:1.5;fill:none}#icf1 .fl{stroke:#0891b2;stroke-width:2;fill:none;stroke-dasharray:6 5;animation:icf1fl 1.1s linear infinite}#icf1 .fade{opacity:0;animation:icf1fi .45s ease forwards}#icf1 .d1{animation-delay:.05s}#icf1 .d2{animation-delay:.2s}#icf1 .d3{animation-delay:.35s}#icf1 .d4{animation-delay:.5s}#icf1 .d5{animation-delay:.65s}#icf1 .d6{animation-delay:.8s}#icf1 .out{animation:icf1pu 2.2s ease-in-out infinite}@keyframes icf1fl{to{stroke-dashoffset:-22}}@keyframes icf1fi{to{opacity:1}}@keyframes icf1pu{0%,100%{stroke-width:1.5}50%{stroke-width:3.6}}@media (prefers-reduced-motion:reduce){#icf1 .fade{opacity:1;animation:none}#icf1 .fl{animation:none}#icf1 .out{animation:none}}</style><g class=\"fade d1\"><rect x=\"8\" y=\"8\" width=\"704\" height=\"148\" rx=\"10\" fill=\"#ecfeff\" stroke=\"#a5f3fc\"/><text class=\"hd\" x=\"22\" y=\"30\">Traditional impedance controller - Eq. (1)</text></g><g class=\"fade d2\"><text class=\"lb\" x=\"22\" y=\"84\">theta_eq</text><path class=\"fl\" d=\"M72 80 H104\" marker-end=\"url(#icf1af)\"/><circle class=\"sum\" cx=\"120\" cy=\"80\" r=\"13\"/><text class=\"sm\" x=\"104\" y=\"66\">+</text><text class=\"sm\" x=\"104\" y=\"100\">-</text></g><g class=\"fade d3\"><path class=\"ln\" d=\"M133 80 H186\" marker-end=\"url(#icf1ah)\"/><rect class=\"gain\" x=\"188\" y=\"62\" width=\"58\" height=\"36\" rx=\"5\"/><text class=\"lb\" x=\"211\" y=\"85\">K</text><path class=\"ln\" d=\"M246 80 H320\" marker-end=\"url(#icf1ah)\"/></g><g class=\"fade d4\"><rect class=\"gain\" x=\"188\" y=\"112\" width=\"58\" height=\"32\" rx=\"5\"/><text class=\"lb\" x=\"211\" y=\"133\">B</text><rect class=\"sum\" x=\"120\" y=\"114\" width=\"40\" height=\"28\" rx=\"4\"/><text class=\"sm\" x=\"128\" y=\"133\">d/dt</text><path class=\"ln\" d=\"M160 128 H186\" marker-end=\"url(#icf1ah)\"/><path class=\"ln\" d=\"M246 128 H336 V96\" marker-end=\"url(#icf1ah)\"/></g><g class=\"fade d5\"><circle class=\"sum\" cx=\"336\" cy=\"80\" r=\"13\"/><text class=\"sm\" x=\"320\" y=\"66\">+</text><text class=\"sm\" x=\"345\" y=\"100\">-</text><path class=\"fl\" d=\"M349 80 H432\" marker-end=\"url(#icf1af)\"/><text class=\"lb\" x=\"382\" y=\"70\">tau</text></g><g class=\"fade d6\"><rect class=\"plant out\" x=\"434\" y=\"56\" width=\"140\" height=\"48\" rx=\"6\"/><text class=\"lb\" x=\"456\" y=\"78\">Robotic</text><text class=\"lb\" x=\"456\" y=\"94\">prosthesis</text><path class=\"ln\" d=\"M574 80 H626 V210 H120 V93\" marker-end=\"url(#icf1ah)\"/><text class=\"lb\" x=\"590\" y=\"72\">theta</text><path class=\"ln\" d=\"M320 210 V142\" marker-end=\"url(#icf1ah)\"/></g><g class=\"fade d3\"><rect x=\"8\" y=\"172\" width=\"704\" height=\"160\" rx=\"10\" fill=\"#fdf4ff\" stroke=\"#f0abfc\"/><text class=\"hd\" x=\"22\" y=\"194\">Decoupled impedance controller - Eq. (3), Property 1</text></g><g class=\"fade d4\"><text class=\"lb\" x=\"22\" y=\"250\">theta_d</text><path class=\"fl\" d=\"M66 246 H104\" marker-end=\"url(#icf1af)\"/><circle class=\"sum\" cx=\"120\" cy=\"246\" r=\"13\"/><text class=\"sm\" x=\"104\" y=\"232\">+</text><text class=\"sm\" x=\"104\" y=\"266\">-</text><path class=\"ln\" d=\"M133 246 H186\" marker-end=\"url(#icf1ah)\"/><rect class=\"gain\" x=\"188\" y=\"228\" width=\"58\" height=\"36\" rx=\"5\"/><text class=\"lb\" x=\"211\" y=\"251\">K</text><path class=\"ln\" d=\"M246 246 H320\" marker-end=\"url(#icf1ah)\"/></g><g class=\"fade d5\"><rect class=\"gain\" x=\"188\" y=\"278\" width=\"58\" height=\"32\" rx=\"5\"/><text class=\"lb\" x=\"211\" y=\"299\">B</text><rect class=\"sum\" x=\"120\" y=\"280\" width=\"40\" height=\"28\" rx=\"4\"/><text class=\"sm\" x=\"128\" y=\"299\">d/dt</text><path class=\"ln\" d=\"M160 294 H186\" marker-end=\"url(#icf1ah)\"/><path class=\"ln\" d=\"M246 294 H336 V262\" marker-end=\"url(#icf1ah)\"/><text class=\"sm\" x=\"252\" y=\"326\">feedback vanishes when theta = theta_d</text></g><g class=\"fade d6\"><rect class=\"ff\" x=\"268\" y=\"200\" width=\"136\" height=\"30\" rx=\"5\"/><text class=\"lb\" x=\"286\" y=\"220\">tau_ff (feedforward)</text><path class=\"fl\" d=\"M336 230 V246\" marker-end=\"url(#icf1af)\"/><circle class=\"sum\" cx=\"336\" cy=\"246\" r=\"13\"/><text class=\"sm\" x=\"345\" y=\"266\">+</text><path class=\"fl\" d=\"M349 246 H432\" marker-end=\"url(#icf1af)\"/><text class=\"lb\" x=\"382\" y=\"236\">tau</text><rect class=\"plant out\" x=\"434\" y=\"222\" width=\"140\" height=\"48\" rx=\"6\"/><text class=\"lb\" x=\"456\" y=\"244\">Robotic</text><text class=\"lb\" x=\"456\" y=\"260\">prosthesis</text><path class=\"ln\" d=\"M574 246 H626 V318 H120 V259\" marker-end=\"url(#icf1ah)\"/><text class=\"lb\" x=\"590\" y=\"238\">theta</text><path class=\"ln\" d=\"M320 318 V308\" marker-end=\"url(#icf1ah)\"/></g></svg>",
+      "bbox": {
+        "x": 0.5,
+        "y": 0.055,
+        "w": 0.44,
+        "h": 0.4
+      }
+    },
+    {
+      "page": 5,
+      "title": "Fig. 2 - Every torque policy already contains an impedance controller",
+      "explanation": "This figure is the mechanism behind Property 2 shown end to end on a deliberately unfriendly example. Panel (a) is a four-hidden-layer network with ReLU activations mapping ankle and foot angles and their velocities to ankle torque, trained on able-bodied variable-speed and variable-ramp walking; nothing about it resembles a spring and a damper. Panel (b) is the key step: differentiating that network with respect to joint angle and joint velocity along one nominal trajectory - here 1.0 m/s level walking - and negating the result yields stiffness and damping trajectories, because a first-order Taylor expansion identifies exactly those partial derivatives as K and B. Note that these recovered curves dip below zero at points in the gait cycle, which is physically strange: a negative stiffness is a locally unstable position controller that pushes the joint further away from where it should be, and it appears only because torque matching was the network's sole training objective. Panel (c) assembles the recovered gains into an ordinary impedance controller, and panel (d) shows the two policies producing matching average torque over all 1.0 m/s strides. Panel (e) applies a momentary 5 degree dorsiflexion step during midstance, and the two responses track each other closely but separate near the peak plantarflexion torque - the visible signature of the neglected higher-order terms and of the foot-angle feedback the linearization discards. The shaded bands throughout are plus or minus one standard deviation, and the linear approximation reproduces the mean far better than it reproduces that spread.",
+      "bbox": {
+        "x": 0.06,
+        "y": 0.055,
+        "w": 0.89,
+        "h": 0.41
+      }
+    },
+    {
+      "page": 6,
+      "title": "Fig. 4 - The impedance magnitude spectrum",
+      "explanation": "This diagram carries the paper's unifying claim and contains no data at all. The single axis is the impedance magnitude, defined as the sum of the absolute stiffness and absolute damping, and every joint-space controller sits somewhere along it. At the far left the magnitude is zero: the feedback term disappears entirely and only the feedforward torque survives, which is open-loop torque control - the joint applies the commanded torque and lets the environment decide where it ends up. At the far right the gains are large, deviations are punished hard, and the controller behaves as a high-gain position controller that holds the trajectory and lets the torque be whatever it must. What the paper adds is the reading of the axis as a priority, not a quality: moving left prioritizes producing the intended joint torques, moving right prioritizes producing the intended joint positions, and no point on the axis does both when the world pushes back. Because the earlier result shows the nominal behavior is fixed by the feedforward term alone, this position along the spectrum is a genuinely free design choice rather than something inherited from the walking pattern. Most controllers described in the literature as impedance controllers sit somewhere in the middle without their designers having chosen that location deliberately.",
+      "bbox": {
+        "x": 0.06,
+        "y": 0.365,
+        "w": 0.44,
+        "h": 0.24
+      }
+    },
+    {
+      "page": 7,
+      "title": "Fig. 5 - Two controllers as two intersecting control surfaces",
+      "explanation": "This is the geometric statement of the paper's central result, and it explains why the earlier equivalence is not a contradiction. Each controller is drawn as a surface over two axes: the gait cycle, and the size of the perturbation applied to the joint - angle deviation on the left, velocity deviation on the right. The height of the surface is the commanded ankle torque. Along the ridge where the perturbation is zero, the two surfaces touch, and that intersection curve is precisely the nominal torque trace of Fig. 3b: identical for both controllers because the feedback term contributes nothing there. Move away from that ridge in either direction and the surfaces separate, because the slope of each surface in the torque-perturbation plane is by definition the controller's stiffness on the left panel and its damping on the right. The inset makes this concrete - the steeper slope belongs to controller beta, whose higher stiffness near heelstrike makes it respond far more forcefully to the same displacement. The figure therefore shows in one image why steady-state walking data cannot distinguish these controllers: nominal walking only ever samples the surfaces along the line where they are guaranteed to agree.",
+      "bbox": {
+        "x": 0.06,
+        "y": 0.055,
+        "w": 0.89,
+        "h": 0.26
+      }
+    }
+  ]
+}

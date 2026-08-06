@@ -1,0 +1,566 @@
+{
+  "resultFigures": [
+    {
+      "figureLabel": "Fig. 3",
+      "page": 6,
+      "bbox": {
+        "x": 0.07,
+        "y": 0.06,
+        "w": 0.44,
+        "h": 0.31
+      },
+      "title": "Two very different controllers, one identical nominal torque",
+      "explanation": "This is the theoretical result stated as a picture, and it is worth reading right to left. Panel (a) stacks the three impedance parameters against the gait cycle for two ankle controllers designed for the same 1.0 m/s walk: stiffness on top in Nm/rad/kg, damping in the middle in Nms/rad/kg, and the equilibrium angle at the bottom in radians. Controller alpha, the solid teal trace, uses the measured biological trajectories and swings from soft to stiff and back; controller beta, the dashed purple trace, is simply a constant at medium magnitude. By any reading of panel (a) these are not the same controller — the equilibrium angles in particular disagree by more than a radian, which is far outside anything an ankle can physically do. Panel (b) then plots the ankle torque each one commands under nominal walking kinematics, in Nm/kg against percent gait cycle, and the two traces are indistinguishable: both build a plantarflexor moment through stance and both bottom out near −1.5 Nm/kg just before toe-off. That is Corollary 3.1 made visible — share a feedforward torque and the stiffness and damping cannot change what the joint is told to do, however different they look.",
+      "hotspots": [
+        {
+          "x": 0.277,
+          "y": 0.061,
+          "label": "alpha stiffens for push-off",
+          "note": "Controller alpha's stiffness rises to a peak in late stance, following the measured biological ankle trajectory. This is the shape a biomimetic design is trying to reproduce."
+        },
+        {
+          "x": 0.361,
+          "y": 0.047,
+          "label": "beta is a flat line",
+          "note": "Controller beta ignores that trajectory entirely and holds one constant medium stiffness across the whole stride. Nothing about the two designs agrees here."
+        },
+        {
+          "x": 0.295,
+          "y": 0.58,
+          "label": "equilibrium angles fly apart",
+          "note": "The bottom row is Eq. (4) evaluated for each controller, and the disagreement is enormous — one dives past −2 radians, roughly −115 degrees. No ankle reaches that angle, which is precisely the paper's point that θ_eq is a control input rather than a target."
+        },
+        {
+          "x": 0.751,
+          "y": 0.432,
+          "label": "the torques coincide",
+          "note": "Despite everything in panel (a), both controllers command the same torque at nominal kinematics, peaking near −1.5 Nm/kg before toe-off. The feedback term is identically zero here, so only the shared feedforward torque survives."
+        }
+      ],
+      "digitizeHint": {
+        "xLabel": "Gait Cycle (%)",
+        "yLabel": "Torque (Nm/kg)",
+        "xLog": false,
+        "yLog": false,
+        "xTicks": [
+          {
+            "atFrac": 0.584,
+            "value": 0
+          },
+          {
+            "atFrac": 0.76,
+            "value": 50
+          },
+          {
+            "atFrac": 0.937,
+            "value": 100
+          }
+        ],
+        "yTicks": [
+          {
+            "atFrac": 0.177,
+            "value": 0
+          },
+          {
+            "atFrac": 0.262,
+            "value": -0.5
+          },
+          {
+            "atFrac": 0.347,
+            "value": -1
+          },
+          {
+            "atFrac": 0.432,
+            "value": -1.5
+          }
+        ],
+        "curves": [
+          {
+            "label": "Controller α",
+            "colorHex": "#2aa5a8"
+          },
+          {
+            "label": "Controller β",
+            "colorHex": "#a83c8e"
+          }
+        ]
+      }
+    },
+    {
+      "figureLabel": "Fig. 5",
+      "page": 7,
+      "bbox": {
+        "x": 0.06,
+        "y": 0.055,
+        "w": 0.89,
+        "h": 0.26
+      },
+      "title": "Each controller is a surface, and the surfaces cross at nominal",
+      "explanation": "This figure explains why the previous one is not a contradiction. Each controller is drawn as a surface over two axes: the gait cycle running away from the viewer, and the size of a perturbation applied to the joint — an angle deviation in the left panel, a velocity deviation in the right. The height of each surface is the commanded ankle torque in Nm/kg. The black curve running along each surface is the nominal condition, where the perturbation is exactly zero, and along that curve the two surfaces intersect — which is the same statement as the overlapping traces in Fig. 3(b). Away from that line the teal and purple surfaces separate, and how fast they separate is the whole content of stiffness and damping: the slope of a surface in the torque-versus-perturbation plane is by definition the controller's stiffness on the left and its damping on the right. The small inset at the upper left makes this concrete with a single slice, showing beta's steeper line against alpha's shallower one. Read together, the figure says that nominal walking only ever samples these surfaces along the one line where they are guaranteed to agree, so no amount of steady-state data can tell the two controllers apart.",
+      "hotspots": [
+        {
+          "x": 0.328,
+          "y": 0.347,
+          "label": "the surfaces intersect",
+          "note": "Along the nominal condition, where the position perturbation is zero, both controllers produce exactly the same torque. This intersection curve is Fig. 3(b) seen edge-on."
+        },
+        {
+          "x": 0.236,
+          "y": 0.274,
+          "label": "alpha's gentler slope",
+          "note": "Moving away from nominal, controller alpha's surface tilts only slightly — a low stiffness means a small torque correction for a given displacement, so the joint is allowed to move."
+        },
+        {
+          "x": 0.392,
+          "y": 0.262,
+          "label": "beta's steeper slope",
+          "note": "Controller beta's surface climbs much faster over the same displacement, because its higher stiffness demands a much larger corrective torque. Same nominal behaviour, opposite reflexes."
+        },
+        {
+          "x": 0.63,
+          "y": 0.347,
+          "label": "damping tells the same story",
+          "note": "The right panel repeats the construction against velocity deviation instead of angle deviation, where the surface slope is the damping rather than the stiffness. The two parameters play identical roles on their own axes."
+        },
+        {
+          "x": 0.887,
+          "y": 0.274,
+          "label": "the nominal slice, inset",
+          "note": "The inset at upper right is the nominal torque trace both controllers share — the paper reproducing Fig. 3(b) inside Fig. 5 to make the intersection unmistakable."
+        }
+      ]
+    },
+    {
+      "figureLabel": "Fig. 6",
+      "page": 7,
+      "bbox": {
+        "x": 0.07,
+        "y": 0.31,
+        "w": 0.42,
+        "h": 0.51
+      },
+      "title": "The theory holds on a real prosthesis during steady walking",
+      "explanation": "This is the experimental counterpart of Fig. 3, measured on a participant with an above-knee amputation walking at 1.0 m/s on the Open-Source Leg v2. Panel (a) shows the stiffness and damping actually commanded, one column for the knee and one for the ankle, against percent gait cycle: teal is controller alpha following the measured biological trajectories, purple is controller beta holding constant values near 500 Nm/rad at both joints. The disagreement is large and it is real hardware, not a derivation. Panel (b) then shows what came out of the walk — knee and ankle angles in degrees on the top row, joint moments in Nm/kg on the bottom — with shading indicating plus or minus one standard deviation across strides. The traces sit almost on top of each other. A reader should look hardest at where they do not: alpha's shaded bands are visibly wider, which the authors attribute to its lower impedance allowing more of the user's natural stride-to-stride variation through, compounded by the fact that the true feedforward torque for this participant was never exactly known. That caveat aside, this figure is the experimental validation of Corollary 3.1.",
+      "hotspots": [
+        {
+          "x": 0.718,
+          "y": 0.079,
+          "label": "ankle stiffness peaks",
+          "note": "Controller alpha's ankle stiffness climbs steeply through mid-stance to roughly 500 Nm/rad before collapsing at toe-off, tracking the biological estimates from the prior literature."
+        },
+        {
+          "x": 0.766,
+          "y": 0.098,
+          "label": "beta's constant line",
+          "note": "Controller beta holds a flat stiffness across the entire cycle at a comparable magnitude. The two controllers agree only where the curves happen to cross."
+        },
+        {
+          "x": 0.28,
+          "y": 0.556,
+          "label": "knee angles overlap",
+          "note": "Despite panel (a), the measured knee angle traces for the two controllers lie almost on top of each other through the whole stride — the predicted result on real hardware."
+        },
+        {
+          "x": 0.728,
+          "y": 0.754,
+          "label": "moments overlap too",
+          "note": "The kinetic half agrees as well: ankle moments match in shape, timing and magnitude. Both the kinematics and the kinetics are insensitive to the impedance parameters here."
+        },
+        {
+          "x": 0.202,
+          "y": 0.581,
+          "label": "alpha's wider band",
+          "note": "Where the theory does not hold exactly. Alpha's shaded standard-deviation band is broader, because its softer feedback lets the user's own stride variability through — the authors discuss this in Sec. IV.C."
+        }
+      ],
+      "digitizeHint": {
+        "xLabel": "Gait cycle (%)",
+        "yLabel": "Stiffness (Nm/rad)",
+        "xLog": false,
+        "yLog": false,
+        "xTicks": [
+          {
+            "atFrac": 0.591,
+            "value": 0
+          },
+          {
+            "atFrac": 0.737,
+            "value": 50
+          },
+          {
+            "atFrac": 0.883,
+            "value": 100
+          }
+        ],
+        "yTicks": [
+          {
+            "atFrac": 0.052,
+            "value": 1000
+          },
+          {
+            "atFrac": 0.129,
+            "value": 500
+          },
+          {
+            "atFrac": 0.206,
+            "value": 0
+          }
+        ],
+        "curves": [
+          {
+            "label": "α",
+            "colorHex": "#2aa5a8"
+          },
+          {
+            "label": "β",
+            "colorHex": "#a83c8e"
+          }
+        ]
+      }
+    },
+    {
+      "figureLabel": "Fig. 7",
+      "page": 8,
+      "bbox": {
+        "x": 0.07,
+        "y": 0.06,
+        "w": 0.86,
+        "h": 0.3
+      },
+      "title": "Perturb the stride and the two controllers finally separate",
+      "explanation": "This is the paper's headline experimental result and the mirror image of Fig. 6. The layout is four columns — knee angle in degrees, knee moment in Nm, ankle angle in degrees, ankle moment in Nm — by two rows, controller alpha in teal on top and controller beta in purple below, all against time in seconds rather than percent gait cycle. Within each panel the dashed trace is the nominal unperturbed trajectory with its standard-deviation shading, and the solid traces are individual perturbed strides, matched in opacity across rows so the same stride can be followed between controllers. The grey band marks the average window during which the treadmill belt speed was commanded away from nominal, and the vertical solid and dashed lines mark average toe-off for the perturbed and nominal conditions. What to look for is the size of the departure from each panel's own dashed baseline: under controller alpha the solid traces swing well away from nominal and toe-off is visibly displaced in time, while under controller beta they stay far closer to the dashed reference. Same feedforward torque, same perturbation, very different behaviour — which is exactly the claim that steady-state evaluation cannot detect.",
+      "hotspots": [
+        {
+          "x": 0.07,
+          "y": 0.2,
+          "label": "the perturbation window",
+          "note": "The grey band is the interval during which the prosthesis-side belt was decelerated, applied just after heelstrike at plus or minus 50 percent of steady-state speed and held for 25 percent of the gait cycle."
+        },
+        {
+          "x": 0.175,
+          "y": 0.116,
+          "label": "alpha's knee swings wide",
+          "note": "Under the low-impedance controller the perturbed knee angle departs substantially from its own dashed nominal trace. Alpha's soft feedback offers little resistance, so the disturbance is largely allowed through."
+        },
+        {
+          "x": 0.175,
+          "y": 0.432,
+          "label": "beta's knee holds its line",
+          "note": "The same perturbation on the stiffer controller produces a much smaller departure from nominal. This is the feedback half of Eq. (3) doing the only job it has."
+        },
+        {
+          "x": 0.203,
+          "y": 0.263,
+          "label": "toe-off shifts",
+          "note": "The vertical solid and dashed lines mark perturbed versus nominal toe-off. The gap between them shows the perturbation displaced the timing of the stride, not just its amplitude."
+        },
+        {
+          "x": 0.868,
+          "y": 0.253,
+          "label": "the kinetic signature",
+          "note": "The ankle moment panels show the same split on the torque side, confirming the difference is not a kinematic artefact — both the motion and the commanded torque respond to the impedance choice once the joint leaves nominal."
+        }
+      ],
+      "digitizeHint": {
+        "xLabel": "Time (s)",
+        "yLabel": "Ankle Angle (deg)",
+        "xLog": false,
+        "yLog": false,
+        "xTicks": [
+          {
+            "atFrac": 0.548,
+            "value": 0
+          },
+          {
+            "atFrac": 0.614,
+            "value": 0.5
+          },
+          {
+            "atFrac": 0.681,
+            "value": 1
+          },
+          {
+            "atFrac": 0.746,
+            "value": 1.5
+          }
+        ],
+        "yTicks": [
+          {
+            "atFrac": 0.112,
+            "value": 20
+          },
+          {
+            "atFrac": 0.2,
+            "value": 0
+          },
+          {
+            "atFrac": 0.288,
+            "value": -20
+          }
+        ],
+        "curves": [
+          {
+            "label": "controller α, perturbed strides",
+            "colorHex": "#2aa5a8"
+          },
+          {
+            "label": "controller α, nominal (dashed)",
+            "colorHex": "#7fcbcd"
+          }
+        ]
+      }
+    }
+  ],
+  "checkpoints": [
+    {
+      "section": "story",
+      "question": "In a prosthesis impedance controller, what is the equilibrium angle θ_eq actually for?",
+      "options": [
+        "It is the trajectory the designer wants the joint to follow",
+        "It is a control input chosen so that, together with the interaction torques, the joint ends up following the desired trajectory",
+        "It is the angle the joint rests at when the motor is switched off",
+        "It is the average joint angle measured over the gait cycle"
+      ],
+      "answerIdx": 1,
+      "why": "The paper is explicit that θ_eq is not a target trajectory: the ground and the user push the joint away from it, and designers place it wherever makes the resulting motion come out right."
+    },
+    {
+      "section": "story",
+      "question": "Why does the paper argue the traditional parameterization makes tuning hard?",
+      "options": [
+        "The parameters cannot be measured with current sensors",
+        "The equations are too slow to evaluate in real time",
+        "Stiffness, damping and equilibrium angle jointly set both the intended motion and the reaction to disturbance, so changing one changes both",
+        "The parameters must be recomputed for every step"
+      ],
+      "answerIdx": 2,
+      "why": "Increasing K while holding θ_eq fixed also changes the feedforward component through the K·θ̂ term, so the nominal behaviour and the perturbation response cannot be adjusted independently."
+    },
+    {
+      "section": "foundations",
+      "question": "What is the difference between a joint's quasi-stiffness and its stiffness?",
+      "options": [
+        "They are the same quantity under two names",
+        "Quasi-stiffness is the slope of the torque-angle curve traced over the stride; stiffness is how the commanded torque changes for an instantaneous displacement",
+        "Quasi-stiffness applies to the knee and stiffness to the ankle",
+        "Quasi-stiffness is measured in Nm/rad and stiffness is dimensionless"
+      ],
+      "answerIdx": 1,
+      "why": "Controllers sharing a τ_ff that produces the desired kinematics have identical quasi-stiffness regardless of how different their true stiffness K is — the distinction the paper's Corollary 3.1 depends on."
+    },
+    {
+      "section": "model",
+      "question": "In the decoupled form τ = −K(θ − θ_d) − B(θ̇ − θ̇_d) + τ_ff, what happens when the joint is exactly on its desired trajectory?",
+      "options": [
+        "The feedforward term drops out and the command becomes a pure PD output",
+        "The command becomes zero",
+        "The feedback term is identically zero and the command reduces to τ = τ_ff",
+        "The command depends on K but not on B"
+      ],
+      "answerIdx": 2,
+      "why": "Both feedback differences vanish at nominal kinematics, which is Property 3: K and B can then be varied arbitrarily without changing the commanded torque."
+    },
+    {
+      "section": "model",
+      "question": "According to Property 2, what are the stiffness and damping of an arbitrary torque control policy f(θ, θ̇, ξ)?",
+      "options": [
+        "The policy's maximum and minimum output over the gait cycle",
+        "The negated partial derivatives of f with respect to joint angle and joint velocity, evaluated along the nominal trajectory",
+        "The mean and variance of the policy's output",
+        "They are undefined unless the policy was designed as an impedance controller"
+      ],
+      "answerIdx": 1,
+      "why": "Equating coefficients between the first-order Taylor expansion and the decoupled law gives K = −∂f/∂θ and B = −∂f/∂θ̇, with τ_ff the policy's nominal output."
+    },
+    {
+      "section": "method",
+      "question": "How were the kinematic deviations induced in the walking experiment?",
+      "options": [
+        "By pushing the participant sideways at random moments",
+        "By adding weights to the prosthesis between trials",
+        "By quickly decelerating the prosthesis-side treadmill belt just after heelstrike on random strides",
+        "By changing the commanded walking speed between trials"
+      ],
+      "answerIdx": 2,
+      "why": "Perturbations were belt decelerations of ±50 percent of steady-state speed held for 25 percent of the gait cycle, applied rarely so the participant could not anticipate them."
+    },
+    {
+      "section": "results",
+      "question": "Fig. 3(a) shows the two controllers' equilibrium angles differing by more than a radian. What does Fig. 3(b) show?",
+      "options": [
+        "Their commanded torques differ by a correspondingly large amount",
+        "Their commanded torques are indistinguishable under nominal kinematics",
+        "Only the ankle torques match; the knee torques differ",
+        "The torques match only during swing phase"
+      ],
+      "answerIdx": 1,
+      "why": "With a shared feedforward torque the feedback term vanishes at nominal, so the enormous difference in θ_eq produces no difference at all in what the joint is commanded to do."
+    },
+    {
+      "section": "results",
+      "question": "What would you conclude if you had only Fig. 6 and never saw Fig. 7?",
+      "options": [
+        "That the two controllers are functionally equivalent and either can be used",
+        "That controller beta is clearly better",
+        "That the stiffness trajectories were mis-implemented",
+        "That the perturbation protocol failed"
+      ],
+      "answerIdx": 0,
+      "why": "That is precisely the paper's warning: steady-state metrics make the controllers look interchangeable, and only the perturbed strides in Fig. 7 reveal that their disturbance responses differ substantially."
+    },
+    {
+      "section": "results",
+      "question": "The paper reports that controller alpha showed higher variability than beta even during steady walking. How do the authors explain this departure from the theory?",
+      "options": [
+        "The phase variable estimator drifted during alpha's trials",
+        "Alpha's biological stiffness trajectory was implemented incorrectly",
+        "The true feedforward torque for this participant was unknown, so some deviation was inevitable, and alpha's lower impedance let more of it through",
+        "The motion capture system was less accurate during alpha's trials"
+      ],
+      "answerIdx": 2,
+      "why": "τ_ff was estimated from an able-bodied dataset that accounts for neither the OSL's dynamics nor amputee gait compensations, so the joint never sat exactly at nominal and the feedback differences surfaced."
+    },
+    {
+      "section": "results",
+      "question": "Why does the paper argue that tuning stiffness and damping against steady-state metrics is unlikely to work?",
+      "options": [
+        "Steady-state metrics are too noisy to measure reliably",
+        "Because at nominal those parameters have essentially no effect, so there is no gradient for an optimizer to follow",
+        "Because metabolic cost cannot be measured on a treadmill",
+        "Because the parameters change too quickly through the gait cycle"
+      ],
+      "answerIdx": 1,
+      "why": "Property 3 says the nominal behaviour is set by τ_ff alone, so an objective built from nominal walking is essentially flat in K and B and provides no signal to optimize."
+    }
+  ],
+  "claims": [
+    {
+      "claim": "An impedance controller is mathematically equivalent to a PD position controller tracking the desired trajectory plus an independent feedforward torque.",
+      "strength": "direct",
+      "support": "text",
+      "evidence": "Eqs. (2)–(3), Sec. II.A",
+      "note": "An algebraic identity derived in full, not an approximation — the regrouping is shown step by step and illustrated in Fig. 1."
+    },
+    {
+      "claim": "Any torque control policy can be approximated to first order by an impedance controller about a nominal trajectory.",
+      "strength": "direct",
+      "support": "text",
+      "evidence": "Eqs. (5)–(6), Sec. II.B",
+      "note": "Derived by Taylor expansion and then demonstrated on a trained neural network policy in Fig. 2, where the recovered impedance controller matches the network's average torque."
+    },
+    {
+      "claim": "Two controllers sharing a feedforward torque trajectory produce identical torque and angle behaviour at nominal kinematics, no matter how different their stiffness and damping are.",
+      "strength": "direct",
+      "support": "figure",
+      "evidence": "Fig. 3(b), confirmed experimentally in Fig. 6(b)",
+      "note": "Shown twice: analytically for two designed ankle controllers, then measured on a prosthesis user whose kinematics and kinetics were nearly identical under both."
+    },
+    {
+      "claim": "Stiffness and damping govern how the controller responds to deviations from nominal, and those differences are large.",
+      "strength": "direct",
+      "support": "figure",
+      "evidence": "Fig. 7, with the geometric argument in Fig. 5",
+      "note": "The perturbed strides diverge substantially between conditions, with controller alpha permitting visibly larger knee and ankle deviations."
+    },
+    {
+      "claim": "Tuning or individualizing stiffness and damping using only nominal walking data is insufficient.",
+      "strength": "indirect",
+      "support": "figure",
+      "evidence": "Figs. 6 and 7, argued in Sec. IV.B.2",
+      "note": "Follows from Property 3 plus the contrast between the two figures. The paper does not run a tuning study comparing steady-state and perturbation-based protocols, so the conclusion is inferred rather than demonstrated head-on."
+    },
+    {
+      "claim": "Using the decoupled form turns impedance parameter fitting from a non-convex problem into a convex quadratic program with a guaranteed global optimum.",
+      "strength": "asserted",
+      "support": "text",
+      "evidence": "Sec. IV.A",
+      "note": "Stated with reference to prior work [9] and [26]; no optimization results are presented in this article."
+    },
+    {
+      "claim": "The decoupled parameterization makes manual controller tuning simpler and more precise.",
+      "strength": "asserted",
+      "support": "text",
+      "evidence": "Sec. IV.A",
+      "note": "Argued from the structure of the equations using a hypothetical tuning scenario. No tuning experiment or user study compares the two parameterizations."
+    },
+    {
+      "claim": "Model-free control policies would produce more robust online behaviour if desirable impedance properties were encoded in their loss function.",
+      "strength": "asserted",
+      "support": "text",
+      "evidence": "Sec. IV.D.1",
+      "note": "Explicitly speculative — the authors write that such a policy 'could likely be found'. The observation that their network exhibited negative stiffness (Fig. 2b) is real; the proposed remedy is untested."
+    }
+  ],
+  "flashcards": [
+    {
+      "front": "The traditional joint-space impedance control law",
+      "back": "τ = −K(θ − θ_eq) − B·θ̇, with stiffness K, damping B and equilibrium angle θ_eq generally varying through the gait cycle.",
+      "tag": "equation"
+    },
+    {
+      "front": "The paper's decoupled impedance control law",
+      "back": "τ = −K(θ − θ_d) − B(θ̇ − θ̇_d) + τ_ff — a PD position controller on the desired trajectory plus an independent feedforward torque.",
+      "tag": "equation"
+    },
+    {
+      "front": "Deviation angle θ̂",
+      "back": "θ̂ := θ_eq − θ_d, the gap between the equilibrium angle and the desired angle. Being a free parameter is what allows τ_ff to be chosen independently of K and B.",
+      "tag": "concept"
+    },
+    {
+      "front": "How do you recover θ_eq from the decoupled parameters?",
+      "back": "θ_eq = θ_d + (τ_ff + B·θ̇_d)/K (Eq. 4). Note the division by K, which makes the traditional form ill-conditioned near zero stiffness.",
+      "tag": "equation"
+    },
+    {
+      "front": "Property 3",
+      "back": "When θ = θ_d and θ̇ = θ̇_d the controller reduces to τ = τ_ff, and stiffness and damping can be varied arbitrarily without changing the output.",
+      "tag": "concept"
+    },
+    {
+      "front": "Corollary 3.1",
+      "back": "Two controllers sharing a τ_ff that makes the system follow the desired kinematics produce the same torque and angle behaviour regardless of differences in stiffness and damping.",
+      "tag": "concept"
+    },
+    {
+      "front": "What are K and B for an arbitrary torque policy f(θ, θ̇, ξ)?",
+      "back": "K = −∂f/∂θ and B = −∂f/∂θ̇ evaluated along the nominal trajectory, with τ_ff = f(θ_d, θ̇_d, ξ_d). This is Property 2.",
+      "tag": "equation"
+    },
+    {
+      "front": "Stiffness vs quasi-stiffness",
+      "back": "Quasi-stiffness is the slope traced in the torque-angle plane over time during nominal conditions; stiffness is −∂τ/∂θ, how the command changes for an instantaneous displacement.",
+      "tag": "concept"
+    },
+    {
+      "front": "Impedance magnitude ‖Z‖",
+      "back": "‖Z‖ = |K| + |B|. It places a controller on a spectrum from open-loop torque control at zero to high-gain position control at large values (Fig. 4).",
+      "tag": "concept"
+    },
+    {
+      "front": "What perturbation was used in the experiment?",
+      "back": "The prosthesis-side treadmill belt was decelerated just after heelstrike on random strides, at ±50 percent of steady-state walking speed, held for 25 percent of the gait cycle.",
+      "tag": "method"
+    },
+    {
+      "front": "Who was the experimental participant?",
+      "back": "One male participant with an above-knee amputation, 25 years old, 175 cm, 90 kg, walking at 1.0 m/s on the Open-Source Leg v2 under IRB HUM00143080.",
+      "tag": "number"
+    },
+    {
+      "front": "How were joint angles and moments measured?",
+      "back": "A 26-camera Vicon system plus force plates, low-pass filtered with a fourth-order zero-lag Butterworth at 60 Hz, then inverse kinematics and inverse dynamics in OpenSim 4.5 using a modified Rajagopal2016 model adapted to the OSL v2.",
+      "tag": "method"
+    },
+    {
+      "front": "What distinguished controllers α and β?",
+      "back": "Both shared θ_d, θ̇_d and τ_ff. Controller α used measured biological stiffness and damping trajectories; controller β used constant medium values.",
+      "tag": "method"
+    },
+    {
+      "front": "The paper's headline practical conclusion",
+      "back": "Stiffness and damping have almost no effect on nominal walking, so selecting them from steady-state observation alone is under-constrained — evaluation must include deliberate perturbations.",
+      "tag": "result"
+    }
+  ]
+}

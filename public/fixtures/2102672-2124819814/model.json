@@ -1,0 +1,310 @@
+{
+  "model": {
+    "approach": "hybrid",
+    "summary": "The work has two halves that answer to each other. The first is pure algebra: starting from the standard joint-space impedance law, the authors define a deviation angle between the equilibrium angle and the desired angle, add and subtract the damping term applied to the desired velocity, and regroup — producing an equivalent law made of a PD position controller plus an independent feedforward torque, from which four properties and one corollary follow. They then show by first-order Taylor expansion that any torque policy has an equivalent impedance representation, and illustrate it by differentiating a trained neural network policy along a nominal walking trajectory. The second half is a human-subject experiment: one participant with an above-knee amputation walked on a treadmill using the Open-Source Leg v2 under two controllers built to share a feedforward torque trajectory but differ sharply in stiffness and damping. Joint angles and moments came from full-body motion capture and ground reaction forces processed through OpenSim inverse kinematics and inverse dynamics, first during steady walking and then during randomly timed treadmill-belt decelerations.",
+    "toolchain": [
+      {
+        "name": "Open-Source Leg (OSL), second generation [19]",
+        "role": "The powered knee-ankle prosthesis the participant walked on. Its drivetrain dynamics compensation, reported in the same work, was used so that the commanded impedance was actually rendered at the joint rather than distorted by transmission dynamics."
+      },
+      {
+        "name": "Vicon 26-camera motion capture system (Oxford, UK)",
+        "role": "Recorded marker trajectories for the full body alongside force-plate ground reaction forces, providing the raw signals from which every reported joint angle and moment was derived."
+      },
+      {
+        "name": "Fourth-order zero-lag Butterworth filter",
+        "role": "Low-pass filtered the marker trajectories and force plate signals at a 60 Hz cutoff before any kinematic or kinetic computation. Zero-lag matters here because the analysis compares event timing between perturbed and nominal strides."
+      },
+      {
+        "name": "OpenSim 4.5",
+        "role": "Ran the inverse kinematics and inverse dynamics routines that turned marker and force data into sagittal-plane joint angles and moments for both the prosthesis and the biological joints."
+      },
+      {
+        "name": "Modified Rajagopal2016 musculoskeletal model",
+        "role": "The OpenSim model used for those routines, adapted to incorporate the OSL v2 prosthesis's own geometric and inertial properties rather than a biological shank and foot, following the approach of [24] and [25]."
+      },
+      {
+        "name": "Phase variable from residual thigh orientation [9]",
+        "role": "Converted the measured orientation of the participant's residual thigh into a continuous estimate of gait cycle progression, against which stiffness, damping and the equilibrium angle were scheduled for both controllers."
+      },
+      {
+        "name": "Feedforward neural network policy (100-50-10-5 hidden units, ReLU)",
+        "role": "The theoretical example in Sec. II.B. Trained on the variable ramp and speed walking data of [15] to map relative ankle angle, global foot angle and their derivatives to ankle torque, then differentiated along a 1.0 m/s level-ground trajectory to expose its equivalent stiffness and damping."
+      }
+    ],
+    "equations": [
+      {
+        "name": "Traditional joint-space impedance law",
+        "eq": "τ = −K(θ − θ_eq) − B·θ̇",
+        "source": "Eq. (1), Sec. I",
+        "plain": "This is the law the field already uses, and the starting point for everything that follows. It emulates a rotary spring of stiffness K pulling the joint toward an equilibrium angle, together with a damper of viscosity B resisting all joint velocity. All three parameters are in general functions of the gait cycle rather than constants. The trouble the paper identifies is that the desired joint trajectory does not appear anywhere in it, so the parameters do not reveal what motion the controller was designed to produce.",
+        "terms": [
+          {
+            "sym": "τ",
+            "meaning": "commanded joint torque (Nm, or Nm/kg when normalized by body mass)"
+          },
+          {
+            "sym": "K",
+            "meaning": "stiffness (Nm/rad) — torque produced per unit of angle error against the equilibrium angle"
+          },
+          {
+            "sym": "B",
+            "meaning": "damping or viscosity (Nms/rad) — torque produced per unit of joint velocity"
+          },
+          {
+            "sym": "θ, θ̇",
+            "meaning": "measured joint angle (rad) and joint velocity (rad/s)"
+          },
+          {
+            "sym": "θ_eq",
+            "meaning": "equilibrium or rest angle (rad) — a control input, explicitly NOT the desired trajectory"
+          }
+        ],
+        "provenance": {
+          "figure": "Fig. 1 (top)",
+          "equation": "Eq. (1)",
+          "section": "Sec. I"
+        },
+        "figure": {
+          "page": 3,
+          "bbox": {
+            "x": 0.51,
+            "y": 0.062,
+            "w": 0.42,
+            "h": 0.12
+          },
+          "label": "Fig. 1 (top) — traditional impedance controller",
+          "caption": "The block diagram of this equation: the measured angle is compared against θ_eq, the error drives the stiffness gain, and all joint velocity is damped. Note that no desired trajectory enters the diagram anywhere."
+        }
+      },
+      {
+        "name": "Decoupled impedance law (Property 1)",
+        "eq": "τ = −K(θ − θ_d) − B(θ̇ − θ̇_d) + τ_ff ,   where  τ_ff := K·θ̂ − B·θ̇_d  and  θ̂ := θ_eq − θ_d",
+        "source": "Eq. (3), Sec. II.A (via the deviation angle of Eq. (2))",
+        "plain": "This is the paper's central rewriting, and it is an identity rather than an approximation — the same torque, regrouped. Defining the deviation angle as equilibrium minus desired, then adding and subtracting the damping term applied to the desired velocity, splits the law into a PD position controller tracking the trajectory actually wanted plus a feedforward torque that does not depend on the current kinematics at all. Because the deviation angle is free, the feedforward term can be set to anything regardless of K and B. The consequence the rest of the paper draws out is that the feedback part vanishes identically when the joint tracks its desired trajectory, leaving τ = τ_ff alone.",
+        "terms": [
+          {
+            "sym": "θ_d, θ̇_d",
+            "meaning": "desired joint angle (rad) and velocity (rad/s) — the motion the designer actually wants, absent from Eq. (1)"
+          },
+          {
+            "sym": "θ̂",
+            "meaning": "deviation angle (rad), defined in Eq. (2) as θ_eq − θ_d; a free parameter"
+          },
+          {
+            "sym": "τ_ff",
+            "meaning": "feedforward torque (Nm) — what the controller commands when the joint is exactly on trajectory"
+          },
+          {
+            "sym": "K, B",
+            "meaning": "now unambiguously the proportional and derivative gains of the feedback part only"
+          },
+          {
+            "sym": "−K(θ − θ_d) − B(θ̇ − θ̇_d)",
+            "meaning": "the feedback term; identically zero at nominal kinematics, which is the source of Property 3"
+          }
+        ],
+        "provenance": {
+          "figure": "Fig. 1 (bottom)",
+          "equation": "Eqs. (2)–(3)",
+          "section": "Sec. II.A"
+        },
+        "figure": {
+          "page": 3,
+          "bbox": {
+            "x": 0.51,
+            "y": 0.185,
+            "w": 0.42,
+            "h": 0.14
+          },
+          "label": "Fig. 1 (bottom) — decoupled impedance controller",
+          "caption": "The same controller redrawn: the desired trajectory now enters explicitly, and the feedforward torque is injected after the feedback summation. Entering after the summation is exactly why the gains ahead of it cannot alter the nominal command."
+        }
+      },
+      {
+        "name": "Recovering the equilibrium angle",
+        "eq": "θ_eq = θ_d + (τ_ff + B·θ̇_d) / K",
+        "source": "Eq. (4), Sec. II.A",
+        "plain": "The bridge back to the traditional parameterization, and an argument for not using it. Reading it left to right shows why the classical parameters feel tangled: the equilibrium angle depends on the desired trajectory, the feedforward torque and both gains simultaneously, so changing any one of them silently moves it. It also shows a practical hazard, since the expression divides by stiffness and therefore blows up as K approaches zero — which is exactly what happens where the differentiated neural network policy in Fig. 2b crosses zero stiffness. The authors note it is numerically safer to keep the decoupled form and compute τ_ff instead.",
+        "terms": [
+          {
+            "sym": "θ_eq",
+            "meaning": "the traditional equilibrium angle (rad), here an output rather than a design variable"
+          },
+          {
+            "sym": "τ_ff",
+            "meaning": "feedforward torque (Nm) chosen to produce the desired kinematics"
+          },
+          {
+            "sym": "B·θ̇_d",
+            "meaning": "the damping contribution evaluated on the desired velocity, which the regrouping moved into τ_ff"
+          },
+          {
+            "sym": "1/K",
+            "meaning": "the division that makes this form ill-conditioned wherever stiffness passes through zero"
+          }
+        ],
+        "provenance": {
+          "figure": "Fig. 3(a)",
+          "equation": "Eq. (4)",
+          "section": "Sec. II.A"
+        },
+        "figure": {
+          "page": 6,
+          "bbox": {
+            "x": 0.07,
+            "y": 0.06,
+            "w": 0.23,
+            "h": 0.24
+          },
+          "label": "Fig. 3(a) — K, B and θ_eq trajectories for controllers α and β",
+          "caption": "The bottom row is this equation evaluated for both controllers. Their equilibrium angles differ dramatically even though the two controllers were built to produce identical nominal behaviour, which is the clearest visual statement of how misleading θ_eq is as a design variable."
+        }
+      },
+      {
+        "name": "Impedance as the first-order expansion of any policy (Property 2)",
+        "eq": "τ = f(θ_d, θ̇_d, ξ_d) + (∂f/∂θ)(θ − θ_d) + (∂f/∂θ̇)(θ̇ − θ̇_d) + H.O.T.   ⇒   τ_ff = f(θ_d, θ̇_d, ξ_d),  K = −∂f/∂θ,  B = −∂f/∂θ̇",
+        "source": "Eqs. (5)–(6), Sec. II.B",
+        "plain": "Take any torque control policy at all — a lookup table, a neural network, anything measurable — and expand it to first order about a nominal trajectory. Matching coefficients against the decoupled law identifies its terms one for one: the policy's output on the nominal trajectory is the feedforward torque, and the negative partial derivatives with respect to angle and velocity are the stiffness and damping. Every torque policy therefore has an impedance hiding inside it, whether or not it was designed that way. The authors use this to argue that model-free policies should have impedance properties checked, since their trained network turned out to have negative stiffness at points in the gait cycle, which behaves locally like an unstable position controller.",
+        "terms": [
+          {
+            "sym": "f(θ, θ̇, ξ)",
+            "meaning": "an arbitrary torque control policy; ξ holds any extra inputs such as gait phase, EMG or time"
+          },
+          {
+            "sym": "ξ_d",
+            "meaning": "the nominal values of those extra inputs, at which the expansion is taken"
+          },
+          {
+            "sym": "∂f/∂θ",
+            "meaning": "sensitivity of commanded torque to joint angle; its negative is the equivalent stiffness (Nm/rad)"
+          },
+          {
+            "sym": "∂f/∂θ̇",
+            "meaning": "sensitivity of commanded torque to joint velocity; its negative is the equivalent damping (Nms/rad)"
+          },
+          {
+            "sym": "H.O.T.",
+            "meaning": "the neglected higher-order terms — the reason the approximation is local and why Fig. 2e shows a mismatch near peak torque"
+          }
+        ],
+        "provenance": {
+          "figure": "Fig. 2(b)",
+          "equation": "Eqs. (5)–(6)",
+          "section": "Sec. II.B"
+        },
+        "figure": {
+          "page": 5,
+          "bbox": {
+            "x": 0.44,
+            "y": 0.1,
+            "w": 0.19,
+            "h": 0.13
+          },
+          "label": "Fig. 2(b) — stiffness and damping recovered from a neural network",
+          "caption": "These two traces are this equation applied to a trained policy: the negated partial derivatives of the network along a 1.0 m/s walking trajectory. Both dip below zero at points in the gait cycle, a result the authors flag as problematic for online use."
+        }
+      }
+    ],
+    "assumptions": [
+      "The impedance representation of an arbitrary torque policy is a first-order Taylor expansion, so it holds only in a neighbourhood of the nominal trajectory and discards the higher-order terms as well as feedback on any inputs not being differentiated (in Fig. 2 the global foot angle and its derivative).",
+      "The argument that stiffness and damping have no effect at nominal assumes both a feedforward torque that genuinely produces the desired kinematics and nominal initial conditions, θ(0) = θ_d(0) and θ̇(0) = θ̇_d(0).",
+      "That correct feedforward torque was not actually known for the participant: it was taken from an able-bodied dataset [15] scaled by body mass, accounting for neither the OSL's own dynamics nor amputee gait compensations, so some kinematic deviation was inevitable.",
+      "Control is purely joint-space with collocated feedback — each joint's torque uses only that joint's angle and velocity, with no Jacobian mapping to a task-space coordinate system.",
+      "The impedance parameters are treated as functions of a single phase variable estimated from residual thigh orientation, so parameter scheduling is only as good as that phase estimate.",
+      "The experimental validation rests on a single participant with an above-knee amputation (male, 25 years, 175 cm, 90 kg) walking at one speed, 1.0 m/s, on a treadmill while wearing a safety harness."
+    ],
+    "validation": "The theory is checked against a purpose-built experiment rather than against simulation. Two controllers were constructed to share θ_d, θ̇_d and τ_ff while differing sharply in stiffness and damping — controller alpha using measured biological trajectories, controller beta using constant medium values — so that Corollary 3.1 makes a falsifiable prediction: nominal walking should look the same, perturbed walking should not. Both halves held, with nearly identical kinematics and kinetics during steady 1.0 m/s treadmill walking (Fig. 6) and substantially different responses to belt decelerations of plus or minus 50 percent held for 25 percent of the gait cycle (Fig. 7). The authors also report where the theory did not hold exactly, noting that controller alpha showed higher stride-to-stride variability even at steady state, and attributing it to the unknown true feedforward torque combined with alpha's lower impedance. Separately, the first-order approximation of Sec. II.B is validated against its own source policy, with the impedance controller matching the network's average torque output across all 1.0 m/s strides but not reproducing its full variance.",
+    "takeaways": [
+      "The decoupled law is an identity, not an approximation — the same torque, regrouped so the parameters mean what they say.",
+      "The feedback term is exactly zero at nominal kinematics, which is the whole source of the paper's main result.",
+      "Every torque policy has an equivalent stiffness and damping: they are its negated partial derivatives along the nominal trajectory.",
+      "The traditional equilibrium angle is a derived quantity that divides by stiffness, and is ill-conditioned wherever stiffness nears zero."
+    ],
+    "glossary": [
+      {
+        "sym": "θ, θ̇",
+        "meaning": "measured joint angle and velocity (rad, rad/s)"
+      },
+      {
+        "sym": "θ_d, θ̇_d",
+        "meaning": "desired joint trajectory and its velocity — what the designer actually wants"
+      },
+      {
+        "sym": "θ_eq",
+        "meaning": "equilibrium angle of the traditional form; a control input, not a target"
+      },
+      {
+        "sym": "θ̂",
+        "meaning": "deviation angle, θ_eq − θ_d (Eq. 2)"
+      },
+      {
+        "sym": "τ_ff",
+        "meaning": "feedforward torque — the command at nominal kinematics"
+      },
+      {
+        "sym": "‖Z‖",
+        "meaning": "impedance magnitude, |K| + |B|; position along the spectrum of Fig. 4"
+      }
+    ],
+    "material": [
+      {
+        "label": "Preprint DOI (TechRxiv, 2025)",
+        "url": "https://doi.org/10.36227/techrxiv.176162158.86937098/v1"
+      }
+    ]
+  },
+  "explainer": {
+    "model": {
+      "voice": "onyx",
+      "scenes": [
+        {
+          "caption": "One equation, read two ways",
+          "narration": "This paper's method is mostly algebra, checked against one walking experiment. Everything rests on rewriting a single control law so that its parameters finally mean what their names suggest. Nothing is approximated in that rewriting — it is the same torque, regrouped.",
+          "visual": {
+            "type": "intro"
+          }
+        },
+        {
+          "caption": "The law the field already uses",
+          "narration": "The standard law says: torque equals minus K times the angle error against the equilibrium angle, minus B times the joint velocity. Notice what is missing. The trajectory the designer actually wants appears nowhere, so looking at K, B and theta e q tells you nothing about the motion being aimed for.",
+          "visual": {
+            "type": "equation",
+            "equationIdx": 0
+          }
+        },
+        {
+          "caption": "Splitting it in two",
+          "narration": "Define the deviation angle as equilibrium minus desired, then add and subtract B times the desired velocity. Regroup, and the law becomes a P D controller tracking the trajectory you actually want, plus a feedforward torque that ignores the current kinematics entirely. Same torque, two honest halves.",
+          "visual": {
+            "type": "equation",
+            "equationIdx": 1
+          }
+        },
+        {
+          "caption": "Why the old parameter misleads",
+          "narration": "Convert back and the equilibrium angle equals the desired angle plus tau f f plus B theta dot d, all over K. It depends on the trajectory, the feedforward torque and both gains at once — and it divides by stiffness, so it explodes wherever stiffness passes through zero.",
+          "visual": {
+            "type": "equation",
+            "equationIdx": 2
+          }
+        },
+        {
+          "caption": "Every policy hides an impedance",
+          "narration": "Expand any torque policy to first order about a nominal trajectory and match coefficients. The policy's nominal output is the feedforward torque; its negative slopes against angle and velocity are the stiffness and damping. Differentiate a trained neural network and this is what falls out — including, here, negative stiffness.",
+          "visual": {
+            "type": "equation",
+            "equationIdx": 3
+          }
+        },
+        {
+          "caption": "Testing it on a real leg",
+          "narration": "Two controllers were built to share a feedforward torque but differ sharply in stiffness and damping, then worn by a participant with an above-knee amputation on the Open Source Leg. Steady walking looked nearly identical. Decelerating the treadmill belt pulled them apart, exactly as the theory predicts.",
+          "visual": {
+            "type": "validation"
+          }
+        }
+      ]
+    }
+  }
+}

@@ -137,7 +137,7 @@ function rememberPhase(cacheId, result) {
  * analysis would be indistinguishable from a bug.
  * ------------------------------------------------------------------ */
 
-function fixturesEnabled() {
+export function fixturesEnabled() {
   try {
     if (import.meta.env.VITE_FIXTURES === "1") return true;
     return (

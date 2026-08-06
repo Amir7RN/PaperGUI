@@ -29,7 +29,7 @@ import { SAMPLE_SPEC_6 } from "./samplePaper6.js";
 import { SAMPLE_SPEC_7 } from "./samplePaper7.js";
 import { SAMPLE_SPEC_8 } from "./samplePaper8.js";
 import { SAMPLE_SPEC_9 } from "./samplePaper9.js";
-import { analyzePaper, MODEL_TIERS, getModelTier, setModelTier } from "./api.js";
+import { analyzePaper, fixturesEnabled, MODEL_TIERS, getModelTier, setModelTier } from "./api.js";
 import { fileToBase64, renderPdfRegions } from "./pdf.js";
 import {
   compileSpec, buildHelpers, defaultsFromSpec, runSpec, validateResultFigures,
@@ -423,7 +423,11 @@ function Landing({
   authOn, signedIn, onSignIn, onSignUp, onSignOut, onOpenLibrary, onBuyCredits, owner, onContact,
 }) {
   const fileRef = useRef(null);
-  const requireAuthToUpload = authOn && !signedIn;
+  /* Fixture replay answers from disk without ever calling the edge function, so
+   * the sign-in gate would only be asking a developer to authenticate for a
+   * request that is never made. analyzePaper skips its own auth checks for a
+   * fully recorded paper; this is the same exemption at the UI. */
+  const requireAuthToUpload = authOn && !signedIn && !fixturesEnabled();
   // The PDF waits here until the reader presses Start — picking a file is not
   // the same as agreeing to spend credit on it.
   const [picked, setPicked] = useState(null);

@@ -1,0 +1,49 @@
+{
+  "phases": {
+    "overview": {
+      "recordedAt": "2026-08-05T04:08:40.746Z",
+      "keys": [
+        "meta",
+        "archetype",
+        "story",
+        "mindmap",
+        "conclusion",
+        "references",
+        "conceptFigures"
+      ]
+    },
+    "foundations": {
+      "recordedAt": "2026-08-05T04:13:27.332Z",
+      "keys": [
+        "foundations",
+        "explainer"
+      ]
+    },
+    "model": {
+      "recordedAt": "2026-08-05T04:15:21.645Z",
+      "keys": [
+        "model",
+        "explainer"
+      ]
+    },
+    "method": {
+      "recordedAt": "2026-08-06T00:17:47.167Z",
+      "keys": [
+        "protocol",
+        "blocks",
+        "explorables"
+      ]
+    },
+    "results": {
+      "recordedAt": "2026-08-06T00:21:00.610Z",
+      "keys": [
+        "resultFigures",
+        "checkpoints",
+        "claims",
+        "flashcards"
+      ]
+    }
+  },
+  "pdf": "papers\\ImpedanceControl.pdf",
+  "pdfBytes": 1577004
+}

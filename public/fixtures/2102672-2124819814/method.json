@@ -1,0 +1,229 @@
+{
+  "protocol": {
+    "T": 100,
+    "dt": 0.4,
+    "description": "The axis is the gait cycle in percent, 0 to 100, which is the axis every kinetic and kinematic figure in the paper uses; 251 samples at 0.4 percent resolution. Fixed constants: a stride time of 1.1 s at the designed walking speed of 1.0 m/s (Sec. III.A), a normalized ankle inertia of 6e-4 kg·m² per kilogram of body mass, and a participant mass of 90 kg as reported for the study participant. The nominal desired kinematics and the feedforward torque are surrogates for the average able-bodied level-ground 1.0 m/s ankle behaviour of [15], which the authors used as their θ_d, θ̇_d and τ_ff and which is not distributed with this paper — the surrogate is calibrated so the plantarflexor moment peaks near −1.5 Nm/kg just before toe-off and peak dorsiflexion reaches about 10 degrees, matching the ranges plotted in Figs. 3(b) and 6(b). The perturbation reproduces the paper's protocol: a belt deceleration of ±50 percent of steady-state walking speed, applied just after heelstrike and held for 25 percent of the gait cycle."
+  },
+  "blocks": [
+    {
+      "key": "thetaD",
+      "title": "Stage 1 — The walk you are aiming for",
+      "plain": "Before a prosthesis can push, somebody has to decide what a good stride looks like. This block draws that target: the ankle rolls slowly upward as the body passes over the foot, then snaps sharply downward to shove off the ground, then relaxes as the leg swings through. It is the shape of an ordinary step, and everything the controller does afterwards is measured against it.",
+      "equation": "θ_d(φ) = A_df · sin(π · min(φ/0.62, 1)) − A_pf · exp(−((φ−0.66)/0.05)²) + 0.35·A_df · exp(−((φ−0.85)/0.10)²)",
+      "params": [
+        {
+          "key": "pkDf",
+          "sym": "A_df",
+          "label": "peak dorsiflexion (deg)",
+          "min": 3,
+          "max": 20,
+          "step": 0.5,
+          "def": 10
+        },
+        {
+          "key": "pkPf",
+          "sym": "A_pf",
+          "label": "push-off plantarflexion (deg)",
+          "min": 5,
+          "max": 30,
+          "step": 0.5,
+          "def": 18
+        }
+      ],
+      "theory": "The paper takes θ_d and θ̇_d as the average able-bodied values for level ground 1.0 m/s walking reported in [15] (Sec. III.A). That dataset is not redistributed with the article, so this block is a Universal Signal Adapter: a smooth surrogate with the same landmarks — progressive dorsiflexion through stance, a rapid plantarflexion at push-off near 66 percent of the cycle, and a small swing-phase recovery — calibrated against the angle ranges plotted in Fig. 6(b).",
+      "pythonCode": "import numpy as np\n\ndef theta_d(phi, A_df=10.0, A_pf=18.0):\n    \"\"\"Nominal desired ankle angle in degrees over the gait cycle phi in [0, 1].\"\"\"\n    stance = A_df * np.sin(np.pi * np.clip(phi / 0.62, 0, 1))\n    pushoff = A_pf * np.exp(-((phi - 0.66) / 0.05) ** 2)\n    swing = 0.35 * A_df * np.exp(-((phi - 0.85) / 0.10) ** 2)\n    return stance - pushoff + swing\n\nphi = np.linspace(0, 1, 251)\nangle = theta_d(phi)",
+      "computeJs": "var out = [];\nfor (var i = 0; i < helpers.n; i++) {\n  var p = helpers.t[i] / 100;\n  var stance = params.pkDf * Math.sin(Math.PI * helpers.clamp(p / 0.62, 0, 1));\n  var pushoff = params.pkPf * Math.exp(-Math.pow((p - 0.66) / 0.05, 2));\n  var swing = 0.35 * params.pkDf * Math.exp(-Math.pow((p - 0.85) / 0.10, 2));\n  out.push(stance - pushoff + swing);\n}\nreturn out;"
+    },
+    {
+      "key": "tauFf",
+      "title": "Stage 2 — The torque that makes it happen anyway",
+      "plain": "Here is the part the paper is really about. Rather than hoping a stiff spring drags the ankle through that motion, the controller works out ahead of time roughly how much torque the step needs and simply applies it. The push builds as the body loads the foot and peaks in a hard shove just before the toe leaves the ground. Crucially, this command never looks at where the joint actually is.",
+      "equation": "τ_ff(φ) = −(A_τ/6.8) · max(θ_d(φ), 0) · exp(−((φ − φ_pk)/0.13)²) + 0.12 · exp(−((φ−0.08)/0.05)²)",
+      "params": [
+        {
+          "key": "pkTau",
+          "sym": "A_τ",
+          "label": "peak plantarflexor moment (Nm/kg)",
+          "min": 0.4,
+          "max": 2.6,
+          "step": 0.05,
+          "def": 1.55
+        },
+        {
+          "key": "tPeak",
+          "sym": "φ_pk",
+          "label": "timing of peak torque (% gait)",
+          "min": 35,
+          "max": 65,
+          "step": 1,
+          "def": 50
+        }
+      ],
+      "theory": "τ_ff is the paper's new independent parameter, defined in Eq. (3) as K·θ̂ − B·θ̇_d and interpreted in Property 3 as the torque the controller commands whenever the desired kinematics are actually being tracked. The authors set it to the nominal able-bodied ankle moment for 1.0 m/s walking from [15], scaled by the participant's mass. This block builds it from the previous block's angle so the torque and the motion stay in the paper's own quasi-stiffness relationship (Sec. II.C.1): plantarflexor moment grows with dorsiflexion through stance and peaks near toe-off, calibrated to the roughly −1.5 Nm/kg peak plotted in Fig. 3(b).",
+      "pythonCode": "import numpy as np\n\ndef tau_ff(phi, theta_d_deg, A_tau=1.55, phi_pk=0.50):\n    \"\"\"Feedforward ankle torque in Nm/kg over the gait cycle.\n\n    The 6.8 divisor is a calibration constant, not a modelling choice: it is\n    fitted so that at the paper's reported peak moment the curve bottoms out\n    near -1.5 Nm/kg, matching Fig. 3(b).\n    \"\"\"\n    dorsi = np.maximum(theta_d_deg, 0.0)\n    window = np.exp(-((phi - phi_pk) / 0.13) ** 2)\n    early = 0.12 * np.exp(-((phi - 0.08) / 0.05) ** 2)\n    return -(A_tau / 6.8) * dorsi * window + early\n\ntau = tau_ff(phi, angle)",
+      "computeJs": "var out = [];\nfor (var i = 0; i < helpers.n; i++) {\n  var p = helpers.t[i] / 100;\n  var dorsi = Math.max(input[i], 0);\n  var win = Math.exp(-Math.pow((p - params.tPeak / 100) / 0.13, 2));\n  var early = 0.12 * Math.exp(-Math.pow((p - 0.08) / 0.05, 2));\n  out.push(-(params.pkTau / 6.8) * dorsi * win + early);\n}\nreturn out;"
+    },
+    {
+      "key": "devAngle",
+      "title": "Stage 3 — Something knocks the leg off course",
+      "plain": "Now the treadmill belt suddenly slows under the prosthetic foot, just after the heel lands. The ankle gets shoved away from the motion it was aiming for, and how far it gets shoved is a tug of war: the disturbance pushes, and the controller's stiffness and damping push back. A soft controller lets the joint wander; a stiff one barely lets it move. This is the only place in the whole pipeline where stiffness and damping do anything at all.",
+      "equation": "J·Δθ̈ = K_ext·(θ_ext(φ) − Δθ) − K·Δθ − B·Δθ̇ ,   θ_ext ∝ P · sin(π(φ−0.05)/Δφ) · loading(φ)",
+      "params": [
+        {
+          "key": "Kst",
+          "sym": "K",
+          "label": "stiffness (Nm/rad/kg)",
+          "min": 0.2,
+          "max": 12,
+          "step": 0.1,
+          "def": 4
+        },
+        {
+          "key": "Bd",
+          "sym": "B",
+          "label": "damping (Nms/rad/kg)",
+          "min": 0.005,
+          "max": 0.4,
+          "step": 0.005,
+          "def": 0.06
+        },
+        {
+          "key": "pertAmp",
+          "sym": "P",
+          "label": "belt perturbation (% of walking speed)",
+          "min": 0,
+          "max": 100,
+          "step": 5,
+          "def": 50
+        },
+        {
+          "key": "pertDur",
+          "sym": "Δφ",
+          "label": "perturbation duration (% gait)",
+          "min": 5,
+          "max": 50,
+          "step": 1,
+          "def": 25
+        },
+        {
+          "key": "kExt",
+          "sym": "K_ext",
+          "label": "ground + user coupling stiffness (Nm/rad/kg)",
+          "min": 1,
+          "max": 30,
+          "step": 0.5,
+          "def": 6
+        }
+      ],
+      "theory": "Sec. III.A describes the perturbation exactly: the prosthesis-side treadmill belt was decelerated immediately after heelstrike on random strides, at ±50 percent of the measured steady-state walking speed, held for a duration corresponding to 25 percent of the estimated gait cycle. Onset is therefore fixed at heelstrike here rather than exposed as a slider. The belt event is modelled as a KINEMATIC disturbance, not a torque one, because that is what it physically is — the foot is dragged toward a different position and the joint is pulled with it through the ground and user coupling the paper describes in Sec. I. That distinction matters: against a pure torque disturbance the feedback torque would come out near K-independent, whereas against a kinematic one a stiffer controller both deviates less AND commands more torque, which is the pairing Fig. 7 actually shows. The coupling is scaled by how loaded the foot is at that moment, taken from the previous block's torque, since a belt deceleration only reaches the joint while the foot bears weight. Integration is semi-implicit Euler with implicit damping, at the protocol step converted to seconds through the 1.1 s stride.",
+      "pythonCode": "import numpy as np\n\ndef deviation(phi, tau_ff_arr, K=4.0, B=0.06, P=50.0, dphi=0.25, K_ext=6.0,\n              J=6e-4, stride_s=1.1, phi0=0.05):\n    \"\"\"Angle deviation from nominal, in degrees, during a belt perturbation.\n\n    The belt is a kinematic disturbance: it drags the foot toward theta_ext and\n    the joint follows through the ground/user coupling K_ext. Damping is\n    integrated implicitly; explicit damping needs (B/J)*dt < 2, which the upper\n    end of the damping range violates.\n    \"\"\"\n    dt_real = (phi[1] - phi[0]) * stride_s\n    load = max(np.max(np.abs(tau_ff_arr)), 1e-6)\n    th = w = 0.0\n    out = np.zeros_like(phi)\n    for i, p in enumerate(phi):\n        ramp = np.sin(np.pi * (p - phi0) / dphi) if phi0 <= p < phi0 + dphi else 0.0\n        loading = abs(tau_ff_arr[i]) / load\n        th_ext = (P / 50.0) * 0.25 * ramp * (0.35 + 0.65 * loading)\n        w = (w + (K_ext * (th_ext - th) - K * th) / J * dt_real) / (1.0 + (B / J) * dt_real)\n        th = float(np.clip(th + w * dt_real, -1.2, 1.2))\n        out[i] = np.degrees(th)\n    return out",
+      "computeJs": "var strideS = 1.1, J = 0.0006;\nvar dtReal = helpers.dt / 100 * strideS;\nvar K = params.Kst, B = params.Bd, Ke = params.kExt;\nvar load = 1e-6;\nfor (var k = 0; k < helpers.n; k++) load = Math.max(load, Math.abs(input[k]));\nvar on = 0.05, dur = Math.max(params.pertDur, 1) / 100;\nvar th = 0, w = 0, out = [];\nfor (var i = 0; i < helpers.n; i++) {\n  var p = helpers.t[i] / 100;\n  var ramp = (p >= on && p < on + dur) ? Math.sin(Math.PI * (p - on) / dur) : 0;\n  var loading = Math.abs(input[i]) / load;\n  /* Where the belt drags the foot to, in radians — a KINEMATIC disturbance. */\n  var thExt = (params.pertAmp / 50) * 0.25 * ramp * (0.35 + 0.65 * loading);\n  /* Damping is taken implicitly. Treated explicitly, this integrator needs\n   * (B/J)·dt < 2, which the damping slider passes at its upper end — the\n   * joint would then flip between the clamps and the torque would explode. */\n  w = (w + (Ke * (thExt - th) - K * th) / J * dtReal) / (1 + (B / J) * dtReal);\n  th = helpers.clamp(th + w * dtReal, -1.2, 1.2);\n  out.push(th * 180 / Math.PI);\n}\nreturn out;"
+    },
+    {
+      "key": "tauTotal",
+      "title": "Stage 4 — What the motor is actually told to do",
+      "plain": "Finally the two halves are added up: the torque planned in advance, plus whatever correction the stiffness and damping demand because the joint drifted off course. Watch what happens when you set the perturbation to zero — the correction vanishes completely and the command collapses onto the planned torque, no matter where you drag the stiffness slider. That collapse is the paper's headline result, and you can trigger it yourself.",
+      "equation": "τ = τ_ff(φ) − K·Δθ − B·Δθ̇ ,  reported in Nm after scaling by body mass m",
+      "params": [
+        {
+          "key": "bodyMass",
+          "sym": "m",
+          "label": "participant body mass (kg)",
+          "min": 50,
+          "max": 120,
+          "step": 1,
+          "def": 90
+        }
+      ],
+      "theory": "This is Eq. (3) evaluated over the stride, and the demonstration of Property 3 and Corollary 3.1 (Sec. II.C). The feedback term is identically zero whenever the joint is on its desired trajectory, so at nominal the command reduces to τ = τ_ff and K and B can be varied arbitrarily without changing anything — which is what the paper's Fig. 3(b) shows for two very different controllers. Off nominal the feedback term reappears and the two controllers separate, as in Fig. 5. Because the engine hands each block only the previous block's array, τ_ff is rebuilt here from the same expression used in Stage 2 rather than being passed forward. The mass scaling reflects the paper's own step of scaling the normalized able-bodied kinetics by the participant's mass, reported as 90 kg.",
+      "pythonCode": "import numpy as np\n\ndef tau_total(phi, dev_deg, tau_ff_arr, K=4.0, B=0.06, m=90.0, stride_s=1.1):\n    \"\"\"Total commanded ankle torque in Nm, Eq. (3) scaled by body mass.\"\"\"\n    dt_real = (phi[1] - phi[0]) * stride_s\n    dth = np.radians(dev_deg)\n    dth_dot = np.gradient(dth, dt_real)\n    return (tau_ff_arr - K * dth - B * dth_dot) * m",
+      "computeJs": "var strideS = 1.1;\nvar dtReal = helpers.dt / 100 * strideS;\nvar out = [];\nfor (var i = 0; i < helpers.n; i++) {\n  var p = helpers.t[i] / 100;\n  var stance = params.pkDf * Math.sin(Math.PI * helpers.clamp(p / 0.62, 0, 1));\n  var pushoff = params.pkPf * Math.exp(-Math.pow((p - 0.66) / 0.05, 2));\n  var swing = 0.35 * params.pkDf * Math.exp(-Math.pow((p - 0.85) / 0.10, 2));\n  var thd = stance - pushoff + swing;\n  var win = Math.exp(-Math.pow((p - params.tPeak / 100) / 0.13, 2));\n  var tff = -(params.pkTau / 6.8) * Math.max(thd, 0) * win\n          + 0.12 * Math.exp(-Math.pow((p - 0.08) / 0.05, 2));\n  var dth = input[i] * Math.PI / 180;\n  var prev = (i > 0 ? input[i - 1] : input[0]) * Math.PI / 180;\n  var dthDot = (dth - prev) / dtReal;\n  out.push((tff - params.Kst * dth - params.Bd * dthDot) * params.bodyMass);\n}\nreturn out;"
+    }
+  ],
+  "explorables": [
+    {
+      "title": "The impedance spectrum, live",
+      "basis": "equation",
+      "story": "Slide the whole controller from one end of the paper's spectrum to the other and watch the commanded torque during a disturbance peel away from the planned torque — while the undisturbed part of the stride never moves at all.",
+      "source": "Eq. (3) and Fig. 4, with ‖Z‖ = |K| + |B| as defined in Sec. II.C.2",
+      "demo": {
+        "kind": "chart",
+        "chartKind": "line",
+        "T": 100,
+        "dt": 0.4,
+        "xLabel": "gait cycle (%)",
+        "yLabel": "commanded ankle torque (Nm/kg)",
+        "caption": "Drag the impedance magnitude from torque control to position control and watch only the disturbed window respond.",
+        "params": [
+          {
+            "key": "expZ",
+            "sym": "‖Z‖",
+            "label": "impedance magnitude (× the paper's α gains)",
+            "min": 0.02,
+            "max": 5,
+            "step": 0.02,
+            "def": 1
+          },
+          {
+            "key": "expPert",
+            "sym": "P",
+            "label": "belt perturbation (% of walking speed)",
+            "min": 0,
+            "max": 100,
+            "step": 5,
+            "def": 50
+          }
+        ],
+        "computeJs": "var strideS = 1.1, J = 0.0006, dtReal = helpers.dt / 100 * strideS;\nvar K = 4 * params.expZ, B = 0.06 * params.expZ;\nvar nom = [], tot = [], xs = [];\nvar th = 0, w = 0;\nfor (var i = 0; i < helpers.n; i++) {\n  var p = helpers.t[i] / 100;\n  var stance = 10 * Math.sin(Math.PI * helpers.clamp(p / 0.62, 0, 1));\n  var pushoff = 18 * Math.exp(-Math.pow((p - 0.66) / 0.05, 2));\n  var thd = stance - pushoff + 3.5 * Math.exp(-Math.pow((p - 0.85) / 0.10, 2));\n  var tff = -0.228 * Math.max(thd, 0) * Math.exp(-Math.pow((p - 0.5) / 0.13, 2))\n          + 0.12 * Math.exp(-Math.pow((p - 0.08) / 0.05, 2));\n  var ramp = (p >= 0.05 && p < 0.30) ? Math.sin(Math.PI * (p - 0.05) / 0.25) : 0;\n  var thExt = (params.expPert / 50) * 0.25 * ramp * 0.4;\n  var prevTh = th;\n  w = (w + (6 * (thExt - th) - K * th) / J * dtReal) / (1 + (B / J) * dtReal);\n  th = helpers.clamp(th + w * dtReal, -1.2, 1.2);\n  var dthDot = (th - prevTh) / dtReal;\n  xs.push(helpers.t[i]);\n  nom.push(tff);\n  tot.push(tff - K * th - B * dthDot);\n}\nreturn { x: xs, series: [ { label: 'planned torque τ_ff', data: nom }, { label: 'commanded torque τ during the disturbance', data: tot } ] };",
+        "insightJs": "var a = result.series[0].data, b = result.series[1].data, m = 0;\nfor (var i = 0; i < a.length; i++) m = Math.max(m, Math.abs(a[i] - b[i]));\nvar side = params.expZ < 0.5 ? 'toward pure torque control' : (params.expZ > 2 ? 'toward high-gain position control' : 'in the middle of the spectrum, where most published controllers sit');\nreturn 'At ‖Z‖ = ' + params.expZ.toFixed(2) + '× the paper’s α gains you are ' + side + ', and the disturbance pulls the command at most ' + m.toFixed(2) + ' Nm/kg away from the planned torque. Set the perturbation to zero and that gap goes to exactly zero at every stiffness — that is Property 3.';",
+        "provenance": {
+          "figure": "Fig. 4",
+          "equation": "Eq. (3)",
+          "section": "Sec. II.C.2"
+        }
+      }
+    },
+    {
+      "title": "Where the equilibrium angle actually goes",
+      "basis": "equation",
+      "story": "Give two controllers the same walk and the same planned torque, change only their stiffness, and watch their equilibrium angles fly apart — including far outside any angle the ankle can physically reach.",
+      "source": "Eq. (4), Sec. II.A; reproduces the bottom row of Fig. 3(a)",
+      "demo": {
+        "kind": "chart",
+        "chartKind": "line",
+        "T": 100,
+        "dt": 0.4,
+        "xLabel": "gait cycle (%)",
+        "yLabel": "angle (deg)",
+        "caption": "Lower either stiffness toward zero and watch that controller's equilibrium angle run off the chart.",
+        "params": [
+          {
+            "key": "eqKa",
+            "sym": "K_α",
+            "label": "stiffness of controller α (Nm/rad/kg)",
+            "min": 0.3,
+            "max": 10,
+            "step": 0.1,
+            "def": 1.5
+          },
+          {
+            "key": "eqKb",
+            "sym": "K_β",
+            "label": "stiffness of controller β (Nm/rad/kg)",
+            "min": 0.3,
+            "max": 10,
+            "step": 0.1,
+            "def": 5
+          }
+        ],
+        "computeJs": "var strideS = 1.1, dtReal = helpers.dt / 100 * strideS;\nvar xs = [], thd = [], eqa = [], eqb = [];\nvar B = 0.06;\nvar ang = [], tff = [];\nfor (var i = 0; i < helpers.n; i++) {\n  var p = helpers.t[i] / 100;\n  var stance = 10 * Math.sin(Math.PI * helpers.clamp(p / 0.62, 0, 1));\n  var pushoff = 18 * Math.exp(-Math.pow((p - 0.66) / 0.05, 2));\n  var a = stance - pushoff + 3.5 * Math.exp(-Math.pow((p - 0.85) / 0.10, 2));\n  ang.push(a);\n  tff.push(-0.155 * Math.max(a, 0) * Math.exp(-Math.pow((p - 0.5) / 0.13, 2))\n         + 0.12 * Math.exp(-Math.pow((p - 0.08) / 0.05, 2)));\n}\nfor (var j = 0; j < helpers.n; j++) {\n  var prev = j > 0 ? ang[j - 1] : ang[0];\n  var dRate = ((ang[j] - prev) * Math.PI / 180) / dtReal;\n  var num = tff[j] + B * dRate;\n  xs.push(helpers.t[j]);\n  thd.push(ang[j]);\n  eqa.push(helpers.clamp(ang[j] + num / params.eqKa * 180 / Math.PI, -180, 180));\n  eqb.push(helpers.clamp(ang[j] + num / params.eqKb * 180 / Math.PI, -180, 180));\n}\nreturn { x: xs, series: [ { label: 'desired angle θ_d', data: thd }, { label: 'θ_eq, controller α', data: eqa }, { label: 'θ_eq, controller β', data: eqb } ] };",
+        "insightJs": "var a = result.series[1].data, b = result.series[2].data, ma = 0, mb = 0;\nfor (var i = 0; i < a.length; i++) { if (Math.abs(a[i]) > ma) ma = Math.abs(a[i]); if (Math.abs(b[i]) > mb) mb = Math.abs(b[i]); }\nreturn 'Controller α’s equilibrium angle swings out to ' + ma.toFixed(0) + '° and β’s to ' + mb.toFixed(0) + '°, for identical desired kinematics and identical planned torque. Eq. (4) divides by K, so the softer controller’s θ_eq runs furthest from anything an ankle could actually do — which is why the paper calls it a control input, not a target.';",
+        "provenance": {
+          "figure": "Fig. 3(a)",
+          "equation": "Eq. (4)",
+          "section": "Sec. II.A"
+        }
+      }
+    }
+  ]
+}

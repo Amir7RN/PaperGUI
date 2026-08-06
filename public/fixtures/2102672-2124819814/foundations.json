@@ -1,0 +1,323 @@
+{
+  "foundations": [
+    {
+      "title": "The joint-space impedance control law",
+      "source": "Hogan, American Control Conference 1984 [4]; as used for prostheses by Sup et al. 2008 [5] and Au et al. 2008 [6]",
+      "concept": "Almost every powered leg prosthesis commands its motors with one short rule: pretend the joint is a spring pulling toward a resting angle, plus a damper resisting speed. The stiffness says how hard the spring pulls per unit of angle error, the damping says how much the joint resists moving quickly, and the equilibrium angle is where the spring would settle if nothing else touched the leg. That last condition is the catch, because something always touches the leg — the ground pushes up during stance and the user drives the residual limb. Under any such interaction the joint comes to rest not at the equilibrium angle but offset from it, by exactly the interaction torque divided by the stiffness. Designers exploit this on purpose: they place the equilibrium angle somewhere the leg is never meant to go, precisely so that the interaction pushes the joint onto the motion they actually want. The parameters are usually scheduled through the gait cycle rather than held fixed, so all three are really trajectories rather than numbers.",
+      "equation": "τ = −K(θ − θ_eq) − B·θ̇",
+      "whyItMatters": "This paper takes that law apart and shows it is algebraically identical to a position controller plus a feedforward torque, which is what finally makes the equilibrium angle's strange behaviour easy to explain. Everything the paper proves is a re-reading of this one equation.",
+      "demo": {
+        "kind": "chart",
+        "chartKind": "line",
+        "T": 0.6,
+        "dt": 0.002,
+        "xLabel": "time (s)",
+        "yLabel": "joint angle (deg)",
+        "caption": "Push the joint with an interaction torque and watch where it actually settles — never at the equilibrium angle.",
+        "params": [
+          {
+            "key": "f1K",
+            "sym": "K",
+            "label": "stiffness (Nm/rad)",
+            "min": 40,
+            "max": 400,
+            "step": 5,
+            "def": 100
+          },
+          {
+            "key": "f1B",
+            "sym": "B",
+            "label": "damping (Nms/rad)",
+            "min": 1,
+            "max": 40,
+            "step": 0.5,
+            "def": 5
+          },
+          {
+            "key": "f1Text",
+            "sym": "τₑₓₜ",
+            "label": "interaction torque (Nm)",
+            "min": 0,
+            "max": 30,
+            "step": 1,
+            "def": 20
+          }
+        ],
+        "computeJs": "var J = 0.05, thEq = 0.2;\nvar K = params.f1K, B = params.f1B, tExt = params.f1Text;\nvar th = 0, w = 0, ang = [], eq = [];\nfor (var i = 0; i < helpers.n; i++) {\n  var tau = -K * (th - thEq) - B * w + tExt;\n  w = w + (tau / J) * helpers.dt;\n  th = th + w * helpers.dt;\n  th = helpers.clamp(th, -3, 3);\n  ang.push(th * 180 / Math.PI);\n  eq.push(thEq * 180 / Math.PI);\n}\nreturn { series: [ { label: 'joint angle θ', data: ang }, { label: 'equilibrium angle θ_eq', data: eq } ] };",
+        "insightJs": "var off = params.f1Text / params.f1K * 180 / Math.PI;\nreturn 'A ' + params.f1Text.toFixed(0) + ' Nm interaction torque against a stiffness of ' + params.f1K.toFixed(0) + ' Nm/rad parks the joint ' + off.toFixed(1) + '° past its equilibrium angle. That gap is why the paper insists θ_eq is a control input, not the trajectory anyone wants.';",
+        "provenance": {
+          "figure": "Fig. 1 (top)",
+          "equation": "Eq. (1)",
+          "section": "Sec. I"
+        }
+      },
+      "provenance": {
+        "figure": "Fig. 1 (top)",
+        "equation": "Eq. (1)",
+        "section": "Sec. I"
+      },
+      "figure": {
+        "page": 3,
+        "bbox": {
+          "x": 0.51,
+          "y": 0.062,
+          "w": 0.42,
+          "h": 0.12
+        },
+        "label": "Fig. 1 (top) — the traditional impedance controller",
+        "caption": "The paper's own block diagram of the law this demo simulates: the angle error against θ_eq drives the stiffness gain, and all joint velocity is damped. The live plot beside it shows what that diagram does once an interaction torque is present."
+      },
+      "takeaways": [
+        "The equilibrium angle is where the joint would settle in mid-air, not where it goes while walking.",
+        "The steady-state offset is exactly the interaction torque divided by the stiffness.",
+        "Raising stiffness shrinks the offset but does not remove it — only a feedforward torque can."
+      ]
+    },
+    {
+      "title": "Stiffness is not quasi-stiffness",
+      "source": "Rouse, Gregg, Hargrove and Sensinger, IEEE Trans. Biomedical Engineering 2013 [17]",
+      "concept": "Plot a walking joint's torque against its angle over one stride and you get a loop, and the slope of that loop is often quoted as the joint's stiffness. It is not. That slope — properly called quasi-stiffness — describes a path the joint happens to trace over time as the whole body moves, and it mixes together the controller, the limb dynamics and the ground. True stiffness is a different question entirely: hold the clock still at one instant, displace the joint slightly, and ask how much the commanded torque changes. One is a property of the observed behaviour, the other is a property of the controller. The distinction matters here because two controllers can trace exactly the same loop while having completely different stiffness, which is impossible to see from the loop alone.",
+      "equation": "quasi-stiffness = dτ/dθ along the stride ,   stiffness K = −∂τ/∂θ at fixed time",
+      "whyItMatters": "The paper's central corollary is a statement about exactly this gap: controllers sharing a feedforward torque have identical quasi-stiffness no matter how their stiffness differs. Without this distinction the result reads like a contradiction.",
+      "demo": {
+        "kind": "chart",
+        "chartKind": "line",
+        "T": 1,
+        "dt": 0.004,
+        "xLabel": "ankle angle (deg)",
+        "yLabel": "ankle torque (Nm/kg)",
+        "caption": "The loop's slope is quasi-stiffness; drag the displacement to see the true stiffness as a vertical shift.",
+        "params": [
+          {
+            "key": "f2K",
+            "sym": "K",
+            "label": "controller stiffness (Nm/rad/kg)",
+            "min": 0,
+            "max": 8,
+            "step": 0.1,
+            "def": 4
+          },
+          {
+            "key": "f2Dth",
+            "sym": "Δθ",
+            "label": "imposed displacement (deg)",
+            "min": 0,
+            "max": 8,
+            "step": 0.25,
+            "def": 3
+          }
+        ],
+        "computeJs": "var n = helpers.n, K = params.f2K, dth = params.f2Dth * Math.PI / 180;\nvar ang = [], t1 = [], t2 = [];\nfor (var i = 0; i < n; i++) {\n  var p = i / (n - 1);\n  var a = 10 * Math.sin(Math.PI * Math.min(p / 0.62, 1))\n        - 18 * Math.exp(-Math.pow((p - 0.66) / 0.05, 2))\n        + 6 * Math.exp(-Math.pow((p - 0.85) / 0.10, 2));\n  var tq = -1.55 * Math.exp(-Math.pow((p - 0.50) / 0.11, 2))\n         + 0.12 * Math.exp(-Math.pow((p - 0.08) / 0.05, 2));\n  ang.push(a);\n  t1.push(tq);\n  t2.push(tq - K * dth);\n}\nreturn { x: ang, series: [ { label: 'nominal torque–angle loop', data: t1 }, { label: 'same instant, displaced by Δθ', data: t2 } ] };",
+        "insightJs": "var x = result.x, y = result.series[0].data;\nvar i1 = Math.round(0.20 * (x.length - 1)), i2 = Math.round(0.45 * (x.length - 1));\nvar dx = (x[i2] - x[i1]) * Math.PI / 180;\nvar qs = Math.abs(dx) < 1e-6 ? 0 : (y[i2] - y[i1]) / dx;\nvar gap = params.f2K * params.f2Dth * Math.PI / 180;\nreturn 'Through mid-stance the loop’s own slope — the quasi-stiffness — is about ' + qs.toFixed(1) + ' Nm/rad/kg, while a ' + params.f2Dth.toFixed(1) + '° displacement shifts the curve by ' + gap.toFixed(2) + ' Nm/kg. Two different numbers, and only the second one is the controller’s stiffness K.';",
+        "provenance": {
+          "figure": "Fig. 3(b)",
+          "equation": "",
+          "section": "Sec. II.C.1"
+        }
+      },
+      "provenance": {
+        "figure": "Fig. 3",
+        "equation": "",
+        "section": "Sec. II.C.1"
+      },
+      "figure": {
+        "page": 6,
+        "bbox": {
+          "x": 0.07,
+          "y": 0.06,
+          "w": 0.44,
+          "h": 0.31
+        },
+        "label": "Fig. 3 — different impedance parameters, identical nominal torque",
+        "caption": "Panel (a) shows two controllers whose stiffness, damping and equilibrium angle trajectories disagree everywhere; panel (b) shows their nominal torque traces landing on top of each other. That is quasi-stiffness agreeing while stiffness does not."
+      },
+      "takeaways": [
+        "A torque–angle loop is traced over time; stiffness is measured at an instant.",
+        "Identical loops do not imply identical stiffness — the paper's whole argument turns on this.",
+        "Only a deliberate displacement exposes the difference."
+      ]
+    },
+    {
+      "title": "Measured biological joint impedance during walking",
+      "source": "Lee, Rouse and Krebs, IEEE J. Trans. Eng. Health Med. 2016 [18]; Rouse et al. 2014 [21]; Shorter and Rouse 2018 [22]; Nazon, PhD thesis 2024 [20]",
+      "concept": "Where would a designer get a sensible stiffness and damping in the first place? One answer is to measure them on people. In these studies a participant walks while a device delivers small, quick perturbations at chosen moments in the stride, and the resulting torque response is fitted to a spring-damper model to estimate that joint's stiffness and damping at that instant. Repeat across the gait cycle and you get trajectories rather than constants: the ankle stiffens substantially through mid and late stance as it prepares to push off, then goes slack during swing, and the knee follows its own pattern. These estimates are the biomimetic reference this literature reaches for. In this paper they are exactly what controller alpha uses, while controller beta deliberately ignores them and holds stiffness and damping constant at medium values — which is what makes the two controllers a fair test of whether those trajectories matter at all.",
+      "equation": "Δτ(t) ≈ −K(t)·Δθ − B(t)·Δθ̇   (fitted per instant of the gait cycle)",
+      "whyItMatters": "The paper uses these measured trajectories for controller alpha and constant values for controller beta, then shows the two walk the same. That is only a meaningful result because the biological trajectories are a genuinely principled choice rather than an arbitrary one.",
+      "demo": {
+        "kind": "chart",
+        "chartKind": "line",
+        "T": 1.1,
+        "dt": 0.004,
+        "xLabel": "gait cycle (%)",
+        "yLabel": "angle deviation from nominal (deg)",
+        "caption": "Hit both controllers with the same disturbance just after heelstrike and watch which one gives way.",
+        "params": [
+          {
+            "key": "f3Pert",
+            "sym": "τ_d",
+            "label": "disturbance torque (Nm)",
+            "min": 3,
+            "max": 40,
+            "step": 1,
+            "def": 15
+          },
+          {
+            "key": "f3Peak",
+            "sym": "K_bio",
+            "label": "peak biological stiffness (Nm/rad)",
+            "min": 50,
+            "max": 800,
+            "step": 10,
+            "def": 450
+          },
+          {
+            "key": "f3Kconst",
+            "sym": "K_β",
+            "label": "constant stiffness (Nm/rad)",
+            "min": 50,
+            "max": 800,
+            "step": 10,
+            "def": 300
+          }
+        ],
+        "computeJs": "var n = helpers.n, J = 0.06;\nvar out = [], xs = [];\nfor (var run = 0; run < 2; run++) {\n  var th = 0, w = 0, d = [];\n  for (var i = 0; i < n; i++) {\n    var p = i / (n - 1);\n    if (run === 0) xs.push(100 * p);\n    var Kb = 60 + params.f3Peak * Math.exp(-Math.pow((p - 0.42) / 0.14, 2));\n    var K = (run === 0) ? Kb : params.f3Kconst;\n    var B = 0.03 * K + 0.5;\n    var dist = params.f3Pert * Math.exp(-Math.pow((p - 0.15) / 0.05, 2));\n    var acc = (-K * th - B * w + dist) / J;\n    w = w + acc * helpers.dt;\n    th = th + w * helpers.dt;\n    th = helpers.clamp(th, -2, 2);\n    d.push(th * 180 / Math.PI);\n  }\n  out.push(d);\n}\nreturn { x: xs, series: [ { label: 'biological K(φ) — like controller α', data: out[0] }, { label: 'constant K — like controller β', data: out[1] } ] };",
+        "insightJs": "var a = result.series[0].data, b = result.series[1].data;\nvar ma = 0, mb = 0;\nfor (var i = 0; i < a.length; i++) { if (Math.abs(a[i]) > Math.abs(ma)) ma = a[i]; if (Math.abs(b[i]) > Math.abs(mb)) mb = b[i]; }\nvar kEarly = 60 + params.f3Peak * Math.exp(-Math.pow((0.15 - 0.42) / 0.14, 2));\nreturn 'Early stance is where the biological trajectory is softest — about ' + kEarly.toFixed(0) + ' Nm/rad against the constant ' + params.f3Kconst.toFixed(0) + ' Nm/rad — so the same ' + params.f3Pert.toFixed(0) + ' Nm disturbance moves it ' + Math.abs(ma).toFixed(1) + '° versus ' + Math.abs(mb).toFixed(1) + '°. This is the paper’s Fig. 7 in miniature.';",
+        "provenance": {
+          "figure": "Fig. 6(a)",
+          "equation": "",
+          "section": "Sec. III.A"
+        }
+      },
+      "provenance": {
+        "figure": "Fig. 6(a)",
+        "equation": "",
+        "section": "Sec. III.A"
+      },
+      "figure": {
+        "page": 7,
+        "bbox": {
+          "x": 0.07,
+          "y": 0.31,
+          "w": 0.41,
+          "h": 0.25
+        },
+        "label": "Fig. 6(a) — stiffness and damping trajectories for controllers α and β",
+        "caption": "Controller alpha's curved trajectories are the measured biological estimates from this prior work; controller beta's flat lines are the constant medium values. The demo beside it asks what that difference does when the joint is disturbed."
+      },
+      "takeaways": [
+        "Biological stiffness is a trajectory through the stride, not a single number.",
+        "The ankle is comparatively soft at heelstrike and stiff before push-off.",
+        "Controller alpha follows those measurements; controller beta deliberately does not."
+      ]
+    },
+    {
+      "title": "Phase-variable gait parameterization",
+      "source": "Villarreal, Poonawala and Gregg, IEEE Trans. Neural Syst. Rehabil. Eng. 2017 [12]; Best et al., IEEE Trans. Robotics 2023 [9]",
+      "concept": "The impedance parameters have to change through the stride, which raises the question of how the prosthesis knows where in the stride it currently is. The older answer was a finite state machine that switches between a handful of discrete phases when sensor thresholds are crossed. The phase-variable approach replaces that with a single continuous number running from zero to one across the stride, computed from the measured orientation of the user's residual thigh. Because it is derived from the user's own motion rather than from a clock, it stays synchronised when the user speeds up, slows down or is knocked off rhythm, and the stiffness, damping and equilibrium angle can then be written as smooth functions of it. This paper uses precisely that mechanism to schedule its controllers, which is also what allows a treadmill-belt perturbation to be delivered at a repeatable point in the stride.",
+      "equation": "φ(t) ∈ [0,1) from residual thigh orientation ;  K = K(φ), B = B(φ), τ_ff = τ_ff(φ)",
+      "whyItMatters": "Every parameter trajectory in this paper is indexed by this phase variable rather than by time, which is what lets the authors perturb a stride and still compare it against the nominal stride point by point.",
+      "demo": {
+        "kind": "chart",
+        "chartKind": "line",
+        "T": 4,
+        "dt": 0.015,
+        "xLabel": "time (s)",
+        "yLabel": "gait phase (cycles completed)",
+        "caption": "Slow the walker down mid-stride and see which clock stays with them.",
+        "params": [
+          {
+            "key": "f4Slow",
+            "sym": "s",
+            "label": "speed during perturbation (× nominal)",
+            "min": 0.2,
+            "max": 1.5,
+            "step": 0.05,
+            "def": 0.5
+          },
+          {
+            "key": "f4When",
+            "sym": "t₀",
+            "label": "perturbation onset (s)",
+            "min": 0.5,
+            "max": 3,
+            "step": 0.1,
+            "def": 1.5
+          },
+          {
+            "key": "f4Dur",
+            "sym": "Δt",
+            "label": "perturbation duration (s)",
+            "min": 0.1,
+            "max": 1.2,
+            "step": 0.02,
+            "def": 0.28
+          }
+        ],
+        "computeJs": "var n = helpers.n, Tc = 1.1;\nvar phase = 0, clock = 0, xs = [], pv = [], ck = [];\nfor (var i = 0; i < n; i++) {\n  var t = i * helpers.dt;\n  var rate = (t >= params.f4When && t < params.f4When + params.f4Dur) ? params.f4Slow : 1;\n  phase = phase + rate * helpers.dt / Tc;\n  clock = clock + helpers.dt / Tc;\n  xs.push(t);\n  pv.push(phase);\n  ck.push(clock);\n}\nreturn { x: xs, series: [ { label: 'phase from thigh orientation', data: pv }, { label: 'fixed-rate clock', data: ck } ] };",
+        "insightJs": "var a = result.series[0].data, b = result.series[1].data;\nvar err = (b[b.length - 1] - a[a.length - 1]) * 100;\nreturn 'Walking at ' + (params.f4Slow * 100).toFixed(0) + '% speed for ' + params.f4Dur.toFixed(2) + ' s leaves a fixed clock ' + err.toFixed(0) + '% of a stride ahead of the user by the end. The phase variable simply slows with them, which is why this paper schedules K, B and τ_ff against φ rather than time.';",
+        "provenance": {
+          "figure": "",
+          "equation": "",
+          "section": "Sec. III.A"
+        }
+      },
+      "provenance": {
+        "figure": "",
+        "equation": "",
+        "section": "Sec. III.A"
+      },
+      "takeaways": [
+        "Phase is read from the user's own thigh motion, not from a timer.",
+        "It survives speed changes, which a fixed-rate clock does not.",
+        "Every parameter trajectory in this paper is a function of phase."
+      ]
+    }
+  ],
+  "explainer": {
+    "foundations": {
+      "voice": "onyx",
+      "scenes": [
+        {
+          "caption": "Four ideas the paper does not reinvent",
+          "narration": "Before the new result makes sense, four pieces of borrowed background have to be in place. The control law prostheses already use, a distinction between two things both called stiffness, where sensible stiffness values come from, and how the leg knows where it is in your stride.",
+          "visual": {
+            "type": "intro"
+          }
+        },
+        {
+          "caption": "The spring that never sits where you think",
+          "narration": "The standard law treats the joint as a spring pulling toward a resting angle, plus a damper. But the ground and the user are always pushing back, so the joint settles offset from that resting angle by the interaction torque divided by the stiffness. Drag the interaction torque and watch the gap open up.",
+          "visual": {
+            "type": "demo",
+            "foundationIdx": 0
+          }
+        },
+        {
+          "caption": "Two things called stiffness",
+          "narration": "Trace torque against angle over a stride and you get a loop, and its slope gets called stiffness. It is not. That slope is quasi-stiffness, a property of the motion. Real stiffness asks a different question: freeze time, nudge the joint, and see how the commanded torque changes. Here that is the vertical shift.",
+          "visual": {
+            "type": "demo",
+            "foundationIdx": 1
+          }
+        },
+        {
+          "caption": "Stiffness measured on real legs",
+          "narration": "You can estimate a person's joint stiffness by perturbing them mid-stride and fitting the torque response. Do it across the whole cycle and you get a trajectory: soft at heelstrike, stiff before push-off. Controller alpha in this paper uses those measured curves. Controller beta uses flat lines instead.",
+          "visual": {
+            "type": "figure",
+            "foundationIdx": 2,
+            "label": "Fig. 6(a) — stiffness and damping trajectories"
+          }
+        },
+        {
+          "caption": "Knowing where you are in the stride",
+          "narration": "Since the parameters change through the stride, the leg needs to know where in the stride it is. Instead of a timer, it reads the orientation of the user's own thigh and turns that into a phase from zero to one. Slow the walker down and the phase slows with them, while a clock marches on regardless.",
+          "visual": {
+            "type": "demo",
+            "foundationIdx": 3
+          }
+        }
+      ]
+    }
+  }
+}
