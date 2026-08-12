@@ -19,7 +19,7 @@
  *      deduction lands. Once balance <= 0, every further request 402s.
  */
 
-import Anthropic from "npm:@anthropic-ai/sdk@^0.68.0";
+import Anthropic, { toFile } from "npm:@anthropic-ai/sdk@^0.68.0";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { jsonrepair } from "npm:jsonrepair@3";
 import {
@@ -36,7 +36,32 @@ const CORS_HEADERS = {
 const encoder = new TextEncoder();
 const ndjson = (obj) => encoder.encode(JSON.stringify(obj) + "\n");
 
-const MAX_PDF_BASE64_CHARS = 44 * 1024 * 1024; // ~32MB decoded, base64 overhead included
+/**
+ * The paper goes to Anthropic by file_id, not as base64 in the request body.
+ *
+ * Base64-in-JSON was quietly the most expensive thing this function did. A
+ * 13 MB PDF meant holding the bytes, a 13-million-character intermediate
+ * string, an 18-million-character btoa() result, and then the SDK's serialized
+ * request body containing that same 18 MB again — roughly 100 MB of live
+ * strings and several seconds of pure encoding CPU, all before a single token
+ * was billed. Supabase kills the isolate for either (the reader sees "not
+ * having enough compute resources"), and it did, on a 13 MB paper.
+ *
+ * Uploading the storage Blob straight to the Files API skips every one of
+ * those copies: the bytes stream out as multipart and the request body carries
+ * a short id. See resolveFileId below for why the id is then cached.
+ */
+const FILES_BETA = "files-api-2025-04-14";
+
+/** Only the inline fallback still carries base64; ~32MB decoded. */
+const MAX_PDF_BASE64_CHARS = 44 * 1024 * 1024;
+
+/** A PDF this big is a scan, not a paper — and would price like one. */
+const MAX_PDF_BYTES = 64 * 1024 * 1024;
+
+/** Where one stored paper's Anthropic file id is remembered. Lives beside the
+ *  PDF, so it inherits the same per-user folder (and the same RLS rule). */
+const fileIdKey = (pdfPath) => `${pdfPath}.anthropic-file.json`;
 
 /**
  * How long one phase may run before we abort it ourselves.
@@ -107,35 +132,29 @@ Deno.serve(async (req) => {
   /* The paper reaches this function one of two ways.
    *
    * `pdfPath` is the normal one: the browser uploads the PDF to private
-   * storage ONCE, and every phase names it. An analysis is five sequential
-   * calls, so the old inline route pushed the whole base64 paper up the
-   * reader's uplink five times — a 20 MB paper became a 130 MB upload, which
-   * is slow on any home connection and is exactly what was dropping mid-flight
-   * and failing whole paid runs. Fetching it here instead is a same-region
-   * read measured in milliseconds.
+   * storage ONCE, and every later purchase — a section unlock, a figure — just
+   * names it. The old inline route pushed the whole base64 paper back up the
+   * reader's uplink on every call, so a 20 MB paper became a 100 MB+ upload
+   * over the life of an analysis: slow on any home connection, and exactly
+   * what was dropping mid-flight and failing runs that had already been paid
+   * for. Reading it here instead is a same-region fetch measured in
+   * milliseconds.
    *
    * `pdfBase64` stays supported for callers with nothing stored (a failed
    * upload, a deployment without the papers bucket) so analysis never becomes
    * contingent on storage.
    */
-  let pdfBase64 = body?.pdfBase64;
-  if (!pdfBase64 && typeof pdfPath === "string" && pdfPath) {
-    /* Storage keys are `{user_id}/{uuid}.pdf`. This function holds the service
-     * role key, which bypasses row-level security — so ownership has to be
-     * checked HERE. Without it, any signed-in caller could name another
-     * account's key and have their paper read back to them. */
-    if (!pdfPath.startsWith(`${userId}/`)) {
-      return json(403, { error: "That paper doesn't belong to this account." });
-    }
-    const { data: file, error: dlErr } = await admin.storage.from("papers").download(pdfPath);
-    if (dlErr || !file) {
-      return json(404, { error: "The stored paper couldn't be read — re-upload it and try again." });
-    }
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    pdfBase64 = base64FromBytes(bytes);
+  const pdfBase64 = body?.pdfBase64;
+  const useStored = !pdfBase64 && typeof pdfPath === "string" && !!pdfPath;
+  /* Storage keys are `{user_id}/{uuid}.pdf`. This function holds the service
+   * role key, which bypasses row-level security — so ownership has to be
+   * checked HERE. Without it, any signed-in caller could name another
+   * account's key and have their paper read back to them. */
+  if (useStored && !pdfPath.startsWith(`${userId}/`)) {
+    return json(403, { error: "That paper doesn't belong to this account." });
   }
-  if (!pdfBase64 || typeof pdfBase64 !== "string") {
-    return json(400, { error: "Missing pdfBase64." });
+  if (!useStored && (!pdfBase64 || typeof pdfBase64 !== "string")) {
+    return json(400, { error: "No paper was supplied." });
   }
   // Optional: the paper's actual code/scripts, uploaded by the reader. It is
   // the ground truth for the method — capped so one analysis can't blow the
@@ -147,7 +166,9 @@ Deno.serve(async (req) => {
         ? codeText.slice(0, MAX_CODE_CHARS) + "\n\n[... code truncated at 160k characters ...]"
         : codeText
       : null;
-  if (pdfBase64.length > MAX_PDF_BASE64_CHARS) {
+  // Only the inline fallback is bounded by the 32MB request limit; a stored
+  // paper is checked against MAX_PDF_BYTES in resolveFileId instead.
+  if (!useStored && pdfBase64.length > MAX_PDF_BASE64_CHARS) {
     return json(400, { error: "PDF is too large (32MB API limit)." });
   }
   if (phase && !PHASE_SCHEMAS[phase]) {
@@ -202,10 +223,29 @@ Deno.serve(async (req) => {
   if (!apiKey) {
     return json(500, { error: "Server is not configured with an Anthropic API key." });
   }
-
-  // --- 4. Stream the analysis, relaying progress as NDJSON ----------------
   const client = new Anthropic({ apiKey });
 
+  /* Hand the paper to the analyzer AFTER the balance check — this uploads real
+   * bytes, and a caller who is about to be told they're out of credit
+   * shouldn't move a 13 MB file first. */
+  let pdfFileId = null;
+  if (useStored) {
+    try {
+      pdfFileId = await resolveFileId(client, admin, pdfPath);
+    } catch (err) {
+      const status = err?.status || 0;
+      console.error("paper handoff failed", { pdfPath, status, message: err?.message });
+      if (status === 404) {
+        return json(404, { error: "The stored paper couldn't be read — re-upload it and try again." });
+      }
+      if (status === 413) {
+        return json(413, { error: err.message });
+      }
+      return json(502, { error: "The paper couldn't be handed to the analyzer. Try again in a moment." });
+    }
+  }
+
+  // --- 4. Stream the analysis, relaying progress as NDJSON ----------------
   const stream = new ReadableStream({
     async start(controller) {
       const send = (obj) => controller.enqueue(ndjson(obj));
@@ -260,6 +300,10 @@ Deno.serve(async (req) => {
         const requestParams = {
           model: run.model,
           max_tokens: maxTokens,
+          // The Files API is still beta, so the whole call goes through the
+          // beta endpoint. It is a superset — adaptive thinking, effort and
+          // cache_control all behave identically here.
+          betas: [FILES_BETA],
           ...(run.adaptive ? { thinking: { type: "adaptive" } } : {}),
           ...(Object.keys(outputConfig).length ? { output_config: outputConfig } : {}),
           messages: [
@@ -268,7 +312,9 @@ Deno.serve(async (req) => {
               content: [
                 {
                   type: "document",
-                  source: { type: "base64", media_type: "application/pdf", data: pdfBase64 },
+                  source: pdfFileId
+                    ? { type: "file", file_id: pdfFileId }
+                    : { type: "base64", media_type: "application/pdf", data: pdfBase64 },
                   // The PDF dominates the input bill — a paper is re-sent on
                   // every phase, and each page costs both text and image
                   // tokens. Cached, later phases re-read it at ~10% of the
@@ -300,7 +346,7 @@ Deno.serve(async (req) => {
 
         // Standard speed only: Opus fast mode is a gated preview and this
         // org's plan has a fast-mode limit of 0, so speed:"fast" 429s.
-        const anthropicStream = client.messages.stream(requestParams);
+        const anthropicStream = client.beta.messages.stream(requestParams);
 
         // Abort before the platform's own kill (see WALL_MS) so the client
         // gets a typed "timeout" error it can retry on a faster tier, rather
@@ -438,19 +484,74 @@ Deno.serve(async (req) => {
   });
 });
 
-/** Base64 for up to ~32 MB of PDF bytes.
+/**
+ * The Anthropic file id for one stored paper, uploading it if this is the
+ * first time we've seen it.
  *
- *  Chunked deliberately: String.fromCharCode(...bytes) spreads every byte as
- *  an argument and blows the call-stack limit somewhere in the low hundreds of
- *  kB — on a real paper it would throw rather than return a wrong answer, but
- *  it would throw on exactly the papers this path exists to carry. */
-function base64FromBytes(bytes) {
-  const CHUNK = 0x8000;
-  let binary = "";
-  for (let i = 0; i < bytes.length; i += CHUNK) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+ * The id is remembered in a tiny JSON object beside the PDF, and that matters
+ * for two reasons. The obvious one is that re-uploading 13 MB on every unlock
+ * is waste. The load-bearing one is prompt caching: the cache is keyed on the
+ * request prefix, so a paper referenced by a DIFFERENT id each call looks like
+ * a different document every time and every section unlock would re-read the
+ * whole PDF at full input price. One stable id per paper keeps the ~10% cache
+ * reads this app's economics were built on.
+ *
+ * Deleting a paper drops the pointer but leaves the uploaded file with
+ * Anthropic (a browser can't delete it — that needs the API key, which only
+ * lives here). At ~13 MB against a 100 GB org allowance that is thousands of
+ * papers of headroom, so it is left alone rather than reaped on a timer.
+ */
+async function resolveFileId(client, admin, pdfPath) {
+  const sidecar = fileIdKey(pdfPath);
+
+  // Remembered from an earlier phase? Confirm it still exists before betting
+  // a paid call on it — a stale id would otherwise fail every future unlock
+  // for this paper, permanently, with no way for the reader to clear it.
+  const { data: memo } = await admin.storage.from("papers").download(sidecar);
+  if (memo) {
+    try {
+      const { fileId } = JSON.parse(await memo.text());
+      if (fileId) {
+        await client.beta.files.retrieveMetadata(fileId, { betas: [FILES_BETA] });
+        return fileId;
+      }
+    } catch {
+      // Unreadable or no longer on Anthropic's side — fall through and re-upload.
+    }
   }
-  return btoa(binary);
+
+  const { data: file, error: dlErr } = await admin.storage.from("papers").download(pdfPath);
+  if (dlErr || !file) {
+    const e = new Error("stored paper not found");
+    e.status = 404;
+    throw e;
+  }
+  if (file.size > MAX_PDF_BYTES) {
+    const e = new Error("PDF is too large to analyze.");
+    e.status = 413;
+    throw e;
+  }
+
+  const uploaded = await client.beta.files.upload({
+    file: await toFile(file, "paper.pdf", { type: "application/pdf" }),
+    betas: [FILES_BETA],
+  });
+
+  // Best effort: if the memo can't be written the analysis still runs, it just
+  // re-uploads next time. Never fail a paid call over a cache write.
+  try {
+    await admin.storage.from("papers").upload(
+      sidecar,
+      new Blob([JSON.stringify({ fileId: uploaded.id, at: Date.now() })], {
+        type: "application/json",
+      }),
+      { upsert: true, contentType: "application/json" },
+    );
+  } catch (err) {
+    console.warn("could not memoize file id", err?.message);
+  }
+
+  return uploaded.id;
 }
 
 function json(status, body) {

@@ -279,7 +279,12 @@ export async function deleteAnalysis(id) {
     .eq("id", id)
     .maybeSingle();
   if (data?.pdf_path) {
-    const { error } = await supabase.storage.from(PAPER_BUCKET).remove([data.pdf_path]);
+    // The sidecar holds the analyzer's id for this paper (see resolveFileId in
+    // the analyze-paper function). It goes with the PDF: leaving it behind
+    // would point a re-uploaded paper at a file the reader asked us to forget.
+    const { error } = await supabase.storage
+      .from(PAPER_BUCKET)
+      .remove([data.pdf_path, `${data.pdf_path}.anthropic-file.json`]);
     if (error) console.warn("Could not delete the stored paper:", error.message);
   }
   await supabase.from("analyses").delete().eq("id", id);
