@@ -33,13 +33,16 @@ import {
   MousePointerClick, ArrowLeftRight, LineChart, ShieldQuestion,
   Undo2, GitCompare, Target, Gauge, Quote, Sigma, BookMarked, SlidersHorizontal,
   NotebookPen, Ruler, Trash2, Scan, ScanLine, Image as ImageIcon, Table2,
+  ExternalLink,
 } from "lucide-react";
 import { TextLayer } from "pdfjs-dist";
 import { loadPdfDoc, renderPdfPage, extractPageItems } from "./pdf.js";
 import { buildPaperIndex, findSectionAnchor, paperOutline, HEAD_LABEL } from "./pdfAnchors.js";
+import { buildPaperText } from "./paperText.js";
 import { buildInlineRefs, locateQuote, matchEvidence, sectionKeyAt, quoteRects, parseBibEntry } from "./paperRefs.js";
 import { scanRobustness } from "./robustness.js";
-import { askSectionAssistant, buildSectionContext } from "./sectionChat.js";
+import { buildSectionContext } from "./sectionChat.js";
+import { resolveReference, cachedReference } from "./refResolve.js";
 import { HL_COLORS, colorOf } from "./highlights.js";
 import { FreePanel, freePanels } from "./DigitizedPanels.jsx";
 import { resolveFigureForPanel } from "./figureResolve.js";
@@ -137,6 +140,24 @@ function PdfPageView({ doc, pageNo, scale, marks, activeMark, tone, turnKey, hot
    * containing "[12]" would break mid-sentence. Instead the markers are drawn
    * purely decoratively (pointer-events: none) and the click is resolved
    * against their boxes here — selection behaviour is untouched. */
+  /* A marker looks clickable, so the pointer has to agree.
+   *
+   * The markers are decorative (see below) and cannot carry `cursor: pointer`
+   * themselves, and the text layer above them owns the I-beam. Hit-testing on
+   * move and swapping the cursor on the text layer is what makes a chip read
+   * as a link rather than as a highlight that happens to respond to clicks. */
+  const onPageMove = useCallback((e) => {
+    if (!onHotspot || !hotspots?.length) return;
+    const box = e.currentTarget.getBoundingClientRect();
+    if (!box.width || !box.height) return;
+    const x = (e.clientX - box.left) / box.width;
+    const y = (e.clientY - box.top) / box.height;
+    const over = hotspots.some((h) =>
+      h.rects.some((r) => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h));
+    const layer = textRef.current;
+    if (layer) layer.style.cursor = over ? "pointer" : "";
+  }, [hotspots, onHotspot]);
+
   const onPageClick = useCallback((e) => {
     if (!onHotspot) return;
     // A click that ends a drag-selection is not a click on a link.
@@ -168,10 +189,17 @@ function PdfPageView({ doc, pageNo, scale, marks, activeMark, tone, turnKey, hot
 
   return (
     <div key={turnKey} className="pdfr-page pdfr-shadow relative bg-white"
-      style={{ width: dims?.w, height: dims?.h }} onClick={onPageClick}>
+      style={{ width: dims?.w, height: dims?.h }} onClick={onPageClick} onMouseMove={onPageMove}>
       <canvas ref={canvasRef} className="block" />
 
-      {/* cross-reference markers — decorative only; see onPageClick */}
+      {/* Cross-reference CHIPS — decorative only; see onPageClick.
+       *
+       * Drawn as a bordered, tinted pill rather than the translucent wash they
+       * used to be. A wash is the same visual language as a highlight, so a
+       * live "[12]" and a passage someone marked with a pen were indistinguish-
+       * able, and readers did not know the first was clickable at all. The tint
+       * is keyed to WHAT the chip opens — a reference, a figure, an equation —
+       * so the third one teaches the rest. */}
       {hotspots?.length > 0 && (
         <div className="pointer-events-none absolute inset-0 z-[2]" aria-hidden="true">
           {hotspots.map((h) =>
@@ -179,6 +207,7 @@ function PdfPageView({ doc, pageNo, scale, marks, activeMark, tone, turnKey, hot
               <span
                 key={`${h.id}-${j}`}
                 className="pdfr-xref"
+                data-kind={h.kind}
                 style={{
                   left: `${r.x * 100}%`, top: `${r.y * 100}%`,
                   width: `${r.w * 100}%`, height: `${r.h * 100}%`,
@@ -318,26 +347,35 @@ const ACTIONS = {
 
 /** Section key (from the paper's own headings) → which actions to offer.
  *
- * `panel` lives on the method-ish sections on purpose. It is where a reader
- * most often hits something they cannot picture, and it is the one action that
- * spends money — offering it beside every sentence in the paper would invite
- * clicking it out of curiosity rather than need. */
+ * `panel` used to live on the method-ish sections only, on the theory that a
+ * money-spending button beside every sentence invites idle clicking. It turned
+ * out to be the wrong trade twice over: a reader who cannot picture something
+ * in the introduction or the discussion is in exactly the same position as one
+ * stuck in the method, and the section detector is a heuristic — a paper whose
+ * headings we misread lost the feature entirely, for no reason it could
+ * explain. The price is now ON the button (see actionCosts.js), which handles
+ * the original worry far better than hiding it did.
+ *
+ * So `panel` is offered everywhere, and these lists say what ELSE each part of
+ * a paper deserves: evidence and effect-size questions in the results, a
+ * steelman in the discussion. */
+const EVERYWHERE = ["explain", "panel"];
 const SECTION_ACTIONS = {
-  abstract:     ["explain"],
-  introduction: ["explain"],
-  related:      ["explain"],
-  method:       ["explain", "panel"],
-  experiment:   ["explain", "panel"],
-  results:      ["explain", "evidence", "magnitude", "hedging"],
-  conclusion:   ["explain", "steelman", "overturn", "compare", "takeaway"],
+  abstract:     EVERYWHERE,
+  introduction: EVERYWHERE,
+  related:      EVERYWHERE,
+  method:       EVERYWHERE,
+  experiment:   EVERYWHERE,
+  results:      ["explain", "panel", "evidence", "magnitude", "hedging"],
+  conclusion:   ["explain", "panel", "steelman", "overturn", "compare", "takeaway"],
 };
-const DEFAULT_ACTIONS = ["explain"];
+const DEFAULT_ACTIONS = EVERYWHERE;
 
 export function PaperReader({
   url, title, open, onClose, spec, section, onAsk, onBuildPanel, onKeep,
   onMakeFigureLive, liveJob,
-  variant = "modal", onOutline, onEvidence, gotoPage,
-  highlights, onHighlight, onUnhighlight,
+  variant = "modal", onOutline, onEvidence, onPaperText, gotoPage,
+  highlights, onHighlight, onUnhighlight, panelEstimate,
 }) {
   const [doc, setDoc] = useState(null);
   const [numPages, setNumPages] = useState(0);
@@ -362,6 +400,7 @@ export function PaperReader({
   const [dir, setDir] = useState("next");
 
   const [index, setIndex] = useState(null);       // text index for this url
+  const [pageItems, setPageItems] = useState(null); // raw per-page text geometry
   const [indexing, setIndexing] = useState(false);
   const [anchor, setAnchor] = useState(null);     // { page, headLabel, matches }
   const [anchorMiss, setAnchorMiss] = useState(false);
@@ -400,11 +439,16 @@ export function PaperReader({
     return () => { alive = false; };
   }, [open, url]);
 
-  /* ---- build (or reuse) the text index, page by page so the UI stays live ---- */
+  /* ---- build (or reuse) the text index, page by page so the UI stays live ----
+   *
+   * The per-page items are KEPT, not discarded once the index is built. They
+   * are what the paper's own tables and algorithm listings are reconstructed
+   * from (paperText.js), and re-extracting them would mean walking the whole
+   * document a second time for data we already had in hand. */
   useEffect(() => {
     if (!doc || !url) return undefined;
     const cached = INDEX_CACHE.get(url);
-    if (cached) { setIndex(cached); return undefined; }
+    if (cached) { setIndex(cached.index); setPageItems(cached.pages); return undefined; }
     let alive = true;
     setIndex(null); setIndexing(true);
     (async () => {
@@ -417,8 +461,8 @@ export function PaperReader({
       }
       if (!alive) return;
       const built = buildPaperIndex(pages);
-      INDEX_CACHE.set(url, built);
-      setIndex(built); setIndexing(false);
+      INDEX_CACHE.set(url, { index: built, pages });
+      setIndex(built); setPageItems(pages); setIndexing(false);
     })();
     return () => { alive = false; setIndexing(false); };
   }, [doc, url]);
@@ -426,6 +470,19 @@ export function PaperReader({
   /* ---- resolvable cross-references, once the text index exists ---- */
   const refs = useMemo(() => buildInlineRefs(index, spec), [index, spec]);
   const pageSpots = useMemo(() => refs.byPage.get(page) || [], [refs, page]);
+
+  /* ---- the paper as TEXT: sections, paragraphs, tables, algorithms ----
+   *
+   * Free and local. Handed up to whoever owns the reading surface so the
+   * document can be read as text as well as looked at as pages — which is the
+   * only way a table's cells or an algorithm's steps can be selected, copied,
+   * or handed to the panel builder as anything better than a photograph. */
+  useEffect(() => {
+    if (!onPaperText) return;
+    if (!index || !pageItems?.length) return;
+    const bibliography = refs.bibliography;
+    onPaperText({ ...buildPaperText(pageItems, index), bibliography });
+  }, [index, pageItems, refs, onPaperText]);
 
   /* Every figure we hold a crop for, by the paper's own figure number — so a
    * selected CAPTION resolves to the same card an in-text "Fig. 4" opens. */
@@ -1096,7 +1153,16 @@ export function PaperReader({
           <div className="pp-rise flex max-w-[92vw] flex-wrap items-center justify-center gap-0.5 rounded-xl border border-indigo-300/60 bg-slate-900/95 p-1 shadow-2xl backdrop-blur">
             {[...selActions, ...alwaysActions].map((k) => {
               const a = ACTIONS[k];
-              return <AssistBtn key={k} icon={a.icon} label={a.label} primary={a.primary} onClick={() => runAction(k)} />;
+              return (
+                <AssistBtn
+                  key={k} icon={a.icon} label={a.label} primary={a.primary}
+                  /* The two actions that spend carry their price. Everything
+                   * else on this bar is free and says nothing, which is what
+                   * makes the number mean something where it does appear. */
+                  price={(k === "panel" || k === "table") ? panelEstimate : null}
+                  onClick={() => runAction(k)}
+                />
+              );
             })}
             <AssistBtn icon={MessageCircle} label="Ask…" onClick={() => runAction("chat")} />
             <span className="mx-0.5 h-5 w-px bg-white/15" />
@@ -1184,56 +1250,135 @@ export default function PdfReader(props) {
  * for explicitly.
  */
 /**
- * One short, cached, plain-language answer to "why is this cited HERE?".
+ * Resolve the cited paper LIVE, and say why it is cited here.
  *
  * Fired the moment a citation card opens rather than behind a button: it is
  * the question the click was asking, and making it a second click meant most
- * readers never got the answer. It runs on the free Haiku tutor endpoint, is
- * capped to a couple of sentences, and is memoised per (reference numbers +
- * citing sentence) so re-opening the same marker costs nothing at all.
+ * readers never got the answer.
+ *
+ * What comes back is two different things with two different standards of
+ * proof, and the card keeps them apart. The METADATA (title, authors, venue,
+ * abstract) is looked up in Semantic Scholar / OpenAlex / Crossref and is
+ * either found or honestly absent — never guessed. The EXPLANATION is read off
+ * the citing sentence against that abstract. See supabase/functions/
+ * resolve-reference for why the split is enforced server-side too.
+ *
+ * Multiple entries behind one marker ("[3, 5]") are resolved independently and
+ * in parallel: they are different papers and deserve different cards.
  */
-const WHY_CACHE = new Map();
-
-function useWhyCited({ entries, citing, paperTitle, spec, enabled }) {
-  const key = enabled && citing && entries?.length
-    ? `${entries.map((e) => e.n).join(",")}|${citing.slice(0, 120)}`
+function useResolvedRefs({ entries, citing, paperTitle, enabled }) {
+  const key = enabled && entries?.length
+    ? `${entries.map((e) => e.n).join(",")}|${String(citing || "").slice(0, 120)}`
     : null;
-  const [state, setState] = useState(() => (key && WHY_CACHE.has(key) ? { text: WHY_CACHE.get(key) } : {}));
+
+  const [state, setState] = useState({});
 
   useEffect(() => {
-    if (!key) { setState({}); return undefined; }
-    if (WHY_CACHE.has(key)) { setState({ text: WHY_CACHE.get(key) }); return undefined; }
+    if (!key || !entries?.length) { setState({}); return undefined; }
+
+    // Anything already resolved renders on the first paint — a reader who
+    // clicks the same marker twice should not watch a spinner for an answer
+    // we are holding.
+    const seed = {};
+    let missing = false;
+    for (const e of entries) {
+      const hit = cachedReference(e.text, citing);
+      if (hit) seed[e.n] = hit; else missing = true;
+    }
+    setState({ byNum: seed, loading: missing });
+    if (!missing) return undefined;
+
     let dead = false;
-    setState({ loading: true });
-    askSectionAssistant({
-      paperTitle: paperTitle || "this paper",
-      sectionTitle: "References",
-      context: buildSectionContext(spec, "story"),
-      messages: [{
-        role: "user",
-        content:
-          `In the paper, this sentence:\n“${citing}”\n\ncites:\n` +
-          entries.map((e) => `[${e.n}] ${e.text}`).join("\n") +
-          `\n\nIn AT MOST two sentences, say what that cited work contributes at exactly this ` +
-          `point — what it is being leaned on FOR. No preamble, no restating the sentence, ` +
-          `no bullet points. If the citing sentence doesn't make the reason clear, say so in one line.`,
-      }],
-    })
-      .then((text) => {
-        if (dead) return;
-        WHY_CACHE.set(key, text.trim());
-        setState({ text: text.trim() });
-      })
-      .catch((e) => {
-        // Not signed in is not a failure to report as one — the card is still
-        // complete without it, because the paper's own citing sentence is
-        // right below and that is the primary source anyway.
-        if (!dead) setState({ error: e?.code === "auth" ? "auth" : "failed" });
-      });
+    Promise.all(entries.map(async (e) => {
+      if (seed[e.n]) return null;
+      try {
+        return [e.n, await resolveReference({ entry: e.text, citing, paperTitle })];
+      } catch (err) {
+        return [e.n, { error: err?.code === "auth" || err?.code === "config" ? err.code : "failed" }];
+      }
+    })).then((pairs) => {
+      if (dead) return;
+      const byNum = { ...seed };
+      for (const p of pairs) if (p) byNum[p[0]] = p[1];
+      setState({ byNum, loading: false });
+    });
     return () => { dead = true; };
-  }, [key, citing, entries, paperTitle, spec]);
+    // `entries` is rebuilt each render from the same payload; `key` is the
+    // stable identity of what is being resolved.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
 
   return state;
+}
+
+/** One resolved reference, or an honest account of why there isn't one. */
+function ResolvedRef({ n, entry, parsed, resolved }) {
+  const r = resolved?.reference;
+  const failed = resolved?.error;
+
+  return (
+    <li className="flex gap-1.5">
+      <span className="mt-px shrink-0 text-[11px] font-bold text-indigo-300">[{n}]</span>
+      <div className="min-w-0">
+        {/* The paper's own printed entry is the anchor and always shows: it is
+            the one thing here that cannot be wrong. */}
+        {parsed.ok ? (
+          <>
+            <div className="text-[12.5px] font-semibold leading-snug text-white">{parsed.title}</div>
+            <div className="mt-0.5 text-[11px] text-slate-400">
+              {parsed.authorsShort}
+              {parsed.venue ? <> · <span className="italic">{parsed.venue}</span></> : null}
+            </div>
+          </>
+        ) : (
+          <span className="text-[11.5px] leading-snug text-slate-300">{entry}</span>
+        )}
+
+        {!resolved ? (
+          <div className="mt-1.5 flex items-center gap-1.5 text-[11px] text-slate-400">
+            <Loader2 size={11} className="animate-spin text-indigo-300" /> Looking it up…
+          </div>
+        ) : failed === "auth" ? (
+          <p className="mt-1.5 text-[11px] leading-snug text-slate-500">
+            Sign in (free) to look this reference up.
+          </p>
+        ) : failed === "config" ? (
+          <p className="mt-1.5 text-[11px] leading-snug text-slate-500">
+            Live lookup isn’t available on this build — the paper’s own entry above is what we have.
+          </p>
+        ) : failed ? (
+          <p className="mt-1.5 text-[11px] leading-snug text-slate-500">
+            Couldn’t reach the reference databases just now.
+          </p>
+        ) : resolved.found && r ? (
+          <>
+            {r.abstract && (
+              <p className="mt-1.5 line-clamp-4 text-[11px] leading-snug text-slate-400">
+                {r.abstract.length > 320 ? `${r.abstract.slice(0, 320)}…` : r.abstract}
+              </p>
+            )}
+            <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+              {r.url && (
+                <a href={r.url} target="_blank" rel="noreferrer noopener"
+                  className="inline-flex items-center gap-1 rounded-md border border-indigo-400/40 bg-indigo-500/10 px-1.5 py-0.5 text-[10.5px] font-semibold text-indigo-200 transition hover:bg-indigo-500/25 hover:text-white">
+                  <ExternalLink size={10} /> {r.doi ? "DOI" : "Open"}
+                </a>
+              )}
+              <span className="text-[9.5px] uppercase tracking-wide text-slate-600">via {r.source}</span>
+            </div>
+          </>
+        ) : (
+          /* Not found is a real answer, said plainly. The alternative — a
+             plausible-looking paper the reader has no way to check — is the
+             one outcome this whole feature must never produce. */
+          <p className="mt-1.5 text-[11px] leading-snug text-slate-500">
+            Couldn’t find this one in Semantic Scholar, OpenAlex or Crossref — the paper’s own entry
+            above is all we can vouch for.
+          </p>
+        )}
+      </div>
+    </li>
+  );
 }
 
 /** Turn one figure's already-digitized panels (from the analysis's own
@@ -1275,7 +1420,7 @@ function digestPanels(panels) {
   return lines.join("\n").slice(0, 2600);
 }
 
-function XrefCard({
+export function XrefCard({
   card, onClose, onAsk, onGoToPage, onBuildPanel, onMakeFigureLive, liveJob, onRecolor, onRemoveHighlight,
   paperTitle, spec,
 }) {
@@ -1295,10 +1440,16 @@ function XrefCard({
     () => (card.kind === "citation" ? (p.entries || []).map((e) => ({ ...e, parsed: parseBibEntry(e.text) })) : []),
     [card.kind, p.entries]
   );
-  const why = useWhyCited({
-    entries: p.entries, citing: p.citing, paperTitle, spec,
+  const resolved = useResolvedRefs({
+    entries: p.entries, citing: p.citing, paperTitle,
     enabled: card.kind === "citation",
   });
+  /* One explanation per marker, not per entry: "[3, 5]" is cited for one
+   * reason at one point in the sentence. The first entry that produced one
+   * wins, which is also the one the sentence names first. */
+  const why = (p.entries || [])
+    .map((e) => resolved.byNum?.[e.n])
+    .find((r) => r && !r.error && r.explanation);
   // Keep the card on screen: clamp horizontally, and flip below the reference
   // when there isn't room above it.
   const left = Math.min(Math.max(W / 2 + 8, card.at.x), window.innerWidth - W / 2 - 8);
@@ -1331,22 +1482,9 @@ function XrefCard({
         {card.kind === "citation" && (
           <>
             <Head icon={BookMarked}>Reference {card.label}</Head>
-            <ul className="space-y-2">
+            <ul className="space-y-2.5">
               {bib.map(({ n, text, parsed }) => (
-                <li key={n} className="flex gap-1.5">
-                  <span className="mt-px shrink-0 text-[11px] font-bold text-indigo-300">[{n}]</span>
-                  {parsed.ok ? (
-                    <div className="min-w-0">
-                      <div className="text-[12.5px] font-semibold leading-snug text-white">{parsed.title}</div>
-                      <div className="mt-0.5 text-[11px] text-slate-400">
-                        {parsed.authorsShort}
-                        {parsed.venue ? <> · <span className="italic">{parsed.venue}</span></> : null}
-                      </div>
-                    </div>
-                  ) : (
-                    <span className="text-[11.5px] leading-snug text-slate-300">{text}</span>
-                  )}
-                </li>
+                <ResolvedRef key={n} n={n} entry={text} parsed={parsed} resolved={resolved.byNum?.[n]} />
               ))}
             </ul>
 
@@ -1355,18 +1493,16 @@ function XrefCard({
                 <div className="mb-1 text-[10px] font-bold uppercase tracking-wider text-slate-500">
                   Why it’s cited here
                 </div>
-                {why.text ? (
-                  <p className="text-[11.5px] leading-snug text-slate-200">{why.text}</p>
-                ) : why.error ? (
-                  <p className="text-[11.5px] leading-snug text-slate-500">
-                    {why.error === "auth"
-                      ? "Sign in (free) for the one-line version. Until then, the paper’s own words:"
-                      : "Couldn’t summarise this one. The paper’s own words:"}
-                  </p>
-                ) : (
+                {why?.explanation ? (
+                  <p className="text-[11.5px] leading-snug text-slate-200">{why.explanation}</p>
+                ) : resolved.loading ? (
                   <div className="flex items-center gap-1.5 text-[11.5px] text-slate-400">
                     <Loader2 size={12} className="animate-spin text-indigo-300" /> Reading the sentence…
                   </div>
+                ) : (
+                  <p className="text-[11.5px] leading-snug text-slate-500">
+                    Couldn’t summarise this one. The paper’s own words:
+                  </p>
                 )}
                 <p className="mt-1.5 border-l-2 border-indigo-400/40 pl-2 text-[10.5px] italic leading-snug text-slate-500">
                   {p.citing}
@@ -1577,13 +1713,18 @@ function XrefCard({
   );
 }
 
-function AssistBtn({ icon: Icon, label, onClick, primary }) {
+function AssistBtn({ icon: Icon, label, onClick, primary, price }) {
   return (
     <button onClick={onClick}
       className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[12px] font-semibold transition ${
         primary ? "bg-indigo-600 text-white hover:bg-indigo-500" : "text-slate-200 hover:bg-white/10 hover:text-white"
       }`}>
       <Icon size={13} /> {label}
+      {price && (
+        <span className="rounded bg-white/15 px-1 py-px text-[10px] font-bold tabular-nums text-indigo-200">
+          {price}
+        </span>
+      )}
     </button>
   );
 }

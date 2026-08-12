@@ -46,6 +46,9 @@ const MAX_TEXT_CHARS = 2_000;
 /* The pipeline, when the paper has one, so 'simulated' panels can hook into
  * the reader's live blocks instead of falling back to reported values. */
 const MAX_PIPELINE_CHARS = 20_000;
+/* The offline draft. A 16-panel figure's measurements run to a few thousand
+ * characters; anything past this is not a draft. */
+const MAX_DRAFT_CHARS = 12_000;
 
 /* Ceiling covers thinking AND the JSON. A multi-subplot figure with a full
  * digitized carrier per subplot is a long answer — this is a bound, not a
@@ -104,6 +107,12 @@ Deno.serve(async (req) => {
     const serialized = JSON.stringify(body.pipeline);
     if (serialized.length <= MAX_PIPELINE_CHARS) pipeline = body.pipeline;
   }
+  /* STAGE A's measurements of this exact crop, already rendered to text by the
+   * client (src/figureClassify.js). Free to produce and cheap to carry, and it
+   * turns this call from "describe this figure" into "check these claims" —
+   * see figureDigitizePrompt. Capped like everything else: a draft is a page
+   * of measurements, not a document. */
+  const draft = String(body?.draft || "").trim().slice(0, MAX_DRAFT_CHARS) || null;
 
   // --- balance (owner exempt) ----------------------------------------------
   let credit = null;
@@ -121,7 +130,7 @@ Deno.serve(async (req) => {
   const priced = MODEL_CATALOG[DIGITIZE_MODEL];
   const client = new Anthropic({ apiKey });
 
-  const prompt = figureDigitizePrompt({ paperTitle, figureLabel, title, explanation, field, pipeline }) +
+  const prompt = figureDigitizePrompt({ paperTitle, figureLabel, title, explanation, field, pipeline, draft }) +
     /* The client executes every returned kernel and checks every carrier before
      * showing it. When that check fails, its verdict comes back here — it knows
      * things this prompt cannot, like that a series plots flat. */

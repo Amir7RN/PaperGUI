@@ -319,17 +319,52 @@
   transition: background 0.25s ease, box-shadow 0.25s ease;
 }
 
-/* Cross-reference markers ("[12]", "Fig. 3", "Eq. 2") the reader can click.
+/* Cross-reference CHIPS ("[12]", "Fig. 3", "Eq. 2") the reader can click.
+ *
  * Decorative ONLY — pointer-events stay off so dragging a selection across a
- * marker never breaks; PdfReader hit-tests the click against their boxes.
- * A tinted wash plus an underline reads as "this is live" without covering
- * the paper's own type. */
+ * marker never breaks; PdfReader hit-tests both the click and the hover
+ * against their boxes and swaps the cursor on the text layer.
+ *
+ * These used to be a translucent wash with an underline, which is the same
+ * visual language the reader's own highlighter uses — so a live reference and
+ * a passage someone had marked looked identical, and nothing about either said
+ * "this opens something". A chip does: an outlined, tinted pill sitting behind
+ * the paper's own type, which stays fully legible because the fill is light
+ * and multiplies rather than covers.
+ *
+ * `mix-blend-mode` is deliberately NOT set on the border — multiplying a
+ * border into body text muddies it into the wash we are getting away from. */
 .pdfr-xref {
   position: absolute;
-  border-radius: 2px;
-  background: rgba(99, 102, 241, 0.22);
-  box-shadow: inset 0 -2px 0 rgba(67, 56, 202, 0.85);
-  mix-blend-mode: multiply;
+  border-radius: 4px;
+  box-sizing: border-box;
+  /* Grow a hair past the glyph box so the pill has visible shoulders. */
+  margin: -1px -2px;
+  padding: 0 2px;
+  background: rgba(99, 102, 241, 0.16);
+  border: 1px solid rgba(79, 70, 229, 0.55);
+  box-shadow: 0 1px 0 rgba(67, 56, 202, 0.25);
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+/* What the chip opens, by colour — a reference, one of the paper's own
+ * figures, or one of its equations. Three tints is a small enough vocabulary
+ * that the third one teaches the set. */
+.pdfr-xref[data-kind="figure"] {
+  background: rgba(16, 185, 129, 0.16);
+  border-color: rgba(5, 150, 105, 0.6);
+  box-shadow: 0 1px 0 rgba(5, 150, 105, 0.25);
+}
+.pdfr-xref[data-kind="equation"] {
+  background: rgba(14, 165, 233, 0.16);
+  border-color: rgba(2, 132, 199, 0.6);
+  box-shadow: 0 1px 0 rgba(2, 132, 199, 0.25);
+}
+
+/* The reader is over a chip: the page's own hover state, since the chips
+ * themselves cannot receive the pointer. */
+.pdfr-page:has(.pdfr-textlayer[style*="pointer"]) .pdfr-xref {
+  background: rgba(99, 102, 241, 0.28);
 }
 
 /* pdf.js text layer — the part that makes words clickable and selectable */
@@ -367,4 +402,121 @@
 
 @media (prefers-reduced-motion: reduce) {
   .pdfr-page { animation-duration: 0.01s; }
+}
+
+/* ---------------- the paper as text (SectionsView) ----------------
+ * A reading column, not a UI panel: measure capped near 70 characters, real
+ * paragraph rhythm, and enough contrast that long prose is comfortable. The
+ * page view is the document; this is the same words in a shape you can select
+ * a table cell out of. */
+.pp-sections .pp-prose {
+  margin: 0 0 0.85rem;
+  max-width: 68ch;
+  font-size: 14px;
+  line-height: 1.7;
+  color: #334155;
+  text-align: justify;
+  hyphens: auto;
+}
+
+/* A citation is a real control here, not a wash drawn over glyphs — which is
+ * the whole reason this surface earns its place for references. */
+.pp-cite {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 5px;
+  border: 1px solid rgba(79, 70, 229, 0.45);
+  background: rgba(99, 102, 241, 0.12);
+  padding: 0 4px;
+  margin: 0 1px;
+  font-size: 0.86em;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: #4338ca;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+.pp-cite:hover {
+  background: #4f46e5;
+  border-color: #4338ca;
+  color: #fff;
+}
+.pp-cite:focus-visible {
+  outline: 2px solid #6366f1;
+  outline-offset: 1px;
+}
+
+/* Tables and algorithm listings — the blocks that used to arrive as pictures. */
+.pp-block {
+  margin: 0 0 1.1rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #f8fafc;
+  padding: 0.7rem 0.8rem;
+}
+.pp-block-cap {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.5rem;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #475569;
+}
+.pp-block-note {
+  margin-top: 0.5rem;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #94a3b8;
+}
+/* Wide tables scroll in their own box; the reading column never does. */
+.pp-table-wrap { overflow-x: auto; }
+.pp-table {
+  border-collapse: collapse;
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  min-width: 100%;
+}
+.pp-table th,
+.pp-table td {
+  border: 1px solid #e2e8f0;
+  padding: 0.28rem 0.5rem;
+  text-align: left;
+  white-space: nowrap;
+  color: #334155;
+}
+.pp-table th {
+  background: #eef2ff;
+  font-weight: 700;
+  color: #3730a3;
+}
+.pp-table tbody tr:nth-child(even) td { background: #ffffff; }
+
+.pp-pre {
+  margin: 0;
+  overflow-x: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.55;
+  color: #1e293b;
+  white-space: pre;
+  tab-size: 2;
+}
+
+.pp-figcap {
+  margin: 0 0 0.85rem;
+  max-width: 68ch;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: #64748b;
+  font-style: italic;
+}
+
+/* A superscript citation stays superscript — it is where the paper put it, and
+ * dropping it onto the baseline would change how the sentence reads. */
+.pp-cite-sup {
+  vertical-align: super;
+  font-size: 0.7em;
+  padding: 0 3px;
 }
