@@ -1072,6 +1072,10 @@ export default function App() {
       // stored — an object URL over the bytes we already hold. A stored paper
       // gets a signed URL instead when it is reopened from the library.
       try { newSpec.paperPdf = URL.createObjectURL(file); } catch { /* summary-only */ }
+      /* The storage KEY as well, so unlocking a deferred section can name the
+       * paper instead of re-uploading it. In memory only — updateAnalysisSpec
+       * strips it, because the row's own pdf_path column already holds it. */
+      if (pdfPath) newSpec.paperPath = pdfPath;
 
       setProgress({ pct: 100, label: "Done" });
       setSpec(newSpec);
