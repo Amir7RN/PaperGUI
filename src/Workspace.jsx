@@ -11,6 +11,7 @@
  */
 
 import React, { useState, useMemo, useRef, useCallback, useEffect } from "react";
+import { createPortal } from "react-dom";
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ReferenceLine, ResponsiveContainer,
@@ -26,7 +27,10 @@ import {
   NotebookPen, Trash2, Loader2, Quote, ShieldAlert, Highlighter,
 } from "lucide-react";
 import SectionChat from "./SectionChat.jsx";
-import PdfReader, { PaperReader } from "./PdfReader.jsx";
+import PdfReader, { PaperReader, XrefCard } from "./PdfReader.jsx";
+import SectionsView, { ReferenceList } from "./SectionsView.jsx";
+import { unlockSection } from "./api.js";
+import { estimateActionUsd, formatEstimate, estimateVerdict } from "../supabase/functions/_shared/actionCosts.js";
 import ExplainerVideo from "./ExplainerVideo.jsx";
 import { buildExplainer, fetchSceneAudio } from "./narrate.js";
 import { useVoiceOutput } from "./useVoice.js";
@@ -2653,7 +2657,7 @@ function ConceptLab({ spec, params, defaults, setParam, rows, compiled, pinnedT,
 
 /* ---------------- results lab window ---------------- */
 
-function ResultsLab({ spec, pipelineCompiled, helpers, baseOutputs, actOutputs, defaults, params, setParam, onOpenFig, layout, isOwner = false, onTrace, onMakeLive, liveJob }) {
+function ResultsLab({ spec, pipelineCompiled, helpers, baseOutputs, actOutputs, defaults, params, setParam, onOpenFig, layout, isOwner = false, onTrace, onMakeLive, liveJob, figureEstimate }) {
   const figs = spec.resultFigures || [];
   const [pageId, setPageId] = useState(figs[0]?.figureLabel || "");
   const [showParams, setShowParams] = useState(false);
@@ -2751,7 +2755,19 @@ function ResultsLab({ spec, pipelineCompiled, helpers, baseOutputs, actOutputs, 
                   className="flex items-center gap-1.5 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100 disabled:opacity-50">
                   {liveJob?.status === "working" && liveJob.figIndex === figIndex
                     ? <><Loader2 size={13} className="animate-spin" /> Reading the figure…</>
-                    : <><SlidersHorizontal size={13} /> Make this figure live (uses credit)</>}
+                    : (
+                      <>
+                        <SlidersHorizontal size={13} /> Make this figure live
+                        {/* The price is on the button, not discovered on the
+                            balance afterwards. A twenty-figure paper is twenty
+                            of these decisions and each one deserves a number. */}
+                        {figureEstimate && (
+                          <span className="rounded bg-emerald-600/15 px-1 py-px text-[10px] font-bold tabular-nums text-emerald-800">
+                            est. {figureEstimate}
+                          </span>
+                        )}
+                      </>
+                    )}
                 </button>
               )}
               {hasPanels && (
@@ -3545,8 +3561,11 @@ function SelectionExplain({ onAsk }) {
         while (node && node.nodeType !== 1) node = node.parentNode;
         const host = node && node.closest?.("[data-section-id]");
         if (!host) { setChip(null); return; }
-        // Inside the paper reader, its own assist bar (Explain · Simplify ·
-        // Ask · Copy) owns the selection — don't stack a second chip on it.
+        /* Inside either reading surface — the page view or the text view —
+         * that surface's own assist bar owns the selection. Both carry
+         * [data-paper-reader] for this reason: two popups fighting over one
+         * highlight is not a feature, and the reading surfaces offer strictly
+         * more (build a panel, keep it, copy it) than this chip does. */
         if (node.closest?.("[data-paper-reader]")) { setChip(null); return; }
         const rect = sel.getRangeAt(0).getBoundingClientRect();
         setChip({
@@ -3999,8 +4018,134 @@ function NotebookDrawer({ open, entries, highlights = [], onClose, onRemove, onC
   );
 }
 
+/* The sections the fast pass deliberately does not produce, and what buying
+ * one gets you. Keyed by the analysis phase that builds it — see phases.js. */
+const UNLOCKS = {
+  foundations: {
+    title: "The background this paper builds on",
+    blurb: "The 2-4 ideas from prior work you need before the contribution makes sense, each taught as a small interactive demo beside the paper's own figure.",
+    icon: Landmark, accent: "bg-amber-100 text-amber-700",
+  },
+  model: {
+    title: "The governing equations",
+    blurb: "What the authors actually did: experiment or simulation, the real toolchain, the equations term by term, the assumptions they rest on, and how they checked themselves.",
+    icon: Sigma, accent: "bg-blue-100 text-blue-700",
+  },
+  method: {
+    title: "The method, made runnable",
+    blurb: "The paper's method as a live pipeline you can drive with sliders — or, when it cannot be honestly simulated, its own equations and reported numbers as interactive explorers.",
+    icon: GitBranch, accent: "bg-indigo-100 text-indigo-700",
+  },
+  results: {
+    title: "Guided tours of the figures, and the claims audit",
+    blurb: "Every key figure walked through with clickable markers on the exact events that prove something, plus each headline claim tagged by how directly this paper's own evidence backs it, and flashcards.",
+    icon: LineChartIcon, accent: "bg-emerald-100 text-emerald-700",
+  },
+};
+
+/* ---------------- what an on-demand action costs ----------------
+ *
+ * Every button in this workspace that spends real money now says so before it
+ * is pressed. The estimate comes from the action's actual shape — which model
+ * runs it, whether it carries the whole paper or one figure crop, what its
+ * output ceiling is — and the real metered figure is shown next to it
+ * afterwards, so the two can be compared and the estimate corrected over time.
+ * See supabase/functions/_shared/actionCosts.js.
+ */
+
+/** The price tag itself: a range, and what it is a range OF. */
+function PriceTag({ est, className = "" }) {
+  if (!est) return null;
+  return (
+    <span
+      className={`inline-flex items-center rounded-md bg-white/15 px-1.5 py-px text-[10.5px] font-bold tabular-nums ${className}`}
+      title={
+        `Estimated cost of this action, ${formatEstimate(est)}. ` +
+        `You are charged what it actually uses, which is shown afterwards` +
+        (est.retries ? ", and a failed quality check retries once" : "") + "."
+      }
+    >
+      est. {formatEstimate(est)}
+    </span>
+  );
+}
+
+/** Estimate vs. reality, after the fact — the other half of the promise. */
+function CostReceipt({ est, actual }) {
+  if (!Number.isFinite(actual)) return null;
+  const verdict = estimateVerdict(est, actual);
+  const tone =
+    verdict === "over" ? "border-amber-200 bg-amber-50 text-amber-800"
+      : "border-emerald-200 bg-emerald-50 text-emerald-800";
+  return (
+    <p className={`mt-3 rounded-lg border px-2.5 py-1.5 text-[11.5px] leading-snug ${tone}`}>
+      <strong>${actual.toFixed(3)}</strong> charged
+      {est ? <> · estimated {formatEstimate(est)}</> : null}
+      {verdict === "over" ? " — this one ran over the estimate." : null}
+      {verdict === "under" ? " — under the estimate." : null}
+    </p>
+  );
+}
+
+/**
+ * A section that wasn't produced by the fast first pass, with its price.
+ *
+ * The submission no longer buys the background lessons, the governing
+ * equations, the runnable pipeline or the guided figure tours — most readers
+ * wanted the story and one figure, and paying for five phases of analysis to
+ * deliver that was the architecture this replaces. Each one is now a card the
+ * reader can choose, and the choice is informed because the number is on it.
+ */
+function UnlockCard({ phaseId, title, blurb, icon: Icon, accent, est, job, onUnlock }) {
+  const busy = job?.phaseId === phaseId && job.status === "working";
+  const failed = job?.phaseId === phaseId && job.status === "error";
+  return (
+    <div className="mx-auto max-w-2xl rounded-2xl border border-slate-200 bg-white/90 p-6 text-center shadow-sm">
+      <div className={`mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-xl ${accent}`}>
+        <Icon size={20} />
+      </div>
+      <h3 className="text-[16px] font-bold text-slate-800">{title}</h3>
+      <p className="mx-auto mt-1.5 max-w-md text-[13px] leading-relaxed text-slate-500">{blurb}</p>
+
+      {busy ? (
+        <div className="mt-4">
+          <div className="flex items-center justify-center gap-2 text-[13px] font-semibold text-indigo-700">
+            <Loader2 size={15} className="animate-spin" /> {job.label || "Building this section…"}
+          </div>
+          <div className="mx-auto mt-2 h-1.5 w-56 overflow-hidden rounded-full bg-slate-200">
+            <div className="h-full rounded-full bg-indigo-500 transition-all duration-300"
+              style={{ width: `${Math.max(6, Math.min(100, job.pct || 6))}%` }} />
+          </div>
+        </div>
+      ) : (
+        <>
+          <button
+            onClick={() => onUnlock(phaseId)}
+            className="mt-4 inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-2.5 text-[13.5px] font-semibold text-white shadow-sm transition hover:bg-indigo-500">
+            <Sparkles size={15} /> Build this section
+            {est && (
+              <span className="rounded-md bg-white/20 px-1.5 py-px text-[11px] font-bold tabular-nums">
+                est. {formatEstimate(est)}
+              </span>
+            )}
+          </button>
+          <p className="mt-2 text-[11px] text-slate-400">
+            Charged at what it actually uses, shown against the estimate when it lands.
+          </p>
+        </>
+      )}
+
+      {failed && (
+        <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[12px] leading-snug text-red-700">
+          {job.message}
+        </p>
+      )}
+    </div>
+  );
+}
+
 /** Progress / confirm / failure for one panel build. */
-function PanelJobDialog({ job, onConfirm, onCancel }) {
+function PanelJobDialog({ job, est, onConfirm, onCancel }) {
   if (!job) return null;
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/60 px-4 backdrop-blur-sm"
@@ -4012,6 +4157,11 @@ function PanelJobDialog({ job, onConfirm, onCancel }) {
             <div className="mb-2 flex items-center gap-2">
               <Loader2 size={16} className="animate-spin text-indigo-600" />
               <span className="text-[14px] font-bold text-slate-800">Building your panel…</span>
+              {est && (
+                <span className="ml-auto rounded-md bg-slate-100 px-1.5 py-px text-[10.5px] font-bold tabular-nums text-slate-500">
+                  est. {formatEstimate(est)}
+                </span>
+              )}
             </div>
             <p className="text-[12px] leading-relaxed text-slate-500">
               Writing a small simulation for the passage you picked, then test-running it before
@@ -4020,6 +4170,26 @@ function PanelJobDialog({ job, onConfirm, onCancel }) {
             <p className="mt-2 border-l-2 border-slate-200 pl-2 text-[11px] italic leading-snug text-slate-400">
               {job.quote.length > 180 ? `${job.quote.slice(0, 180)}…` : job.quote}
             </p>
+          </>
+        )}
+
+        {/* What it actually cost, against what was quoted. Shown because a
+            price on a button is only half a promise — the other half is being
+            told, afterwards, whether the promise held. */}
+        {job.status === "done" && (
+          <>
+            <div className="mb-2 flex items-center gap-2">
+              <CheckIcon size={16} className="text-emerald-600" />
+              <span className="text-[14px] font-bold text-slate-800">Panel built</span>
+            </div>
+            <p className="text-[12px] leading-relaxed text-slate-600">
+              It’s in your notebook, with the passage it came from.
+            </p>
+            <CostReceipt est={est} actual={job.cost} />
+            <button onClick={onCancel}
+              className="mt-4 w-full rounded-lg bg-slate-800 py-2 text-[12.5px] font-semibold text-white transition hover:bg-slate-700">
+              Open the notebook
+            </button>
           </>
         )}
 
@@ -4033,7 +4203,8 @@ function PanelJobDialog({ job, onConfirm, onCancel }) {
                 shown here rather than left to be discovered on the balance. */}
             <p className="text-[12px] leading-relaxed text-slate-600">
               Each panel is generated on demand and charged to your credit — this paper has used
-              <strong> ${job.spent.toFixed(2)}</strong> so far. Build another?
+              <strong> ${job.spent.toFixed(2)}</strong> so far. Build another
+              {est ? <> for about <strong>{formatEstimate(est)}</strong></> : null}?
             </p>
             <div className="mt-4 flex gap-2">
               <button onClick={onCancel}
@@ -4156,17 +4327,72 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
    * and one traced by hand are indistinguishable downstream.
    * { figIndex, status: "working" | "error", message? } while one is running. */
   const [liveJob, setLiveJob] = useState(null);
+
+  /* Sections the reader has BOUGHT since this paper opened.
+   *
+   * The fast first pass produces the story, the map, the reference list and
+   * the paper's own text, and stops. The background lessons, the governing
+   * equations, the method lab and the guided figure tours are each a separate
+   * purchase now (see phases.js), and unlockSection returns the whole spec
+   * with the new slice merged — so one piece of state replaces the base spec
+   * rather than being layered onto it. */
+  const [unlockedSpec, setUnlockedSpec] = useState(null);
+  /* { phaseId, status: "working" | "error", pct, label, message } */
+  const [unlockJob, setUnlockJob] = useState(null);
+  /* The paper as text — sections, tables, algorithms, bibliography. Free, and
+   * built by the reader from the PDF it already has open. */
+  const [paperText, setPaperText] = useState(null);
+  /* A reference card opened from the TEXT view (the page view owns its own). */
+  const [refCard, setRefCard] = useState(null);
+
+  const workingSpec = unlockedSpec || baseSpec;
   const spec = useMemo(() => {
-    if (!Object.keys(digitizedOverrides).length) return baseSpec;
-    const figs = (baseSpec.resultFigures || []).map((f, fi) =>
+    if (!Object.keys(digitizedOverrides).length) return workingSpec;
+    const figs = (workingSpec.resultFigures || []).map((f, fi) =>
       digitizedOverrides[fi] ? { ...f, panels: digitizedOverrides[fi] } : f);
-    return { ...baseSpec, resultFigures: figs };
-  }, [baseSpec, digitizedOverrides]);
+    return { ...workingSpec, resultFigures: figs };
+  }, [workingSpec, digitizedOverrides]);
+
+  /* How long the paper is, for the unlock estimates — those calls carry the
+   * whole PDF, so its page count is the single biggest term in their price.
+   * Taken from the text we already extracted rather than asked for. */
+  const pdfPages = useMemo(() => {
+    const pages = (paperText?.blocks || []).map((b) => b.page).filter(Number.isFinite);
+    return pages.length ? Math.max(...pages) : null;
+  }, [paperText]);
+
+  /* Whether the paper is still in the analyzer's 1-hour prompt cache. The
+   * first unlock pays to write the PDF into it at 2x input; every unlock
+   * inside the hour reads it at a tenth. Quoting one number for both would be
+   * wrong by an order of magnitude on the input term. */
+  const firstUnlockAt = useRef(null);
+  const cacheWarm = () =>
+    !!firstUnlockAt.current && Date.now() - firstUnlockAt.current < 55 * 60 * 1000;
+
+  const estimateFor = useCallback(
+    (actionId) => estimateActionUsd(actionId, { pdfPages, cached: cacheWarm() }),
+    [pdfPages],
+  );
 
   // Papers whose method isn't honestly simulatable (measured data, theory,
   // surveys…) ship with no pipeline — story, figures and foundations carry
   // the dashboard, and every pipeline-dependent section hides itself.
   const hasPipeline = (spec.blocks?.length || 0) > 0;
+
+  /* Has the METHOD phase run at all?
+   *
+   * `blocks: []` is ambiguous on its own — it is both "not bought yet" and
+   * "bought, and this paper's method honestly cannot be simulated, so the
+   * interactivity went into explorables instead". Offering the unlock card in
+   * the second case would sell the reader the same section twice. `protocol`
+   * is emitted by that phase either way, so its presence is the honest test. */
+  const methodBought = !!spec.protocol || (spec.explorables?.length || 0) > 0;
+  /* Likewise for the results phase: the fast pass indexes the figures (label,
+   * page, bbox, one-line title) but writes no guided tour, so an explanation
+   * on the first figure is what says the tours have been paid for. */
+  const toursBought =
+    !!spec.claims?.length ||
+    (spec.resultFigures || []).some((f) => String(f.explanation || "").trim().length > 0);
   const defaults = useMemo(() => defaultsFromSpec(spec), [spec]);
   const helpers  = useMemo(
     () => buildHelpers(spec.protocol?.T && spec.protocol?.dt ? spec.protocol : { T: 10, dt: 0.05 }),
@@ -4205,6 +4431,22 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
   // What the paper's own text says about how much weight its results carry.
   const [evidence, setEvidence] = useState(null);
   const handleEvidence = useCallback((e) => setEvidence(e), []);
+  // The paper as text — sections, tables, algorithms, full bibliography.
+  const handlePaperText = useCallback((t) => setPaperText(t), []);
+
+  /* Open a reference card from the TEXT view.
+   *
+   * Deliberately the SAME card the page view opens, with the same payload
+   * shape, so a reference chased from a paragraph and one chased from a page
+   * image resolve identically and share one cache. */
+  const openRefCard = useCallback(({ nums, label, at, citing }) => {
+    const bib = paperText?.bibliography;
+    const entries = (nums || [])
+      .filter((n) => bib?.has(n))
+      .map((n) => ({ n, text: bib.get(n) }));
+    if (!entries.length) return;
+    setRefCard({ at, kind: "citation", label, payload: { nums, entries, citing } });
+  }, [paperText]);
 
   /* ---- the reader's own notebook: panels they had built, kept per paper ---- */
   const [notebook, setNotebook] = useState(() => loadNotebook(spec));
@@ -4213,6 +4455,46 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
   // pending-confirmation and error states around it.
   const [panelJob, setPanelJob] = useState(null);
   useEffect(() => { setNotebook(loadNotebook(spec)); }, [spec]);
+
+  /**
+   * Buy one deferred section.
+   *
+   * The paper is named, never re-uploaded: the analysis stored it once and
+   * every unlock reads it server-side. A paper with neither a stored path nor
+   * its bytes cannot be unlocked at all, and says so rather than failing
+   * halfway through a charge.
+   */
+  const runUnlock = useCallback(async (phaseId) => {
+    if (unlockJob?.status === "working") return;
+    setUnlockJob({ phaseId, status: "working", pct: 4, label: "Reading the paper…" });
+    if (!firstUnlockAt.current) firstUnlockAt.current = Date.now();
+    const est = estimateFor(phaseId);
+    try {
+      const { spec: next, cost } = await unlockSection(phaseId, {
+        spec,
+        pdfPath: spec.paperPath || null,
+        pdfBase64: spec.paperBase64 || null,
+        onProgress: ({ pct, label }) =>
+          setUnlockJob((j) => (j?.phaseId === phaseId ? { ...j, pct, label } : j)),
+      });
+      setUnlockedSpec(next);
+      setUnlockJob(null);
+      setLastReceipt({ what: UNLOCKS[phaseId]?.title || "Section", est, actual: cost });
+      /* Persist, so the reader never buys the same section twice: reopening
+       * this paper from the library brings it back. A failed save is not a
+       * failed unlock — it is live in this session either way. */
+      if (spec.analysisId) {
+        try { await updateAnalysisSpec(spec.analysisId, next); } catch { /* live regardless */ }
+      }
+    } catch (e) {
+      setUnlockJob({ phaseId, status: "error", message: e?.message || String(e) });
+    }
+  }, [spec, unlockJob, estimateFor]);
+
+  /* The last thing that cost money, and what it actually cost against the
+   * quote. Sits in the header until dismissed — a price shown before the click
+   * is only half the promise. */
+  const [lastReceipt, setLastReceipt] = useState(null);
 
   const runPanelJob = useCallback(async (req) => {
     setPanelJob({ ...req, status: "working" });
@@ -4231,8 +4513,7 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
         context: buildSectionContext(spec, req.sectionId || "model"),
       });
       setNotebook(addPanel(spec, { panel, quote: req.quote, page: req.page, sectionLabel: req.sectionLabel, cost }));
-      setPanelJob(null);
-      setNotebookOpen(true);
+      setPanelJob({ ...req, status: "done", cost });
     } catch (e) {
       setPanelJob({ ...req, status: "error", message: e?.message || String(e) });
     }
@@ -4248,11 +4529,13 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
   const makeFigureLive = useCallback(async (figIndex) => {
     const fig = spec.resultFigures?.[figIndex];
     if (!fig) return;
+    const est = estimateFor("figure");
     setLiveJob({ figIndex, status: "working" });
     try {
-      const { panels } = await digitizeFigure({ figure: fig, spec });
+      const { panels, cost } = await digitizeFigure({ figure: fig, spec });
       setDigitizedOverrides((prev) => ({ ...prev, [figIndex]: panels }));
       setLiveJob(null);
+      setLastReceipt({ what: `${fig.figureLabel || "Figure"} digitized`, est, actual: cost });
       if (spec.analysisId) {
         const figures = (spec.resultFigures || []).map((f, i) => (i === figIndex ? { ...f, panels } : f));
         try { await updateAnalysisSpec(spec.analysisId, { ...spec, resultFigures: figures }); } catch { /* live this session regardless */ }
@@ -4401,9 +4684,48 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
           variant="inline" url={spec.paperPdf} title={spec.meta?.title} open
           spec={spec} onAsk={setChatSection} onBuildPanel={requestPanel} onKeep={keepPassage}
           onMakeFigureLive={makeFigureLive} liveJob={liveJob}
-          onOutline={handleOutline} onEvidence={handleEvidence} gotoPage={paperPage}
+          onOutline={handleOutline} onEvidence={handleEvidence} onPaperText={handlePaperText}
+          gotoPage={paperPage} panelEstimate={formatEstimate(estimateFor("panel"))}
           highlights={highlights} onHighlight={highlightPassage} onUnhighlight={unhighlight}
         />
+      ),
+    },
+    {
+      /* The same document, as text. Peer to the page view rather than a
+       * replacement for it: the pages are the real paper, and this is where a
+       * table is a table, an algorithm keeps its steps, and a citation is a
+       * real button rather than a rectangle drawn over glyphs. */
+      id: "text", boxId: "sec-text", boxLabel: "Sections", navLabel: "Text",
+      ariaLabel: "The paper's own text, section by section", raw: true,
+      show: spineOn, tone: "blue", icon: FileText,
+      content: (
+        <SectionsView
+          paperText={paperText}
+          estimate={formatEstimate(estimateFor("panel"))}
+          onBuildPanel={requestPanel}
+          onAsk={setChatSection}
+          onKeep={keepPassage}
+          onGoToPage={(p) => { selectSection("paper"); setPaperPage({ page: p }); }}
+          onCite={openRefCard}
+        />
+      ),
+    },
+    {
+      id: "references", boxId: "sec-references", boxLabel: "References", navLabel: "Refs",
+      ariaLabel: "The paper's reference list", raw: true,
+      show: spineOn && (paperText?.bibliography?.size || 0) > 0, tone: "violet", icon: BookMarked,
+      content: (
+        <div className="rounded-2xl border border-slate-200 bg-white px-5 py-5 shadow-sm">
+          <h3 className="mb-1 text-[15px] font-bold text-slate-800">
+            Every reference this paper cites
+          </h3>
+          <p className="mb-3 text-[12.5px] leading-relaxed text-slate-500">
+            Read straight out of the paper’s own bibliography — all {paperText?.bibliography?.size} of
+            them, not a selection. Click any one to look it up live in Semantic Scholar, OpenAlex or
+            Crossref and see what it actually is.
+          </p>
+          <ReferenceList bibliography={paperText?.bibliography} onCite={openRefCard} />
+        </div>
       ),
     },
     {
@@ -4430,22 +4752,28 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
     },
     {
       id: "foundations", boxId: "sec-foundations", boxLabel: "Background", navLabel: "Background", ariaLabel: "Foundations from prior work",
-      show: !!spec.foundations?.length && sec("foundations").on, tone: "amber", icon: Landmark, lab: spineOn,
-      content: <FoundationsLab foundations={spec.foundations} explainer={buildExplainer(spec, "foundations")} onOpenFig={setLightbox} />,
+      show: sec("foundations").on, tone: "amber", icon: Landmark, lab: spineOn,
+      content: spec.foundations?.length
+        ? <FoundationsLab foundations={spec.foundations} explainer={buildExplainer(spec, "foundations")} onOpenFig={setLightbox} />
+        : <UnlockCard phaseId="foundations" {...UNLOCKS.foundations} est={estimateFor("foundations")} job={unlockJob} onUnlock={runUnlock} />,
     },
     {
       id: "model", boxId: "sec-model", boxLabel: "The model", navLabel: "Model", ariaLabel: "The paper's methodology, tools and governing equations",
-      show: !!spec.model && sec("model").on, tone: "blue", icon: Sigma, lab: spineOn,
-      content: <TheModel model={spec.model} explainer={buildExplainer(spec, "model")} onOpenFig={setLightbox} />,
+      show: sec("model").on, tone: "blue", icon: Sigma, lab: spineOn,
+      content: spec.model
+        ? <TheModel model={spec.model} explainer={buildExplainer(spec, "model")} onOpenFig={setLightbox} />
+        : <UnlockCard phaseId="model" {...UNLOCKS.model} est={estimateFor("model")} job={unlockJob} onUnlock={runUnlock} />,
     },
     {
       id: "method", boxId: "sec-method", boxLabel: "Method lab", navLabel: "Method", ariaLabel: "The paper's contribution",
-      show: hasPipeline && sec("method").on, tone: "blue", icon: GitBranch, lab: spineOn,
-      content: (
+      show: (hasPipeline || !methodBought) && sec("method").on, tone: "blue", icon: GitBranch, lab: spineOn,
+      content: hasPipeline ? (
         <ConceptLab
           spec={spec} params={params} defaults={defaults} setParam={setParam} rows={rows} compiled={compiled}
           pinnedT={pinnedT} onPin={togglePin} onInfo={setInfoKey} onInspect={setInspect} layout={layout}
         />
+      ) : (
+        <UnlockCard phaseId="method" {...UNLOCKS.method} est={estimateFor("method")} job={unlockJob} onUnlock={runUnlock} />
       ),
     },
     {
@@ -4462,12 +4790,20 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
       id: "results", boxId: "sec-results", boxLabel: "Results lab", navLabel: "Results", ariaLabel: "The paper's result figures",
       show: !!spec.resultFigures?.length && sec("results").on, tone: "emerald", icon: LineChartIcon, lab: spineOn,
       content: (
-        <ResultsLab
-          spec={spec} pipelineCompiled={compiled} helpers={helpers} baseOutputs={baseline.outputs} actOutputs={active.outputs}
-          defaults={defaults} params={params} setParam={setParam} onOpenFig={setLightbox} layout={layout}
-          isOwner={isOwner} onTrace={(figIndex) => setTraceTarget(figIndex)}
-          onMakeLive={makeFigureLive} liveJob={liveJob}
-        />
+        <>
+          {!toursBought && (
+            <div className="mb-5">
+              <UnlockCard phaseId="results" {...UNLOCKS.results} est={estimateFor("results")} job={unlockJob} onUnlock={runUnlock} />
+            </div>
+          )}
+          <ResultsLab
+            spec={spec} pipelineCompiled={compiled} helpers={helpers} baseOutputs={baseline.outputs} actOutputs={active.outputs}
+            defaults={defaults} params={params} setParam={setParam} onOpenFig={setLightbox} layout={layout}
+            isOwner={isOwner} onTrace={(figIndex) => setTraceTarget(figIndex)}
+            onMakeLive={makeFigureLive} liveJob={liveJob}
+            figureEstimate={formatEstimate(estimateFor("figure"))}
+          />
+        </>
       ),
     },
     {
@@ -4813,9 +5149,47 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
       />
       <PanelJobDialog
         job={panelJob}
-        onCancel={() => setPanelJob(null)}
+        est={estimateFor("panel")}
+        onCancel={() => { const done = panelJob?.status === "done"; setPanelJob(null); if (done) setNotebookOpen(true); }}
         onConfirm={() => runPanelJob({ quote: panelJob.quote, page: panelJob.page, sectionLabel: panelJob.sectionLabel, sectionId: panelJob.sectionId })}
       />
+
+      {/* A reference chased from the TEXT view. The page view renders its own
+          copy of this card for markers clicked on a page image; both resolve
+          through the same cache, so the second click on a reference is free
+          whichever surface it happened on. */}
+      {refCard && createPortal(
+        <XrefCard
+          card={refCard}
+          paperTitle={spec.meta?.title}
+          spec={spec}
+          onClose={() => setRefCard(null)}
+          onAsk={(ask) => { setChatSection({ sectionId: "story", title: "The paper", initialAsk: ask }); setRefCard(null); }}
+          onGoToPage={(p) => { setRefCard(null); selectSection("paper"); setPaperPage({ page: p }); }}
+        />,
+        document.body,
+      )}
+
+      {/* What the last metered action actually cost, against what it quoted. */}
+      {lastReceipt && createPortal(
+        <div className="fixed bottom-4 left-1/2 z-[70] -translate-x-1/2">
+          <div className="pp-rise flex items-center gap-3 rounded-xl border border-slate-700 bg-slate-900/95 px-4 py-2.5 text-white shadow-2xl backdrop-blur">
+            <CheckIcon size={15} className="text-emerald-400" />
+            <span className="text-[12.5px]">
+              <strong>{lastReceipt.what}</strong> — charged{" "}
+              <strong className="tabular-nums">${(lastReceipt.actual || 0).toFixed(3)}</strong>
+              {lastReceipt.est && (
+                <span className="text-slate-400"> · estimated {formatEstimate(lastReceipt.est)}</span>
+              )}
+            </span>
+            <button onClick={() => setLastReceipt(null)} aria-label="Dismiss"
+              className="rounded p-0.5 text-slate-400 transition hover:bg-white/10 hover:text-white">
+              <X size={14} />
+            </button>
+          </div>
+        </div>,
+        document.body,
+      )}
 
       <SelectionExplain onAsk={setChatSection} />
       <SectionChat spec={spec} open={chatSection} onClose={() => setChatSection(null)} />

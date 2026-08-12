@@ -1198,6 +1198,39 @@ const resultFiguresIdentifyOnly = {
   },
 };
 
+/* ---------------- the figure INDEX: the fast pass's whole figure job --------
+ *
+ * The fast pass has to know a paper's figures exist — a reader cannot ask to
+ * digitize a figure nobody listed — but it must not pay to explain them. A
+ * guided tour, six hotspot notes pinned on visual events, and an axis
+ * calibration seed are three separate careful reads of every figure in the
+ * paper, for a reader who will open one or none.
+ *
+ * So the fast pass emits only what is needed to CROP and NAME each figure, and
+ * the tours/hotspots/seeds move into the `results` unlock, next to the claims
+ * and flashcards that share their reading. Digitizing a figure never needed
+ * them: digitize-figure looks at the crop itself.
+ */
+const resultFiguresIndexOnly = {
+  ...P.resultFigures,
+  items: {
+    type: "object",
+    additionalProperties: false,
+    required: ["figureLabel", "page", "bbox", "title"],
+    properties: {
+      figureLabel: P.resultFigures.items.properties.figureLabel,
+      page: P.resultFigures.items.properties.page,
+      bbox: P.resultFigures.items.properties.bbox,
+      title: {
+        type: "string",
+        description: "ONE short line naming what this figure shows, e.g. 'Forecast error by horizon across the four models'. This is a label, not a tour — do NOT write a paragraph.",
+      },
+    },
+  },
+  description:
+    "An INDEX of the paper's key result figures (3-8) — just enough to crop each one and name it: its own label, the page it is on, its bounding box, and a one-line title. NO explanation, NO hotspots, NO axis seed: those are produced later, only if the reader asks for them. Getting the bbox right is the part that matters here, because everything downstream reads the crop it produces.",
+};
+
 /** One figure's interactive panels — the whole output of the on-demand
  *  digitizer. Byte-identical to what phase 5 used to emit inline, so the
  *  client renderers and validators need no special case. */
@@ -1209,18 +1242,26 @@ export const FIGURE_PANELS_SCHEMA = {
 };
 
 export const PHASE_SCHEMAS = {
+  /* THE FAST PASS — the only call a submitted paper makes on its own.
+   *
+   * `references` is deliberately absent. It used to ask the model for "up to
+   * 12 of the paper's most important references", which is a subset, chosen by
+   * a model, paid for in output tokens — while the paper's OWN bibliography is
+   * sitting in the PDF's text layer, complete and free. The client reads it
+   * there now (readBibliography in paperRefs.js), so the fast pass spends
+   * nothing on it and the reader gets ALL of them instead of a dozen. */
   overview: {
     type: "object",
     additionalProperties: false,
-    required: ["meta", "archetype", "story", "mindmap", "conclusion", "references", "conceptFigures"],
+    required: ["meta", "archetype", "story", "mindmap", "conclusion", "conceptFigures", "resultFigures"],
     properties: {
       meta: P.meta,
       archetype: P.archetype,
       story: P.story,
       mindmap: P.mindmap,
       conclusion: P.conclusion,
-      references: P.references,
       conceptFigures: P.conceptFigures,
+      resultFigures: resultFiguresIndexOnly,
     },
   },
   foundations: {
@@ -1324,20 +1365,33 @@ export function fieldLexiconBlock(field) {
 export function phaseInstruction(phase, contextSpec) {
   if (phase === "overview") {
     return (
-      "\n\nTHIS CALL IS PHASE 1 of 5: produce ONLY the fields " +
-      "{meta, archetype, story, mindmap, conclusion, references, conceptFigures}. " +
-      "Classify the archetype honestly — it decides whether the method is simulated live or " +
-      "explored through the paper's own equations and reported numbers, and the later phases are " +
-      "told your decision. The background demos and governing equations (`foundations`, `model`), " +
-      "the method pipeline (protocol/blocks/explorables) and the result figures are produced in " +
-      "later calls — keep them in mind for coherence, but do NOT emit them now."
+      "\n\nTHIS IS THE FAST FIRST PASS, and it is the ONLY call this paper makes on its own. " +
+      "Produce ONLY the fields {meta, archetype, story, mindmap, conclusion, conceptFigures, resultFigures}.\n\n" +
+      "SPEED IS THE FEATURE HERE. A reader has just submitted a paper and is waiting. Everything " +
+      "expensive — the background lessons, the governing equations, the runnable method pipeline, the " +
+      "guided tours of the figures, and the interactive reproduction of any figure — is now a separate, " +
+      "individually-priced action they trigger later, on the one or two things they actually care " +
+      "about. Do NOT produce any of it now, and do NOT pad these fields to compensate.\n\n" +
+      "`resultFigures` IS AN INDEX, NOT A TOUR. For each key result figure emit exactly four things: " +
+      "its own label, its page, its bounding box, and a ONE-LINE title. No explanation, no hotspots, " +
+      "no axis seed — those are the deferred call's job. Spend your care on the BBOX: every later " +
+      "action reads the crop it produces, so a box that clips an axis or swallows a neighbouring " +
+      "figure poisons work the reader will pay for.\n\n" +
+      "Classify the archetype honestly — it decides whether the method can later be simulated live or " +
+      "only explored through the paper's own equations and reported numbers, and every deferred call " +
+      "is told your decision.\n\n" +
+      "The paper's reference list, its section text, its tables and its algorithm listings are " +
+      "extracted from the document itself, for free, and are NOT your job. Do not restate them."
     );
   }
   if (phase === "foundations") {
     const arch = contextSpec?.archetype;
     return (
-      "\n\nTHIS CALL IS PHASE 2 of 5: produce ONLY the fields {foundations, explainer}, and inside " +
-      "`explainer` ONLY the `foundations` key. These are the background lessons a reader needs " +
+      "\n\nA READER HAS PAID TO UNLOCK THE BACKGROUND SECTION. This call runs on its own, after the " +
+      "fast first pass, and produces ONLY the fields {foundations, explainer}, and inside " +
+      "`explainer` ONLY the `foundations` key. They chose to spend on this one section, so it has to " +
+      "be worth the click on its own — assume nothing else will be unlocked. These are the " +
+      "background lessons a reader needs " +
       "BEFORE the paper's own contribution makes sense — key ideas from the prior work this paper " +
       "builds on, each one playable. " +
       "GROUNDING (this is what fixes the Background section authors have rejected as " +
@@ -1359,8 +1413,10 @@ export function phaseInstruction(phase, contextSpec) {
   if (phase === "model") {
     const arch = contextSpec?.archetype;
     return (
-      "\n\nTHIS CALL IS PHASE 3 of 5: produce ONLY the fields {model, explainer}, and inside " +
-      "`explainer` ONLY the `model` key. Read the METHODS/experimental/computational sections " +
+      "\n\nA READER HAS PAID TO UNLOCK THE GOVERNING EQUATIONS. This call runs on its own, after the " +
+      "fast first pass, and produces ONLY the fields {model, explainer}, and inside " +
+      "`explainer` ONLY the `model` key. It has to stand alone — assume no other section is " +
+      "unlocked. Read the METHODS/experimental/computational sections " +
       "closely — extract the real toolchain, the governing equations with term glossaries, the " +
       "assumptions and the validation, exactly as the paper states them. This is the hardest " +
       "reading in the paper: every symbol must be the paper's own, every equation traceable. " +
@@ -1380,7 +1436,8 @@ export function phaseInstruction(phase, contextSpec) {
   if (phase === "method") {
     const arch = contextSpec?.archetype;
     return (
-      "\n\nTHIS CALL IS PHASE 4 of 5: produce ONLY the fields {protocol, blocks, explorables} — " +
+      "\n\nA READER HAS PAID TO UNLOCK THE METHOD LAB. This call runs on its own, after the fast " +
+      "first pass, and produces ONLY the fields {protocol, blocks, explorables} — " +
       "the interactive method layer per the rules above. If the method is honestly simulatable, " +
       "build the full 3-6 block pipeline (explorables may be empty or hold 1-2 bonus explorers). " +
       "If it is NOT, emit blocks: [] with a minimal protocol and pour the interactivity into 2-4 " +
@@ -1395,8 +1452,19 @@ export function phaseInstruction(phase, contextSpec) {
         : "")
     );
   }
+  const known = (contextSpec?.figureIndex || [])
+    .map((f) => `- ${f.figureLabel || "(unlabelled)"} (page ${f.page}): ${f.title || ""}`)
+    .join("\n");
   return (
-    "\n\nTHIS CALL IS PHASE 5 of 5: produce the fields {resultFigures, checkpoints, claims, flashcards} per the rules above.\n\n" +
+    "\n\nA READER HAS PAID TO UNLOCK THE FIGURE TOURS AND THE CLAIMS AUDIT. This call runs on its own, " +
+    "after the fast first pass, and produces the fields {resultFigures, checkpoints, claims, flashcards} " +
+    "per the rules above.\n\n" +
+    (known
+      ? "THE FAST PASS ALREADY INDEXED THESE FIGURES. Return the SAME figures, with the SAME labels, " +
+        "in the SAME order — you are adding the tour to an index that already exists, and the reader's " +
+        "crops are keyed to these labels. Correct a page or a bbox only if it is genuinely wrong:\n" +
+        known + "\n\n"
+      : "") +
     "FIND AND FRAME THE FIGURES — DO NOT REPRODUCE THEM. " +
     "For each key result figure emit its page + bbox (so the real figure is cropped and shown), its title, " +
     "3-6 hotspot markers pinned on the exact visual events that prove something, a guided-tour `explanation`, " +
@@ -1421,11 +1489,15 @@ export function phaseInstruction(phase, contextSpec) {
 /**
  * @param figureLabel  the paper's own label, e.g. "Fig. 4"
  * @param title        what the analysis says this figure demonstrates
- * @param explanation  the analysis's guided tour of it
+ * @param explanation  the analysis's guided tour of it (absent until the
+ *                     results section is unlocked — the read works without it)
  * @param field        meta.field, for the domain lens
  * @param pipeline     {protocol, blocks} when the paper HAS a live pipeline, else null
+ * @param draft        STAGE A: the offline classifier's first-draft structure
+ *                     for this crop (see src/figureClassify.js), already
+ *                     rendered to text. Null when the local read found nothing.
  */
-export function figureDigitizePrompt({ paperTitle, figureLabel, title, explanation, field, pipeline }) {
+export function figureDigitizePrompt({ paperTitle, figureLabel, title, explanation, field, pipeline, draft }) {
   return (
     "You turn ONE figure of a scientific paper into a faithful interactive reproduction. The image is that " +
     "figure, cropped out of the paper at its own resolution. A reader has just asked to make it live.\n\n" +
@@ -1434,6 +1506,50 @@ export function figureDigitizePrompt({ paperTitle, figureLabel, title, explanati
     (title ? `WHAT IT DEMONSTRATES: ${title}\n` : "") +
     (explanation ? `THE ANALYSIS'S GUIDED TOUR OF IT: ${explanation}\n` : "") +
     "\nEmit one `panels` array: one entry per SUBPLOT in this figure, in reading order.\n\n" +
+
+    /* ---- STAGE B framing: verify a draft, don't generate blind ----
+     *
+     * A local, free, pixel-level pass has already run over this exact crop and
+     * produced a structural guess. It is a MEASUREMENT, not an opinion: it
+     * counted the panels by looking for whitespace gutters, counted the series
+     * by clustering ink colours, and decided stacked-vs-grouped from where the
+     * bar rectangles actually sit. It is also frequently wrong in ways a
+     * glance at the image fixes instantly.
+     *
+     * Handing that over changes the task from "describe this figure" to
+     * "check these specific claims against the picture", which is a far more
+     * reliable thing to ask of a vision model — the failures this exists to
+     * kill (a 6-panel grid read as 2 panels, stacked bars redrawn as grouped,
+     * a box plot called a bar chart) are exactly the claims it now has to
+     * confirm or overturn one at a time. */
+    (draft
+      ? "A LOCAL PIXEL ANALYSIS OF THIS EXACT CROP HAS ALREADY RUN. Here is what it measured:\n\n" +
+        draft + "\n\n" +
+        "YOUR JOB IS TO VERIFY AND CORRECT THAT DRAFT AGAINST THE IMAGE — not to start over, and not to " +
+        "rubber-stamp it. Go through it claim by claim:\n" +
+        "- SUBPLOT COUNT AND LAYOUT. Count the panels in the image yourself. If the draft says 6 in a 2x3 " +
+        "grid and you see 4 in a row, the image wins — emit 4. If the draft merged two panels that share " +
+        "an axis, split them; if it split one panel at an internal gridline, merge them. Emit ONE panel per " +
+        "subplot you can actually see, however many the draft claimed.\n" +
+        "- CHART FAMILY, per panel. The draft's guess comes from shape statistics and confuses the pairs " +
+        "that look alike: box vs bar (a box has whiskers and a median line inside it), violin vs box (a " +
+        "violin's outline curves), histogram vs bar (histogram bars touch), scatter vs line, heatmap vs " +
+        "image. Look at the panel and set the family you SEE.\n" +
+        "- STACKED VS GROUPED. This is the draft's least reliable call and one of the most damaging to get " +
+        "wrong. Segments sitting ON TOP of each other inside one bar are stacked; bars of different colours " +
+        "standing SIDE BY SIDE within a category are grouped. Check every bar panel.\n" +
+        "- ORIENTATION. Vertical stacks are stackedBar, horizontal ones are stackedBarH. Never rotate one " +
+        "into the other.\n" +
+        "- SERIES COUNT. The draft counts distinct ink colours, so it over-counts anti-aliasing and " +
+        "under-counts two series drawn in the same colour with different markers. Use the LEGEND.\n" +
+        "- ROUGH VALUES. Where the draft reports measured geometry (bar heights, box quartiles, category " +
+        "positions as fractions of the plot box), treat it as a starting point calibrated against the axis " +
+        "ticks YOU read — it measured pixels correctly but knows nothing about what the axis numbers mean. " +
+        "Read the ticks, convert, and correct anything that lands outside the axis range.\n" +
+        "State nothing you cannot see in the image. Where the draft and the image disagree, the image is " +
+        "always right.\n\n"
+      : "No usable local read of this crop was available, so classify it from the image alone.\n\n") +
+
     "FOR EVERY SUBPLOT, IN THIS ORDER:\n" +
     "1. CLASSIFY — set `figureFamily` by LOOKING at the subplot, from the schema's list. A grid of coloured " +
     "cells is heatmap, never line. A box is box, never bar. A survival staircase is kaplanMeier, never line. " +
@@ -1466,6 +1582,52 @@ export function figureDigitizePrompt({ paperTitle, figureLabel, title, explanati
     fieldLexiconBlock(field) +
     "\n\nOn the 1-2 most instructive reproduced panels, add a `predict` quiz (predict-then-reveal) about a " +
     "relationship the reader must reason about, not something readable straight off the static figure."
+  );
+}
+
+/* ---------------- on-demand reference resolution ----------------
+ * A citation marker is a promise the reader has to leave the page to collect.
+ * Resolving it means two different things, and only the second needs a model:
+ *
+ *  1. WHICH paper is this — answered by looking it up in a real scholarly
+ *     index (Semantic Scholar / OpenAlex / Crossref). That is a fact, and a
+ *     model must never supply it.
+ *  2. WHY is it cited HERE — answered from the citing sentence in the paper
+ *     the reader is holding, against the abstract the lookup returned.
+ *
+ * This prompt does only the second half, and it is told explicitly when the
+ * first half came back empty so it cannot quietly invent a paper.
+ */
+export function referenceExplainPrompt({ citing, entry, resolved, paperTitle }) {
+  const found = resolved?.abstract || resolved?.title;
+  return (
+    "You explain ONE citation to someone reading a scientific paper, at the exact sentence where it " +
+    "appears. Two sentences, no preamble, no bullet points, no restating the sentence back at them.\n\n" +
+    `THE PAPER THEY ARE READING: ${paperTitle || "(untitled)"}\n\n` +
+    `THE SENTENCE THAT CITES IT:\n"""${citing || "(not captured)"}"""\n\n` +
+    `ITS BIBLIOGRAPHY ENTRY AS PRINTED:\n"""${entry || "(not captured)"}"""\n\n` +
+    (found
+      ? "THE CITED PAPER, LOOKED UP IN A SCHOLARLY INDEX (this is real, verified metadata — use it, " +
+        "do not contradict it):\n" +
+        `  title: ${resolved.title || "(unknown)"}\n` +
+        `  authors: ${(resolved.authors || []).slice(0, 6).join(", ") || "(unknown)"}` +
+        `${(resolved.authors || []).length > 6 ? " et al." : ""}\n` +
+        `  year: ${resolved.year || "(unknown)"}\n` +
+        `  venue: ${resolved.venue || "(unknown)"}\n` +
+        (resolved.abstract
+          ? `  abstract: ${String(resolved.abstract).slice(0, 2400)}\n`
+          : "  abstract: NOT AVAILABLE — say what it is from its title and venue only, and do not " +
+            "describe findings you have not been shown.\n") +
+        "\nWrite it in this shape:\n" +
+        "SENTENCE 1 — what the cited work actually did, drawn from its abstract. Concrete: the thing it " +
+        "built, measured or proved, not 'this paper explores'.\n" +
+        "SENTENCE 2 — what THIS paper is leaning on it for at this exact point, drawn from the citing " +
+        "sentence. Name the specific thing borrowed (a method, a dataset, a bound, a prior result, a " +
+        "contrast being drawn). If the citing sentence genuinely does not make the reason clear, say that " +
+        "plainly in half a line rather than inventing one."
+      : "THE LOOKUP FOUND NOTHING. You do not know this paper. Do NOT describe what it is about, do NOT " +
+        "guess its findings from its title, and do NOT pad. Say in ONE sentence what the citing sentence " +
+        "shows this paper is leaning on the citation for, and nothing else.")
   );
 }
 

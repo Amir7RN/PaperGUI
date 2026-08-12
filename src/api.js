@@ -10,7 +10,7 @@
  */
 
 import { MODEL_TIERS, modelForPhase } from "../supabase/functions/_shared/paperSpec.js";
-import { PHASES, mergePhase, contextSpecFor } from "./phases.js";
+import { PHASES, FAST_PHASES, mergePhase, contextSpecFor, phaseById } from "./phases.js";
 import { docKey, fixtureKey } from "./fixtureKey.js";
 import { getAccessToken, refreshAccessToken, functionsUrl, supabaseAnonKey } from "./supabase.js";
 
@@ -442,11 +442,17 @@ export async function analyzePaper(pdfBase64, onProgress, tier = getModelTier(),
   /* Recorded phases are read BEFORE the sign-in checks: a fully recorded paper
    * replays with no network at all, which is what makes it usable against a
    * dev build with no Supabase session. A partial recording still needs an
-   * account for the phases it is missing, so it falls through. */
+   * account for the phases it is missing, so it falls through.
+   *
+   * A recording of the DEFERRED phases replays too, and is merged straight in
+   * — a fully recorded paper opens with every section already unlocked, which
+   * is what makes a fixture useful for working on those sections at all. */
   const fixtures = await loadFixtures(pdfBase64, codeText);
-  if (fixtures.size === PHASES.length) {
+  if (FAST_PHASES.every((p) => fixtures.has(p.id))) {
     const replayed = {};
-    for (const phase of PHASES) mergePhase(replayed, phase, fixtures.get(phase.id));
+    for (const phase of PHASES) {
+      if (fixtures.has(phase.id)) mergePhase(replayed, phase, fixtures.get(phase.id));
+    }
     report(100, "Replayed from a recorded analysis (no charge)");
     return { spec: replayed, cost: 0, remainingBalance: null };
   }
@@ -485,11 +491,10 @@ export async function analyzePaper(pdfBase64, onProgress, tier = getModelTier(),
     if (!phaseCache.has(id)) phaseCache.set(id, { spec: phaseSpec, cost: 0 });
   }
 
-  for (const phase of PHASES) {
-    // NOTE: the method phase always runs. For papers whose method isn't
-    // honestly simulatable it produces `explorables` (the paper's own
-    // equations on sliders + its reported data as interactive charts)
-    // instead of a simulation pipeline — every paper stays hands-on.
+  /* ONE phase. The background lessons, the governing equations, the method
+   * pipeline and the figure tours are no longer bought here — see
+   * unlockSection below, and phases.js for why. */
+  for (const phase of FAST_PHASES) {
     const cacheId = `${key}:${phase.id}`;
     let result = phaseCache.get(cacheId);
 
@@ -547,4 +552,98 @@ export async function analyzePaper(pdfBase64, onProgress, tier = getModelTier(),
   }
 
   return { spec, cost: totalCost, remainingBalance };
+}
+
+/**
+ * Buy ONE deferred section of an already-analysed paper.
+ *
+ * This is the same machinery `analyzePaper` uses for its single fast phase —
+ * same edge function, same tier fallback, same validators, same resume cache —
+ * pointed at one of the phases the fast pass deliberately skipped. The reader
+ * pressed a button with a price on it (see actionCosts.js) and this is what
+ * that button spends.
+ *
+ * The paper itself is named, not re-uploaded: `pdfPath` is the key it was
+ * stored under during the original analysis. Without one — an analysis from
+ * before paper storage, or an upload that failed — the caller has to hand back
+ * the base64, and if it has neither, the section simply cannot be unlocked and
+ * says so rather than failing halfway through a charge.
+ *
+ * Returns { spec, cost, remainingBalance } where `spec` is the WHOLE spec with
+ * the new section merged in, ready to be persisted and rendered.
+ */
+export async function unlockSection(phaseId, {
+  spec,
+  onProgress,
+  tier = getModelTier(),
+  hints = null,
+  validators = null,
+  codeText = null,
+  pdfPath = null,
+  pdfBase64 = null,
+}) {
+  const phase = phaseById(phaseId);
+  if (!phase || phase.fast) throw new Error(`"${phaseId}" isn't a section that can be unlocked.`);
+  if (!functionsUrl) throw new Error("Unlocking sections isn't configured for this deployment.");
+  if (!pdfPath && !pdfBase64) {
+    throw new Error(
+      "This paper's file isn't available any more, so this section can't be built. Re-upload the PDF to unlock it.",
+    );
+  }
+  if (!(await getAccessToken())) throw new Error("Your session has expired. Please sign in again.");
+
+  const report = (pct, label) => onProgress?.({ pct, label });
+  const paper = pdfPath ? { pdfPath } : { pdfBase64 };
+
+  /* Same key shape the fast pass uses, so an unlock that already succeeded and
+   * then failed to persist is free the second time. `docKey` needs the bytes;
+   * a path-only caller keys on the path instead, which identifies the same
+   * document just as well. */
+  const doc = pdfBase64 ? docKey(pdfBase64) : `path:${pdfPath}`;
+  const key = `${tier.id}|` + doc + (codeText ? `+${docKey(codeText)}` : "");
+  restorePhases(key);
+  const cacheId = `${key}:${phase.id}`;
+
+  let result = phaseCache.get(cacheId);
+  if (result) {
+    report(100, `${phase.title} — already built, reusing it (no charge)`);
+  } else {
+    const contextSpec = contextSpecFor(phase.id, spec);
+    const attempt = await runPhaseWithFallback(paper, tier, hints, phase, contextSpec, report, codeText);
+    result = attempt.result;
+
+    // Same quality gate the fast pass applies: test-run the generated code and
+    // regenerate ONCE with the exact faults fed back. It matters more here —
+    // the reader chose to spend on this one section, so a dead slider in it is
+    // the whole purchase, not one section of five.
+    const validator = validators?.[phase.id];
+    if (validator) {
+      const candidate = mergePhase({ ...spec }, phase, result.spec);
+      let problems = null;
+      try { problems = validator(candidate); } catch { /* audit crash ≠ failure */ }
+      if (problems) {
+        report(phase.from, `${phase.title} — failed the quality check, regenerating…`);
+        try {
+          const retry = await runPhase(paper, attempt.tier, hints, phase, contextSpec, report, problems, codeText);
+          const candidate2 = mergePhase({ ...spec }, phase, retry.spec);
+          let problems2 = null;
+          try { problems2 = validator(candidate2); } catch { /* keep retry */ }
+          const count = (s) => (s ? s.split("\n").length : 0);
+          if (count(problems2) <= count(problems)) {
+            retry.cost = (retry.cost || 0) + (result.cost || 0);
+            result = retry;
+          }
+        } catch { /* retry failed — keep the original attempt */ }
+      }
+    }
+
+    rememberPhase(cacheId, result);
+  }
+
+  const merged = mergePhase({ ...spec }, phase, result.spec);
+  return {
+    spec: merged,
+    cost: result.cost || 0,
+    remainingBalance: typeof result.remainingBalance === "number" ? result.remainingBalance : null,
+  };
 }

@@ -153,9 +153,13 @@ Deno.serve(async (req) => {
   if (phase && !PHASE_SCHEMAS[phase]) {
     return json(400, { error: `Unknown analysis phase "${phase}".` });
   }
-  if (phase === "results" && !contextSpec?.blocks) {
-    return json(400, { error: "The results phase requires the pipeline from the method phase." });
-  }
+  /* The results phase used to REQUIRE the pipeline, because it ran fourth of
+   * five and the method phase had always gone before it. Sections are now
+   * unlocked one at a time, in whatever order the reader wants, so demanding
+   * the pipeline here would mean "you may only buy the figure tours after
+   * buying the method lab" — a purchase order nobody asked for. It reads
+   * better with the pipeline and is perfectly valid without it: a paper with
+   * no pipeline was always allowed to reach this phase with blocks: []. */
   const tier = tierById(tierId) || MODEL_TIERS[0];
   // One tier can run several models — the Advanced tier puts Opus on the
   // model/method/results phases and Sonnet on the narrative ones. Everything
@@ -181,13 +185,13 @@ Deno.serve(async (req) => {
       credit = inserted;
     }
 
-    // The FIRST phase of a run requires positive credit; later phases may
-    // overdraw a few dollars so a run that already spent money always
-    // completes instead of dying half-paid. The negative balance simply
-    // blocks the NEXT run until the account is topped up.
+    /* Every call to this function is now ONE deliberate purchase — the fast
+     * first pass, or one section a reader unlocked by pressing a button with a
+     * price on it. There is no longer a five-phase run that could die half-paid
+     * partway through, which is what the old overdraft allowance existed to
+     * prevent, so the rule is simply: positive balance or nothing. */
     const balance = credit ? Number(credit.balance_usd) : 0;
-    const isContinuation = phase === "model" || phase === "method" || phase === "results";
-    if (!credit || (isContinuation ? balance <= -5 : balance <= 0)) {
+    if (!credit || balance <= 0) {
       return json(402, {
         error: "You've used up your analysis credit. Add credit to analyze more papers.",
       });

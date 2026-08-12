@@ -91,8 +91,10 @@ function referencesStart(sentences, headingPos) {
   return start;
 }
 
-/** A line of text -> canonical heading key, or null if it isn't a heading. */
-function headingKey(raw) {
+/** A line of text -> canonical heading key, or null if it isn't a heading.
+ *  Exported for paperText.js, which cuts the document into sections using the
+ *  same rule the anchor index does — two heading detectors would drift. */
+export function headingKey(raw) {
   const line = String(raw || "").trim();
   if (!line || line.length > 70) return null;
   // drop leading numbering: "IV.", "3.", "3.1", "(2)"
@@ -153,8 +155,12 @@ function columnOf(items) {
   };
 }
 
-/** Items -> lines in reading order: [{ y, h, items: [...] }]. */
-function groupLines(items) {
+/** Items -> lines in reading order: [{ y, h, col, right, items: [...] }].
+ *  Exported for paperText.js: reconstructing tables and algorithm listings
+ *  needs the SAME lines the index was built from, with each run's own x/width
+ *  still attached, and a second line-grouper would eventually disagree with
+ *  this one about where a column starts. */
+export function groupLines(items) {
   const col = columnOf(items);
   const keep = items.filter((it) => it.str.trim());
   const sorted = keep

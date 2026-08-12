@@ -21,6 +21,7 @@
 import { getAccessToken, functionsUrl, supabaseAnonKey } from "./supabase.js";
 import { specialDigitizedValid } from "./engine.js";
 import { evalReportedPanel, SPECIAL_DIGITIZED_KINDS } from "./DigitizedPanels.jsx";
+import { stageADraft } from "./figureClassify.js";
 
 const SPECIAL = new Set(SPECIAL_DIGITIZED_KINDS);
 
@@ -118,6 +119,21 @@ export async function digitizeFigure({ figure, spec }) {
     throw new Error("This figure has no crop to read — reopen the paper so its figures can be cropped again.");
   }
 
+  /* STAGE A — free, offline, local.
+   *
+   * Before spending anything, the crop is measured in the browser: how many
+   * panels it holds, where they sit, what shape the marks in each one are,
+   * which colours they are drawn in. See figureClassify.js for why those
+   * particular questions are answered better by counting pixels than by
+   * looking, and for how carefully the result is hedged.
+   *
+   * It runs on the same image the paid call is about to see, so the online
+   * pass is no longer answering from scratch — it is checking specific claims
+   * against the picture, which is a far more reliable thing to ask for. A
+   * local read that fails or finds nothing is not an error: the request simply
+   * goes without a draft, exactly as it did before this existed. */
+  const { draft, prompt: draftPrompt } = await stageADraft(figure.image);
+
   const base = {
     image: figure.image,
     figureLabel: figure.figureLabel || figure.label || "",
@@ -126,7 +142,14 @@ export async function digitizeFigure({ figure, spec }) {
     paperTitle: spec?.meta?.title || "",
     field: spec?.meta?.field || "",
     pipeline: spec?.blocks?.length ? { protocol: spec.protocol, blocks: spec.blocks } : null,
+    draft: draftPrompt || null,
   };
+  if (draft?.ok) {
+    console.info(
+      `[stage A] ${base.figureLabel || "figure"}: ${draft.subplots.length} panel(s) — ` +
+      draft.subplots.map((s) => `${s.family}@${s.confidence}`).join(", "),
+    );
+  }
 
   let spent = 0;
   let firstProblem = null;

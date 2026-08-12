@@ -205,9 +205,12 @@ export async function saveAnalysis(spec, pdfPath = null) {
  */
 export async function updateAnalysisSpec(id, spec) {
   if (!supabase || !id) return false;
-  // `paperPdf` is a per-session object/signed URL, never storage. Persisting it
-  // would save a link that is dead by the next open.
-  const { paperPdf, ...persisted } = spec || {};
+  /* `paperPdf` is a per-session object/signed URL and `paperPath` is already
+   * the row's own `pdf_path` column. Persisting either into the spec JSON
+   * would store a link that is dead by the next open, or a second copy of a
+   * key that can then disagree with the column beside it. */
+  const { paperPdf, paperPath, ...persisted } = spec || {};
+  void paperPath;
   const { error } = await supabase
     .from("analyses")
     .update({ spec: persisted })
@@ -247,6 +250,12 @@ export async function getAnalysis(id) {
     // written back to it instead of being lost on close.
     spec.analysisId = id;
     if (data.pdf_path) {
+      /* The storage KEY, not the signed URL. Unlocking a deferred section
+       * sends the paper's key to the analyzer, which reads it server-side —
+       * naming it is what stops a 20 MB paper going back up the reader's
+       * uplink for every section they buy. Kept in memory only; the row
+       * already holds it and updateAnalysisSpec strips it back out. */
+      spec.paperPath = data.pdf_path;
       const url = await signedPaperUrl(data.pdf_path);
       if (url) spec.paperPdf = url;
     }
