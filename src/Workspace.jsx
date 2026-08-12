@@ -1224,7 +1224,24 @@ function InfoModal({ block, onClose }) {
 
 /* ---------------- references drawer ---------------- */
 
-function ReferencesDrawer({ references, open, onClose }) {
+/**
+ * The paper's reference list.
+ *
+ * Two sources, in order of truth. `bibliography` is the paper's OWN numbered
+ * list, read out of its text layer — complete, in the paper's own numbering,
+ * and free. `references` is what the analyzer used to be asked for: up to a
+ * dozen it judged important, in ITS order, so `references[11]` was emphatically
+ * not reference [12]. The fast pass no longer asks for it, and this drawer read
+ * `.map` straight off it, which crashed the whole workspace on every newly
+ * analysed paper. Analyses saved before the change still carry it, so it stays
+ * as the fallback — with its numbering caveat kept out of the UI by simply not
+ * claiming the numbers are the paper's.
+ */
+function ReferencesDrawer({ references, bibliography, open, onClose }) {
+  const entries = bibliography?.size
+    ? [...bibliography.entries()].sort((a, b) => a[0] - b[0])
+    : (references || []).map((r, i) => [i + 1, r]);
+  const fromPaper = !!bibliography?.size;
   return (
     <>
       {open && <div className="fixed inset-0 z-40 bg-slate-900/30" onClick={onClose} />}
@@ -1241,13 +1258,18 @@ function ReferencesDrawer({ references, open, onClose }) {
           </button>
         </div>
         <ol className="space-y-3 overflow-y-auto px-5 py-4">
-          {references.map((r, i) => (
-            <li key={i} className="flex gap-2 text-xs leading-relaxed text-slate-600">
-              <span className="shrink-0 font-semibold text-slate-400">[{i + 1}]</span>
+          {fromPaper && (
+            <li className="pb-1 text-[11px] leading-snug text-slate-400">
+              All {entries.length}, read from the paper's own bibliography.
+            </li>
+          )}
+          {entries.map(([n, r]) => (
+            <li key={n} className="flex gap-2 text-xs leading-relaxed text-slate-600">
+              <span className="shrink-0 font-semibold text-slate-400">[{n}]</span>
               {r}
             </li>
           ))}
-          {!references.length && (
+          {!entries.length && (
             <li className="text-xs text-slate-400">No references extracted.</li>
           )}
         </ol>
@@ -4922,7 +4944,13 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
     { Icon: Layers, label: `${sections.length} interactive section${sections.length === 1 ? "" : "s"}` },
     spec.resultFigures?.length ? { Icon: LineChartIcon, label: `${spec.resultFigures.length} real figure${spec.resultFigures.length === 1 ? "" : "s"}` } : null,
     liveDials ? { Icon: SlidersHorizontal, label: `${liveDials} live dial${liveDials === 1 ? "" : "s"}` } : null,
-    spec.references?.length ? { Icon: BookOpen, label: `${spec.references.length} reference${spec.references.length === 1 ? "" : "s"}` } : null,
+    /* The paper's own bibliography when we have read it, the analyzer's old
+     * short list otherwise — the same two sources, in the same order of truth,
+     * as the drawer this chip opens. */
+    (() => {
+      const n = paperText?.bibliography?.size || spec.references?.length || 0;
+      return n ? { Icon: BookOpen, label: `${n} reference${n === 1 ? "" : "s"}` } : null;
+    })(),
   ].filter(Boolean);
 
   return (
@@ -5213,7 +5241,10 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
       )}
 
       <InfoModal block={infoBlock} onClose={() => setInfoKey(null)} />
-      <ReferencesDrawer references={spec.references} open={refsOpen} onClose={() => setRefsOpen(false)} />
+      <ReferencesDrawer
+        references={spec.references}
+        bibliography={paperText?.bibliography}
+        open={refsOpen} onClose={() => setRefsOpen(false)} />
       <Inspector inspect={inspect} rows={rows} onClose={() => setInspect(null)} />
       <Lightbox fig={lightbox} onClose={() => setLightbox(null)} />
       <LayoutEditor open={editorOpen} layout={layout} onChange={setLayout} onClose={() => setEditorOpen(false)} />
