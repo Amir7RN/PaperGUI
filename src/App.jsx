@@ -30,10 +30,10 @@ import { SAMPLE_SPEC_7 } from "./samplePaper7.js";
 import { SAMPLE_SPEC_8 } from "./samplePaper8.js";
 import { SAMPLE_SPEC_9 } from "./samplePaper9.js";
 import { analyzePaper, fixturesEnabled, MODEL_TIERS, getModelTier, setModelTier } from "./api.js";
+import { PHASE_VALIDATORS } from "./validators.js";
 import { fileToBase64, renderPdfRegions } from "./pdf.js";
 import {
   compileSpec, buildHelpers, defaultsFromSpec, runSpec, validateResultFigures,
-  auditPipeline, auditResultFiguresQuality, auditFigureFidelity, auditFoundations, auditExplorables,
 } from "./engine.js";
 import { authEnabled, onAuthChange, signOut, getBalance, saveAnalysis, uploadPaperPdf, deletePaperPdf } from "./supabase.js";
 
@@ -942,36 +942,11 @@ export default function App() {
       const arrayBuffer = await file.arrayBuffer();
       const base64 = await fileToBase64(file);
 
-      // Quality gate per phase: test-run the generated code and reject
-      // flat/dead output, feeding the exact problems back for one automatic
-      // regeneration. Each validator returns a problem list or null.
-      const asNote = (probs) => (probs && probs.length ? probs.join("\n") : null);
-      const validators = {
-        // `foundations` is its own phase now — the gate follows the field.
-        foundations: (s) => asNote(auditFoundations(s)),
-        method: (s) => {
-          try {
-            const h = buildHelpers(s.protocol);
-            return asNote([
-              ...auditPipeline(s, compileSpec(s), h, defaultsFromSpec(s)),
-              ...auditExplorables(s),
-            ]);
-          } catch { return null; }
-        },
-        results: (s) => {
-          try {
-            const h = buildHelpers(s.protocol);
-            return asNote([
-              ...auditFigureFidelity(s),
-              ...auditResultFiguresQuality(s, compileSpec(s), h, defaultsFromSpec(s)),
-            ]);
-          } catch {
-            // pipeline-less papers can throw in buildHelpers/compile — the
-            // fidelity gate still runs (it needs no pipeline).
-            try { return asNote(auditFigureFidelity(s)); } catch { return null; }
-          }
-        },
-      };
+      /* Quality gate per phase: test-run the generated code and reject flat or
+       * dead output, feeding the exact problems back for one automatic
+       * regeneration. Shared with the on-demand section unlocks, which run the
+       * same phases long after this call — see src/validators.js. */
+      const validators = PHASE_VALIDATORS;
 
       // Assemble the uploaded code (if any) into one annotated text blob.
       const codeText = codeFiles.length
@@ -1032,18 +1007,29 @@ export default function App() {
         // figure previews are optional — explanations still show
       }
 
-      setProgress({ pct: 93, label: "Compiling the interactive pipeline…" });
-      const helpers = buildHelpers(newSpec.protocol);
-      const defaults = defaultsFromSpec(newSpec);
-      const compiled = compileSpec(newSpec);
-      const run = runSpec(newSpec, compiled, defaults, helpers);
-      if (run.error) {
-        throw new Error(`The generated pipeline failed a test run: ${run.error}. Try re-analyzing the paper.`);
+      /* Test-run the pipeline — IF the paper has one.
+       *
+       * The fast first pass produces no `protocol` and no `blocks`: the method
+       * lab is something a reader unlocks afterwards (see phases.js). This
+       * block ran unconditionally and read `protocol.dt` off undefined, so
+       * every successful analysis was reported to the reader as
+       * "Analysis failed — Cannot read properties of undefined (reading 'dt')"
+       * after it had already been paid for. The engine tolerates an absent
+       * pipeline now, but there is still no reason to compile and run nothing,
+       * and no honest way to fail a test run that never happened. */
+      if (newSpec.blocks?.length) {
+        setProgress({ pct: 93, label: "Compiling the interactive pipeline…" });
+        const helpers = buildHelpers(newSpec.protocol);
+        const defaults = defaultsFromSpec(newSpec);
+        const compiled = compileSpec(newSpec);
+        const run = runSpec(newSpec, compiled, defaults, helpers);
+        if (run.error) {
+          throw new Error(`The generated pipeline failed a test run: ${run.error}. Try re-analyzing the paper.`);
+        }
+        // Validate the reproduced figures: drop panels/figures whose kernels
+        // error so one bad subplot never blocks the whole workspace.
+        newSpec.resultFigures = validateResultFigures(newSpec, compiled, helpers, defaults);
       }
-
-      // Validate the reproduced figures: drop panels/figures whose kernels error
-      // so one bad subplot never blocks the whole workspace.
-      newSpec.resultFigures = validateResultFigures(newSpec, compiled, helpers, defaults);
 
       // Persist to the account's library so this paper can be reopened later
       // for free instead of spending credit to re-analyze the same PDF. The PDF

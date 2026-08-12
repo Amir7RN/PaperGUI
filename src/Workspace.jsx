@@ -30,6 +30,7 @@ import SectionChat from "./SectionChat.jsx";
 import PdfReader, { PaperReader, XrefCard } from "./PdfReader.jsx";
 import SectionsView, { ReferenceList } from "./SectionsView.jsx";
 import { unlockSection } from "./api.js";
+import { PHASE_VALIDATORS } from "./validators.js";
 import { estimateActionUsd, formatEstimate, estimateVerdict } from "../supabase/functions/_shared/actionCosts.js";
 import ExplainerVideo from "./ExplainerVideo.jsx";
 import { buildExplainer, fetchSceneAudio } from "./narrate.js";
@@ -2699,7 +2700,10 @@ function ResultsLab({ spec, pipelineCompiled, helpers, baseOutputs, actOutputs, 
   }, [fig, figIndex, compiled, baseOutputs, actOutputs, defaults, params, baseFigHelpers, actFigHelpers]);
 
   if (!figs.length) return null;
-  const allParams = spec.blocks.flatMap((b) => b.params);
+  /* The results lab now renders for a paper with NO pipeline: the fast pass
+   * indexes the figures, and the method lab is a separate purchase that may
+   * never be made. There are simply no sliders to show in that case. */
+  const allParams = (spec.blocks || []).flatMap((b) => b.params || []);
 
   return (
     <LabWindow
@@ -4474,6 +4478,9 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
         spec,
         pdfPath: spec.paperPath || null,
         pdfBase64: spec.paperBase64 || null,
+        /* The same gate the fast pass applies, for the same reason and more
+         * so: this section is the whole purchase, not a fifth of one. */
+        validators: PHASE_VALIDATORS,
         onProgress: ({ pct, label }) =>
           setUnlockJob((j) => (j?.phaseId === phaseId ? { ...j, pct, label } : j)),
       });
@@ -4664,7 +4671,8 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
     setPinnedT((prev) => (prev != null && Math.abs(prev - t) < 1e-9 ? null : t));
   }, []);
 
-  const infoBlock = spec.blocks.find((b) => b.key === infoKey) || null;
+  // `blocks` only exists once the method lab has been unlocked.
+  const infoBlock = (spec.blocks || []).find((b) => b.key === infoKey) || null;
 
   // Which section is shown in the single-section reading view (normal mode).
   const [activeSectionId, setActiveSectionId] = useState(null);

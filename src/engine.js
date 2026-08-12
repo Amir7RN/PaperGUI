@@ -37,14 +37,28 @@ function makeNoise(n, seed = 1337) {
   return out;
 }
 
+/* A paper with no pipeline is now the NORMAL state, not an error.
+ *
+ * The fast first pass produces the story, the map and the figure index and
+ * stops — `protocol` and `blocks` only exist once a reader has paid to unlock
+ * the method lab (see phases.js). Every function in this file used to assume
+ * they were there, so the first thing the client did after a successful
+ * analysis was read `protocol.dt` off undefined and report the whole run as
+ * failed. Treating an absent pipeline as an empty one is the honest reading
+ * and it keeps all of these callable from anywhere.
+ */
+const NO_PIPELINE = { T: 10, dt: 0.05, description: "" };
+
 export function buildHelpers(protocol) {
-  const dt = protocol.dt;
-  const n = Math.round(protocol.T / dt) + 1;
+  const p = protocol && Number.isFinite(protocol.T) && Number.isFinite(protocol.dt)
+    ? protocol : NO_PIPELINE;
+  const dt = p.dt;
+  const n = Math.round(p.T / dt) + 1;
   const t = new Array(n);
   for (let i = 0; i < n; i++) t[i] = i * dt;
   return {
     n, dt, t,
-    T: protocol.T,
+    T: p.T,
     noise: makeNoise(n),
     clamp: (v, lo, hi) => Math.max(lo, Math.min(hi, v)),
     step: (ti, t0, amp = 1) => (ti >= t0 ? amp : 0),
@@ -53,7 +67,7 @@ export function buildHelpers(protocol) {
 
 export function defaultsFromSpec(spec) {
   return Object.fromEntries(
-    spec.blocks.flatMap((b) => b.params.map((p) => [p.key, p.def]))
+    (spec.blocks || []).flatMap((b) => (b.params || []).map((p) => [p.key, p.def]))
   );
 }
 
@@ -61,7 +75,7 @@ export function defaultsFromSpec(spec) {
 export function compileSpec(spec) {
   const fns = {};
   const errors = {};
-  for (const block of spec.blocks) {
+  for (const block of spec.blocks || []) {
     try {
       // eslint-disable-next-line no-new-func
       fns[block.key] = new Function("input", "params", "helpers", block.computeJs);
@@ -76,7 +90,7 @@ export function compileSpec(spec) {
 export function runSpec(spec, compiled, params, helpers) {
   const outputs = {};
   let signal = null;
-  for (const block of spec.blocks) {
+  for (const block of spec.blocks || []) {
     const fn = compiled.fns[block.key];
     if (!fn) return { outputs, error: compiled.errors[block.key] || `Block "${block.key}" failed to compile` };
     try {
@@ -375,7 +389,7 @@ export function buildRows(spec, helpers, baseOut, actOut) {
   const rows = new Array(helpers.n);
   for (let i = 0; i < helpers.n; i++) {
     const row = { t: +helpers.t[i].toFixed(3) };
-    for (const block of spec.blocks) {
+    for (const block of spec.blocks || []) {
       const b = baseOut[block.key], a = actOut[block.key];
       if (b) row[block.key + "B"] = b[i];
       if (a) row[block.key + "A"] = a[i];
@@ -407,7 +421,7 @@ export function auditPipeline(spec, compiled, helpers, defaults) {
   const base = runSpec(spec, compiled, defaults, helpers);
   if (base.error) { problems.push(`the pipeline fails at baseline: ${base.error}`); return problems; }
 
-  for (const b of spec.blocks) {
+  for (const b of spec.blocks || []) {
     const out = base.outputs[b.key];
     if (out && signalSpan(out) < 1e-9) {
       problems.push(`block "${b.key}" (${b.title}) returns a CONSTANT array — it models nothing and plots as a flat line`);
@@ -417,7 +431,7 @@ export function auditPipeline(spec, compiled, helpers, defaults) {
   // Slider responsiveness: nudge every param ~35% toward its max and require
   // the final block's output to change.
   const nudged = { ...defaults };
-  for (const b of spec.blocks) {
+  for (const b of spec.blocks || []) {
     for (const p of b.params || []) {
       const target = p.def + (p.max - p.def) * 0.35;
       nudged[p.key] = Number.isFinite(target) && target !== p.def ? target : p.def * 1.35 + 0.01;
