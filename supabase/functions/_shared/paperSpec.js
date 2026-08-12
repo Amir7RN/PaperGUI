@@ -401,6 +401,123 @@ export const PANEL_SCHEMA = {
   },
 };
 
+/* ---------------- the on-demand LESSON ----------------
+ *
+ * What "build me a panel" actually returns now. One panel was the right shape
+ * for one sentence; a reader who selects a METHODS PASSAGE has selected five
+ * or six ideas — a GP's mean and covariance, a residual, a threshold with a
+ * deliberate ROC trade-off, a debouncing vote, an angular-momentum state, a
+ * corrective torque with a filter — and got back a single toy about the first
+ * one. The fix is structural, not prompt-side: the schema now says "one
+ * section per concept", so the model physically cannot collapse a passage
+ * into one panel.
+ *
+ * The model for the format is a hand-built tutor the owner wrote for control
+ * engineering: one idea per page, prose that TEACHES before it formalises, a
+ * live demo per idea, a one-line takeaway — and its working rule, "no claim
+ * that can be made draggable is left as prose."
+ */
+const lessonSectionSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["heading", "teach", "demo", "takeaway"],
+  properties: {
+    heading: { type: "string", description: "This concept's name, as a short title — e.g. 'The velocity residual', 'Why k = 1 favours fast detection', 'Majority voting as a debounce'." },
+    teach: {
+      type: "string",
+      description: "4-8 sentences that TEACH this one concept the way a good tutor at a whiteboard would: start from why it exists in this method, define every symbol the first time it is used, use the paper's own numbers, and end by pointing at what the demo below lets the reader try. Plain language first, the formal term in parentheses. This is the lesson's prose — not a caption, not a summary.",
+    },
+    equation: { type: "string", description: "The concept's governing equation in plain unicode math (no LaTeX), exactly as the passage gives it — empty string if this concept has none." },
+    demo: panelDemoSchema,
+    takeaway: { type: "string", description: "ONE line the reader should still remember a week later, with the paper's concrete number in it where there is one — e.g. 'Nc = 10 samples at 1 kHz means a fault must persist 10 ms before it is declared.'" },
+    source: { type: "string", description: "Where in the passage/paper this concept lives — 'Eq. (4)', 'Sec. II.B' — or empty string." },
+  },
+};
+
+export const LESSON_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["title", "intro", "sections"],
+  properties: {
+    title: { type: "string", description: "The lesson's name, from what the selection is about — e.g. 'Fault detection and compensation, step by step'." },
+    intro: { type: "string", description: "2-4 sentences: the road map. What the selected passage does as a whole, and the order the sections below walk through it. A reader should know where they are going before section 1." },
+    sections: {
+      type: "array",
+      minItems: 1,
+      maxItems: 8,
+      items: lessonSectionSchema,
+      description: "ONE section per distinct concept in the selection, in the order the passage introduces them. A selection with one idea gets one section; a methods passage with six gets six. Never merge two concepts into one section to save space.",
+    },
+  },
+};
+
+/** The demo-code rules shared by the single-panel and lesson prompts — the
+ *  part that is EXECUTED in the reader's browser and audited before display. */
+const DEMO_RULES =
+  "RULES FOR every demo's computeJs (this code is EXECUTED in the reader's browser and TEST-RUN " +
+  "before display — SKIP this whole block when demo.kind is \"digitized\": there computeJs is the " +
+  "empty string and the values live in demo.digitized):\n" +
+  "- It is the BODY of: function(params, helpers).\n" +
+  "- chart kind: return { x?: number[], categories?: string[] (bar only), series: [{ label, data: number[] }] } — 1-4 series, all the same length; x defaults to helpers.t.\n" +
+  "- frames kind: return { frames: [{ grid: number[][] (max 10x10), note: string }] } with 4-25 frames.\n" +
+  "- `params` holds slider values by key. `helpers` = { n, dt, t, T, noise, clamp(v,lo,hi), step(ti,t0,amp) }.\n" +
+  "- ONLY Math, basic JS and helpers. No imports, no fetch, no Date, no randomness except helpers.noise. Deterministic.\n" +
+  "- Keep numerics stable: explicit Euler with helpers.dt, clamp integrators, never divide by something that can reach zero.\n" +
+  "- 1-3 sliders per demo. Every slider must visibly change the plot at its default operating point, and must be SAFE " +
+  "at both ends of its range — the reader will drag it all the way.\n" +
+  "- At default values the plot must show an obviously shaped, clearly varying curve. Flat output is a hard failure.\n" +
+  "- xLabel and yLabel name the quantity AND its unit as the paper uses them. A bare word with no unit is a failure.\n" +
+  "- Include insightJs — body of function(params, result, helpers) => one plain sentence with real computed numbers " +
+  "saying what the current slider values show.";
+
+/**
+ * The instruction for one on-demand LESSON: the reader selected a passage,
+ * possibly a long one, and wants to be TAUGHT it — every concept in it, one
+ * interactive section each, in order.
+ */
+export function lessonPrompt({ paperTitle, sectionLabel, quote, context }) {
+  return (
+    "You are a tutor building an interactive LESSON for one passage of a scientific paper that a " +
+    "reader selected because they want to actually understand it — not skim it, understand it.\n\n" +
+    `PAPER: ${paperTitle || "(untitled)"}\n` +
+    `WHERE THEY ARE: ${sectionLabel}\n\n` +
+    `THE PASSAGE THEY SELECTED:\n"""${quote}"""\n\n` +
+    (context ? `WHAT THE ANALYSIS ALREADY KNOWS ABOUT THIS PAPER (use it to stay faithful to the paper's own quantities, symbols and numbers):\n"""${context}"""\n\n` : "") +
+    "STEP 1 — INVENTORY THE CONCEPTS (do this first, before writing anything):\n" +
+    "Read the passage and list every DISTINCT concept it introduces or uses: each equation, each " +
+    "mechanism, each deliberate design decision (a chosen constant, a trade-off, a filter, a voting " +
+    "rule), each defined quantity. A methods passage routinely carries four to eight. Two sentences " +
+    "about the same object are one concept; a new symbol with its own role is a new one.\n\n" +
+    "STEP 2 — ONE SECTION PER CONCEPT, IN PASSAGE ORDER:\n" +
+    "Build `sections` with exactly one entry per concept from your inventory, in the order the " +
+    "passage introduces them, so the lesson reads as a guided walk through the reader's own " +
+    "selection. Collapsing several concepts into one section is the failure this format exists to " +
+    "prevent — the reader asked to be taught the passage, not shown a sample of it.\n\n" +
+    "EACH SECTION, like a page of a good tutor:\n" +
+    "- `teach`: teach THIS concept from scratch in the paper's context. Why does the method need it? " +
+    "What does each symbol mean, in words? What are the paper's actual numbers for it? End by " +
+    "telling the reader what to try on the demo. Assume they are smart but new to this field.\n" +
+    "- `equation`: the concept's equation from the passage, plain unicode, or empty string.\n" +
+    "- `demo`: the interactive half. THE RULE: no claim that can be made draggable is left as prose. " +
+    "Choose what teaches best —\n" +
+    "    * kind \"chart\" with sliders for anything with a relationship to feel: a threshold rule " +
+    "(slider k, watch false alarms vs detection time on a noisy residual), a filter (cutoff slider, " +
+    "watch the lag), a residual (fault size slider, watch the detector fire), a kernel (length-scale " +
+    "slider, watch the covariance change shape).\n" +
+    "    * kind \"frames\" for inherently iterative/spatial ideas (a vote filling up, a state machine " +
+    "stepping).\n" +
+    "    * kind \"digitized\" ONLY when the passage points at a real figure whose values you were " +
+    "handed.\n" +
+    "  Calibrate every default to the passage's own numbers (its k, its Nc, its cutoff frequency, its " +
+    "sampling rate) so the demo shows the PAPER's operating point, not a generic one.\n" +
+    "- `takeaway`: one memorable line, with the concrete number where there is one.\n\n" +
+    "HONESTY: never invent data the paper does not have. A concept that cannot be simulated honestly " +
+    "gets the nearest honest demo — the equation itself on sliders, or the reported numbers as a " +
+    "chart — and its `teach` says so.\n\n" +
+    DEMO_RULES
+  );
+}
+
 /* ---------------- on-demand digitizer assist ----------------
  * Reading a figure has two halves, and they belong to different readers.
  *
@@ -1525,6 +1642,18 @@ export function figureDigitizePrompt({ paperTitle, figureLabel, title, explanati
     (draft
       ? "A LOCAL PIXEL ANALYSIS OF THIS EXACT CROP HAS ALREADY RUN. Here is what it measured:\n\n" +
         draft + "\n\n" +
+        "THE FAMILY LOCK — read this before anything else. Where the local read names a family with " +
+        "confidence 0.4 or higher, that family CLASS is FIXED for that panel. Classes: bars " +
+        "{bar, groupedBar, stackedBar, stackedBarH, radialBar}; distributions {box, violin}; curves " +
+        "{line, kaplanMeier}; points {scatter}; fields {heatmap, image}. Within the locked class you " +
+        "choose the exact family by looking (grouped vs stacked, box vs violin); OUTSIDE it you may " +
+        "not go. Filled rectangles standing on a shared baseline are a measurement, not an opinion — " +
+        "they cannot be a time series, whatever the panel's caption suggests. If you are convinced a " +
+        "locked panel's class is wrong, set reproduce:false with a degradeReason saying what you see " +
+        "instead; NEVER emit a different class. A returned panel that contradicts a locked class is " +
+        "rejected automatically and the attempt is wasted.\n\n" +
+        "For panels the local read left unclear (family 'other' or low confidence), classify from the " +
+        "image as normal.\n\n" +
         "YOUR JOB IS TO VERIFY AND CORRECT THAT DRAFT AGAINST THE IMAGE — not to start over, and not to " +
         "rubber-stamp it. Go through it claim by claim:\n" +
         "- SUBPLOT COUNT AND LAYOUT. Count the panels in the image yourself. If the draft says 6 in a 2x3 " +

@@ -3899,6 +3899,61 @@ function EvidenceCheck({ evidence, onGoToPage }) {
  * notebook.js) — a one-shot popup would have charged them twice for the same
  * explanation.
  */
+/**
+ * One LESSON, rendered as its sections in order — the tutor's walk through the
+ * reader's own selection.
+ *
+ * The shape is deliberately the one the owner's hand-built control-engineering
+ * tutor uses, because it is the shape that teaches: a road-map intro, then per
+ * concept a heading, prose that explains before it formalises, the equation,
+ * the draggable demo, and a one-line takeaway with the paper's number in it.
+ * Each demo renders through the same audited components everything else uses.
+ */
+function LessonBody({ lesson }) {
+  return (
+    <div>
+      {lesson.intro && (
+        <p className="mb-3 rounded-lg border border-indigo-100 bg-indigo-50/60 px-3 py-2 text-[12px] leading-relaxed text-slate-700">
+          {lesson.intro}
+        </p>
+      )}
+      <div className="space-y-4">
+        {lesson.sections.map((sec, i) => (
+          <div key={i} className="rounded-xl border border-slate-200 bg-slate-50/60 p-3">
+            <div className="mb-1.5 flex items-baseline gap-2">
+              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-indigo-600 text-[10.5px] font-bold text-white">
+                {i + 1}
+              </span>
+              <h4 className="text-[13px] font-bold text-slate-800">{sec.heading}</h4>
+              {sec.source && <span className="text-[10px] italic text-slate-400">{sec.source}</span>}
+            </div>
+            {sec.teach && (
+              <p className="mb-2 text-[12px] leading-relaxed text-slate-600">{sec.teach}</p>
+            )}
+            {sec.equation && (
+              <div className="mb-2 overflow-x-auto rounded-lg border border-slate-200 bg-slate-900 px-3 py-2 text-center text-[13px] text-cyan-200">
+                {sec.equation}
+              </div>
+            )}
+            {sec.demo && (
+              isDigitizedDemo(sec.demo)
+                ? <DigitizedPanel panel={panelFromDemo(sec.demo, sec.heading)} height={220} />
+                : sec.demo.kind === "frames"
+                  ? <DemoFrames demo={sec.demo} />
+                  : <DemoChart demo={sec.demo} />
+            )}
+            {sec.takeaway && (
+              <p className="mt-2 flex items-start gap-1.5 text-[11.5px] font-medium leading-snug text-emerald-700">
+                <Lightbulb size={13} className="mt-px shrink-0" /> {sec.takeaway}
+              </p>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function NotebookDrawer({ open, entries, highlights = [], onClose, onRemove, onClear, onGoToPage, onRemoveHighlight }) {
   useEffect(() => {
     if (!open) return undefined;
@@ -3990,7 +4045,7 @@ function NotebookDrawer({ open, entries, highlights = [], onClose, onRemove, onC
                     </span>
                     <div className="min-w-0 flex-1">
                       <div className="text-[13px] font-bold text-slate-800">
-                        {e.kind === "panel" ? (e.panel?.title || "Panel") : "Kept passage"}
+                        {e.kind === "panel" ? (e.lesson?.title || e.panel?.title || "Lesson") : "Kept passage"}
                       </div>
                       <div className="text-[10.5px] text-slate-400">
                         {e.sectionLabel}
@@ -4022,12 +4077,16 @@ function NotebookDrawer({ open, entries, highlights = [], onClose, onRemove, onC
                   {e.panel?.story && (
                     <p className="mb-2 text-[12px] leading-snug text-slate-600">{e.panel.story}</p>
                   )}
-                  {/* An on-demand panel can now come back as a faithful
+                  {/* A LESSON: the selection's concepts taught in order, one
+                      interactive section each. Entries from before the lesson
+                      format carry a single `panel` and render below. */}
+                  {e.lesson?.sections?.length > 0 && <LessonBody lesson={e.lesson} />}
+                  {/* An on-demand panel can come back as a faithful
                       reproduction of a real figure (heat map, box, violin,
                       stacked, radar, survival) rather than an x-y kernel — the
                       same dispatch the Results tab does, so a built panel looks
                       like its figure instead of being flattened into a line. */}
-                  {e.panel?.demo && (
+                  {!e.lesson && e.panel?.demo && (
                     isDigitizedDemo(e.panel.demo)
                       ? <DigitizedPanel panel={panelFromDemo(e.panel.demo, e.panel.title)} height={220} />
                       : e.panel.demo.kind === "frames"
@@ -4182,7 +4241,7 @@ function PanelJobDialog({ job, est, onConfirm, onCancel }) {
           <>
             <div className="mb-2 flex items-center gap-2">
               <Loader2 size={16} className="animate-spin text-indigo-600" />
-              <span className="text-[14px] font-bold text-slate-800">Building your panel…</span>
+              <span className="text-[14px] font-bold text-slate-800">Building your lesson…</span>
               {est && (
                 <span className="ml-auto rounded-md bg-slate-100 px-1.5 py-px text-[10.5px] font-bold tabular-nums text-slate-500">
                   est. {formatEstimate(est)}
@@ -4190,8 +4249,9 @@ function PanelJobDialog({ job, est, onConfirm, onCancel }) {
               )}
             </div>
             <p className="text-[12px] leading-relaxed text-slate-500">
-              Writing a small simulation for the passage you picked, then test-running it before
-              you see it. Usually 10–20 seconds.
+              Reading your selection, finding every distinct concept in it, and building one
+              interactive section per concept — each test-run before you see it. A long passage
+              takes a minute or two; you get a section for every idea in it, not a sample.
             </p>
             <p className="mt-2 border-l-2 border-slate-200 pl-2 text-[11px] italic leading-snug text-slate-400">
               {job.quote.length > 180 ? `${job.quote.slice(0, 180)}…` : job.quote}
@@ -4206,11 +4266,19 @@ function PanelJobDialog({ job, est, onConfirm, onCancel }) {
           <>
             <div className="mb-2 flex items-center gap-2">
               <CheckIcon size={16} className="text-emerald-600" />
-              <span className="text-[14px] font-bold text-slate-800">Panel built</span>
+              <span className="text-[14px] font-bold text-slate-800">
+                Lesson built{Number.isInteger(job.sections) ? ` — ${job.sections} section${job.sections === 1 ? "" : "s"}` : ""}
+              </span>
             </div>
             <p className="text-[12px] leading-relaxed text-slate-600">
-              It’s in your notebook, with the passage it came from.
+              It’s in your notebook, with the passage it came from — one interactive section per
+              concept in your selection.
             </p>
+            {job.dropped && (
+              <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] leading-snug text-amber-800">
+                Some sections failed their test run twice and were left out rather than shown broken.
+              </p>
+            )}
             <CostReceipt est={est} actual={job.cost} />
             <button onClick={onCancel}
               className="mt-4 w-full rounded-lg bg-slate-800 py-2 text-[12.5px] font-semibold text-white transition hover:bg-slate-700">
@@ -4528,7 +4596,7 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
   const runPanelJob = useCallback(async (req) => {
     setPanelJob({ ...req, status: "working" });
     try {
-      const { panel, cost } = await generatePanel({
+      const { lesson, cost, dropped } = await generatePanel({
         paperTitle: spec.meta?.title,
         sectionLabel: req.sectionLabel,
         quote: req.quote,
@@ -4541,8 +4609,8 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
         // the figure's own data.
         context: buildSectionContext(spec, req.sectionId || "model"),
       });
-      setNotebook(addPanel(spec, { panel, quote: req.quote, page: req.page, sectionLabel: req.sectionLabel, cost }));
-      setPanelJob({ ...req, status: "done", cost });
+      setNotebook(addPanel(spec, { lesson, quote: req.quote, page: req.page, sectionLabel: req.sectionLabel, cost }));
+      setPanelJob({ ...req, status: "done", cost, sections: lesson.sections.length, dropped });
     } catch (e) {
       setPanelJob({ ...req, status: "error", message: e?.message || String(e) });
     }

@@ -23,7 +23,7 @@
 import Anthropic from "npm:@anthropic-ai/sdk@^0.68.0";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { jsonrepair } from "npm:jsonrepair@3";
-import { MODEL_CATALOG, PANEL_SCHEMA, panelPrompt, usageCostUsd } from "../_shared/paperSpec.js";
+import { MODEL_CATALOG, LESSON_SCHEMA, lessonPrompt, usageCostUsd } from "../_shared/paperSpec.js";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -31,24 +31,21 @@ const CORS_HEADERS = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-/* Structural cost bounds, independent of the balance check: one panel is a
- * small artifact, and no request should be able to become an analysis. */
-/* Raised from 2,000: a figure's "Make it live" request now appends the
- * analysis's own digitized values for that figure (real axis labels, chart
- * family, numbers) so the builder has ground truth instead of a label and a
- * caption to guess from. That digest alone can run 2-3k chars for a
- * multi-panel figure, so the old ceiling was truncating it mid-structure. */
-const MAX_QUOTE_CHARS = 4_500;
+/* Structural cost bounds, independent of the balance check.
+ *
+ * The quote ceiling is sized for what this endpoint now builds: a LESSON over
+ * a selected PASSAGE, and a reader who wants to be taught a methods section
+ * selects the whole thing — the field case that forced this redesign was a
+ * ~6,000-character selection carrying six distinct concepts, which the old
+ * 4,500 ceiling would have truncated mid-equation. */
+const MAX_QUOTE_CHARS = 10_000;
 const MAX_CONTEXT_CHARS = 12_000;
 
-/* `max_tokens` is a ceiling on THINKING PLUS TEXT, and Sonnet 5 thinks by
- * default (adaptive thinking is on unless you turn it off). The old 4,000
- * budget was set when a model's whole budget went to the answer — here the
- * reasoning that writes the simulation code ate most of it and the JSON came
- * back cut off mid-string, which is what "the panel came back malformed"
- * actually was. This is a ceiling, not a spend: a typical panel still emits
- * ~2-3k tokens. */
-const MAX_OUTPUT_TOKENS = 16_000;
+/* `max_tokens` is a ceiling on THINKING PLUS TEXT, and it is sized for a
+ * LESSON: up to eight sections, each with tutor prose and an executable demo,
+ * plus the reasoning that writes eight small simulations. A ceiling, not a
+ * spend — a one-concept selection still emits a one-section lesson. */
+const MAX_OUTPUT_TOKENS = 32_000;
 
 const PANEL_MODEL = "claude-sonnet-5";
 
@@ -87,7 +84,7 @@ Deno.serve(async (req) => {
    * can therefore say something this prompt cannot know on its own: that the
    * dials do nothing, that it divides by zero at the end of a slider's range.
    * When it does, its verdict comes back here. */
-  const retryReason = String(body?.retryReason || "").trim().slice(0, 400);
+  const retryReason = String(body?.retryReason || "").trim().slice(0, 1_600);
   if (quote.length < 20) {
     return json(400, { error: "Select a bit more text — a sentence or two — and try again." });
   }
@@ -129,7 +126,7 @@ Deno.serve(async (req) => {
     prompt +
     "\n\nOUTPUT FORMAT (critical):\nRespond with ONLY one JSON object — no markdown fences, no commentary. " +
     "Escape newlines inside strings as \\n. It must validate against this JSON Schema:\n" +
-    JSON.stringify(PANEL_SCHEMA);
+    JSON.stringify(LESSON_SCHEMA);
 
   let response;
   let structured = true;
@@ -145,7 +142,7 @@ Deno.serve(async (req) => {
        * to paper over. `effort` bounds what the thinking costs. */
       output_config: {
         effort: "medium",
-        format: { type: "json_schema", schema: PANEL_SCHEMA },
+        format: { type: "json_schema", schema: LESSON_SCHEMA },
       },
       messages: [{ role: "user", content: prompt }],
     });
@@ -162,7 +159,7 @@ Deno.serve(async (req) => {
     if (!(status >= 400 && status < 500)) {
       return json(502, { error: `The panel builder failed: ${e?.message || e}` });
     }
-    console.warn("panel structured output rejected, falling back", { status, message: e?.message });
+    console.warn("lesson structured output rejected, falling back", { status, message: e?.message });
     structured = false;
     try {
       response = await client.messages.create({
@@ -177,7 +174,7 @@ Deno.serve(async (req) => {
   }
 
   if (response.stop_reason === "refusal") {
-    return json(422, { error: "The panel builder declined this passage." });
+    return json(422, { error: "The lesson builder declined this passage." });
   }
 
   /* Truncation has to be reported as truncation. Retrying an identical request
@@ -185,29 +182,30 @@ Deno.serve(async (req) => {
    * advice that cannot work. */
   if (response.stop_reason === "max_tokens") {
     return json(422, {
-      error: "That passage needed a bigger panel than the budget allows. Try selecting a smaller, more specific piece of it.",
+      error: "That passage needed a longer lesson than the budget allows. Select a smaller piece of it — the lesson covers everything you highlight.",
     });
   }
 
   const answer = (response.content || [])
     .filter((b) => b.type === "text" && b.text).map((b) => b.text).join("").trim();
 
-  let demo;
+  let lesson;
   try {
-    demo = parseJson(answer);
+    lesson = parseJson(answer);
   } catch (e) {
-    console.error("panel parse failed", {
+    console.error("lesson parse failed", {
       structured, length: answer.length, head: answer.slice(0, 300),
       stopReason: response.stop_reason, reason: e?.message,
     });
-    return json(422, { error: "The panel came back malformed. Trying again usually fixes it." });
+    return json(422, { error: "The lesson came back malformed. Trying again usually fixes it." });
   }
 
   // --- meter ----------------------------------------------------------------
   const cost = usageCostUsd(priced, response.usage);
-  console.log("panel cost", JSON.stringify({
+  console.log("lesson cost", JSON.stringify({
     model: PANEL_MODEL,
     structured,
+    sections: Array.isArray(lesson?.sections) ? lesson.sections.length : 0,
     costUsd: +cost.toFixed(4),
     inputTokens: response.usage?.input_tokens || 0,
     outputTokens: response.usage?.output_tokens || 0,
@@ -221,7 +219,7 @@ Deno.serve(async (req) => {
       .eq("user_id", userId);
   }
 
-  return json(200, { demo, cost: isOwner ? 0 : cost, remainingBalance: newBalance });
+  return json(200, { lesson, cost: isOwner ? 0 : cost, remainingBalance: newBalance });
 });
 
 function json(status, body) {

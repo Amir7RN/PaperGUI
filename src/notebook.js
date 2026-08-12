@@ -66,15 +66,19 @@ function push(spec, entry) {
 
 const newId = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
 
-/** A panel the reader had built for a passage. `panel` is {title, story, source, demo}. */
-export function addPanel(spec, { panel, quote, page, sectionLabel, cost }) {
+/** A LESSON the reader had built for a passage: { title, intro, sections },
+ *  one interactive section per concept in the selection. Entries written
+ *  before the lesson format carry `panel` ({title, story, source, demo})
+ *  instead, and the drawer renders both. */
+export function addPanel(spec, { lesson, panel, quote, page, sectionLabel, cost }) {
   return push(spec, {
     id: newId(),
     kind: "panel",
     at: Date.now(),
     quote, page, sectionLabel,
     cost: cost || 0,
-    panel,
+    ...(lesson ? { lesson } : {}),
+    ...(panel ? { panel } : {}),
   });
 }
 

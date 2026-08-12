@@ -196,7 +196,7 @@ function AlgorithmBlock({ block }) {
 
 const ACTIONS = [
   { key: "explain", label: "Explain", icon: Sparkles, primary: true },
-  { key: "panel", label: "Build me a panel", icon: SlidersHorizontal },
+  { key: "panel", label: "Teach me this", icon: SlidersHorizontal },
   { key: "keep", label: "Keep this", icon: NotebookPen },
   { key: "chat", label: "Ask…", icon: MessageCircle },
 ];

@@ -61,14 +61,17 @@ const CACHE_READ = 0.1;
  *             quality gate rejects the first answer
  */
 export const ACTION_SPECS = {
-  /* generate-panel: Sonnet 5, effort medium, max_tokens 16k. Quote + section
-   * digest are capped at 4.5k/12k chars server-side. */
+  /* generate-panel: Sonnet 5, effort medium, max_tokens 32k. Builds a LESSON
+   * over the selection — one interactive section per concept — so the output
+   * term scales with how much the reader highlighted: a sentence is one
+   * section, a methods passage is six to eight. Quote + section digest capped
+   * at 10k/12k chars server-side. */
   panel: {
-    label: "Build this panel",
+    label: "Build a lesson from this selection",
     model: "claude-sonnet-5",
     doc: "none",
-    inLo: 2_500, inHi: 7_000,
-    outLo: 1_500, outHi: 6_000,
+    inLo: 2_500, inHi: 9_000,
+    outLo: 2_500, outHi: 22_000,
     retries: 1,
   },
 

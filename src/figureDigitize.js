@@ -25,6 +25,114 @@ import { stageADraft } from "./figureClassify.js";
 
 const SPECIAL = new Set(SPECIAL_DIGITIZED_KINDS);
 
+/* ---------------- the family lock ----------------
+ *
+ * Stage A is the BASE, not a hint. Its geometry is a measurement — filled
+ * rectangles standing on a shared baseline are bars whatever a model would
+ * rather say — and the one catastrophic failure this feature has shown in the
+ * field is exactly a model overriding that: a bar chart of detection metrics
+ * returned as an invented time series. The prompt now forbids it; this is the
+ * enforcement for when forbidding isn't enough, because a wrong-family chart
+ * presented as the paper's own figure is the one output worse than nothing.
+ *
+ * Enforced at the CLASS level, which matches what Stage A actually measures
+ * reliably: it can prove "bars", it is less sure about grouped-vs-stacked, so
+ * within a class the model's eye wins.
+ */
+const FAMILY_CLASS = {
+  bar: "bars", groupedBar: "bars", stackedBar: "bars", stackedBarH: "bars", radialBar: "bars",
+  box: "distributions", violin: "distributions",
+  line: "curves", kaplanMeier: "curves",
+  scatter: "points",
+  heatmap: "fields", image: "fields",
+};
+const CLASS_PROSE = {
+  bars: "a bar chart (filled rectangles on a shared baseline)",
+  distributions: "a box/violin plot (floating distribution shapes)",
+  curves: "a line/curve plot",
+  points: "a scatter of points",
+  fields: "a filled field (heat map or image)",
+};
+/** Stage A confidence at or above this locks the panel's family class. */
+const LOCK_CONF = 0.4;
+
+const panelFamily = (panel) =>
+  panel?.digitized?.kind || panel?.figureFamily || panel?.chartKind || null;
+
+/**
+ * Check the returned panels against the offline draft's locked classes.
+ * Returns { problems, verdicts } — `verdicts[i]` names the violated class for
+ * panel i, or null, so a final attempt can be honestly degraded per panel.
+ */
+export function auditDraftFamilies(draft, panels) {
+  const subplots = draft?.ok ? draft.subplots : [];
+  if (!subplots.length || !panels?.length) return { problems: null, verdicts: [] };
+
+  const locked = subplots.map((s) =>
+    s.family !== "other" && s.confidence >= LOCK_CONF ? FAMILY_CLASS[s.family] || null : null);
+
+  /* Did Stage A see ANY evidence of curves anywhere — as a family or as a
+   * runner-up? If not, and it did positively lock something, a returned line
+   * panel is fabrication however the panels align with the subplots. This is
+   * the exact junk mode reported from the field, so it gets its own rule that
+   * survives a panel-count mismatch. */
+  const anyCurveEvidence = subplots.some((s) =>
+    FAMILY_CLASS[s.family] === "curves" ||
+    (s.alternatives || []).some((a) => FAMILY_CLASS[a.family] === "curves" && a.score >= 0.15));
+  const anyLock = locked.some(Boolean);
+
+  const problems = [];
+  const verdicts = panels.map(() => null);
+
+  panels.forEach((panel, i) => {
+    if (panel?.reproduce === false) return;
+    const cls = FAMILY_CLASS[panelFamily(panel)] || null;
+    if (!cls) return;
+    const where = `panel "${panel?.subplotLabel || i + 1}"`;
+
+    // Index-aligned lock: same panel count means same reading order.
+    if (panels.length === subplots.length && locked[i] && cls !== locked[i]) {
+      verdicts[i] = locked[i];
+      problems.push(
+        `${where} came back as ${CLASS_PROSE[cls] || cls}, but the local pixel read PROVES this subplot is ` +
+        `${CLASS_PROSE[locked[i]]} (confidence ${subplots[i].confidence}). Emit that class with the real ` +
+        `values read off the image, or reproduce:false — never another chart family.`);
+      return;
+    }
+
+    // Count-mismatch fallback: a curve where no curve exists in the figure.
+    if (cls === "curves" && anyLock && !anyCurveEvidence) {
+      verdicts[i] = "not-curves";
+      problems.push(
+        `${where} came back as a line/curve plot, but the local pixel read found NO curve-like panel anywhere ` +
+        `in this figure — it found ${subplots.map((s) => s.family).join(", ")}. A time series has been invented. ` +
+        `Re-read the actual subplots, or set reproduce:false.`);
+    }
+  });
+
+  return { problems: problems.length ? problems.join("\n") : null, verdicts };
+}
+
+/** Degrade the panels a final attempt still got wrong: the reader keeps the
+ *  paper's own figure with an honest sentence, never a fabricated chart. */
+function degradeMismatches(panels, verdicts) {
+  return panels.map((panel, i) => {
+    if (!verdicts[i]) return panel;
+    const want = verdicts[i] === "not-curves" ? null : CLASS_PROSE[verdicts[i]];
+    return {
+      ...panel,
+      reproduce: false,
+      computeJs: "",
+      digitized: undefined,
+      degradeReason:
+        (want
+          ? `The pixels of this subplot read as ${want}, but the reproduction kept coming back as a different chart type`
+          : "The reproduction came back as a curve that does not exist in this figure") +
+        " — so the paper's own figure is shown instead of a wrong chart.",
+    };
+  });
+}
+
 /**
  * Keep the panels that will actually render; return why the rest were dropped.
  * Returns { panels, problems } — `problems` is the retry reason, or null.
@@ -141,7 +249,13 @@ export async function digitizeFigure({ figure, spec }) {
     explanation: figure.explanation || "",
     paperTitle: spec?.meta?.title || "",
     field: spec?.meta?.field || "",
-    pipeline: spec?.blocks?.length ? { protocol: spec.protocol, blocks: spec.blocks } : null,
+    /* NO pipeline, deliberately. Digitizing a result figure now means exactly
+     * that: the paper's own plotted values, read off the image, in the image's
+     * own chart family. Hooking result panels into the live simulation was how
+     * a digitization came back as a synthetic 'simulated' curve instead of the
+     * figure — the sliders belong to the method lab, not to the record of what
+     * the paper measured. */
+    pipeline: null,
     draft: draftPrompt || null,
   };
   if (draft?.ok) {
@@ -162,17 +276,33 @@ export async function digitizeFigure({ figure, spec }) {
 
     const { panels, problems } = auditFigurePanels(data.panels);
 
-    // Some panels survived: show them. A figure whose every subplot honestly
-    // degraded is also a success — the reader keeps the real figure and is
-    // told why, which is the outcome this platform prefers to a guess.
-    if (panels.length) {
+    /* THE FAMILY LOCK, enforced. The structural audit above checks that a
+     * panel carries values; this checks that it carries the RIGHT KIND of
+     * chart, against what the local pixel read proved about this crop. A
+     * violation on the first attempt goes back to the model with the exact
+     * measurement it contradicted; on the second it is degraded to the
+     * paper's own figure, because a bar chart shown as a time series is the
+     * one output this feature must never produce. */
+    const fam = auditDraftFamilies(draft, panels);
+
+    if (panels.length && !fam.problems) {
       return { panels, cost: spent, remainingBalance: data.remainingBalance, problems };
     }
 
     if (attempt === 0) {
-      console.warn("figure digitization failed its check, retrying with the reason", problems);
-      firstProblem = problems;
+      firstProblem = [problems, fam.problems].filter(Boolean).join("\n");
+      console.warn("figure digitization failed its check, retrying with the reason", firstProblem);
       continue;
+    }
+
+    if (panels.length) {
+      const sanitized = degradeMismatches(panels, fam.verdicts);
+      return {
+        panels: sanitized,
+        cost: spent,
+        remainingBalance: data.remainingBalance,
+        problems: [problems, fam.problems].filter(Boolean).join("\n") || null,
+      };
     }
 
     const e = new Error(`This figure couldn't be read reliably — ${problems || "no panel survived the check"}.`);

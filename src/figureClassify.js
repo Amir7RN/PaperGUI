@@ -427,6 +427,15 @@ function findBlobs(m, img, box, mask, solid) {
     return null;
   };
 
+  /* The top edge at a column, preferring the fill's edge, falling back to the
+   * ink's for columns the erosion emptied. */
+  const topAt = (x) => {
+    const s = spans[x];
+    if (!s) return null;
+    const st = solidTopAt(x);
+    return st != null ? st : s.top;
+  };
+
   const cut = [];
   for (const [bx0, bx1] of runs) {
     const pieces = [];
@@ -434,10 +443,21 @@ function findBlobs(m, img, box, mask, solid) {
     for (let x = bx0 + 1; x < bx1; x++) {
       const a = spans[x - 1], b = spans[x];
       if (!a || !b) continue;
-      const sa = solidTopAt(x - 1), sb = solidTopAt(x);
-      let split = sa != null && sb != null
-        ? Math.abs(sb - sa) > step
-        : Math.abs(b.top - a.top) > step;
+      /* A step only counts if it PERSISTS.
+       *
+       * A box plot's whisker and its median tick are one to three columns of
+       * ink at a different height in the middle of the box, and an
+       * instantaneous step test cut every box in half at its own whisker —
+       * leaving two half-boxes that carried no whisker and failed the box
+       * test, which is how a panel of textbook box plots read as "other".
+       * A real boundary between two bars stays stepped for the whole next
+       * bar, so requiring the new level a few columns ahead costs nothing on
+       * genuine steps and ignores every hairline. */
+      const ahead = Math.min(bx1 - 1, x + Math.max(3, Math.round(W * 0.01)));
+      const t0 = topAt(x - 1), t1 = topAt(x), t2 = topAt(ahead);
+      let split =
+        t0 != null && t1 != null && Math.abs(t1 - t0) > step &&
+        (t2 == null || Math.abs(t2 - t0) > step);
       if (!split) {
         // Probe the fill a third of the way down from this column's top.
         const probe = (s, xx) => {
@@ -920,7 +940,10 @@ function classifyPanel(m, img, cell, index, debug = false) {
    * width. Requiring the widths to agree costs nothing and is the difference
    * between "twelve boxes" and "twelve places two curves happened to cross". */
   const boxes = (() => {
-    if (boxLike.length < 3) return [];
+    /* TWO boxes is a legitimate box plot — "with FTM vs FalseAlarm" in the
+     * paper this was tested against is exactly that. The whisker requirement
+     * above is what keeps legend swatch pairs out. */
+    if (boxLike.length < 2) return [];
     /* Keep the ones whose width agrees with the median, rather than accepting
      * or rejecting the whole set on its spread. A panel of twelve boxes plus
      * two odd shapes IS a box plot, and a spread test throws all fourteen away
@@ -928,7 +951,7 @@ function classifyPanel(m, img, cell, index, debug = false) {
     const ws = boxLike.map((b) => b.width).sort((a, b) => a - b);
     const med = ws[ws.length >> 1];
     const kept = boxLike.filter((b) => Math.abs(b.width - med) <= Math.max(2, med * 0.45));
-    return kept.length >= 3 ? kept : [];
+    return kept.length >= 2 ? kept : [];
   })();
   /* A violin's core has curved sides but stays SYMMETRIC about its own centre
    * line. Without the symmetry test any ragged clump of line work counts as

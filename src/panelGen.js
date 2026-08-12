@@ -248,23 +248,50 @@ async function requestPanel({ paperTitle, sectionLabel, quote, context, retryRea
     if (res.status === 402) e.code = "credit";
     throw e;
   }
-  if (!data?.demo) throw new Error("The panel builder returned nothing — try again.");
+  if (!data?.lesson && !data?.demo) throw new Error("The lesson builder returned nothing — try again.");
   return data;
 }
 
 /**
- * Ask the server for a panel about `quote`.
- * Returns { panel, cost, remainingBalance }; throws with a readable message.
+ * Whatever the server sent, as a LESSON.
  *
- * The audit runs here, and a failed audit gets ONE retry with the verdict fed
- * back. That matters because the reader has already been charged by the time
- * the audit runs: "you paid and got an error" is the worst outcome this
- * feature can produce, and the failures the audit catches — a dead dial, a
- * divide-by-zero at the end of a slider's range — are exactly the kind a model
- * fixes immediately once it is told which one it made. One retry, not a loop:
- * a second failure means the passage genuinely doesn't support a panel, and
- * spending more of the reader's credit to keep discovering that is not a
- * kindness.
+ * The endpoint now returns { lesson: { title, intro, sections } }; a stale
+ * deployment still returns the old single { demo: { title, story, source,
+ * demo } }. One shape downstream, so the notebook and the renderer never
+ * branch on the server's age.
+ */
+function asLesson(data) {
+  if (data?.lesson?.sections?.length) return data.lesson;
+  const p = data?.demo;
+  if (!p?.demo) return null;
+  return {
+    title: p.title || "Panel",
+    intro: p.story || "",
+    sections: [{
+      heading: p.title || "The idea",
+      teach: p.story || "",
+      equation: "",
+      demo: p.demo,
+      takeaway: "",
+      source: p.source || "",
+    }],
+  };
+}
+
+/**
+ * Ask the server for a LESSON about `quote` — one interactive section per
+ * concept in the selection.
+ *
+ * The audit runs per section, and it decides at the section level: a lesson
+ * whose fourth demo divides by zero loses its fourth section, not the whole
+ * purchase. A failed audit gets ONE retry with every verdict fed back, named
+ * by section, because the reader has already been charged by the time the
+ * audit runs — and the failures it catches are exactly the kind a model fixes
+ * once told which section made them. One retry, not a loop: after that,
+ * whatever sections work are delivered and the dropped ones are reported.
+ *
+ * Returns { lesson, cost, remainingBalance, dropped }; throws only when not a
+ * single section survived both attempts.
  */
 export async function generatePanel({ paperTitle, sectionLabel, quote, context }) {
   if (!functionsUrl) throw new Error("Panel building isn't configured for this deployment.");
@@ -279,21 +306,40 @@ export async function generatePanel({ paperTitle, sectionLabel, quote, context }
     });
     spent += data.cost || 0;
 
-    const panel = data.demo;   // { title, story, source, demo }
-    const problem = auditPanel(panel);
-    if (!problem) {
-      return { panel, cost: spent, remainingBalance: data.remainingBalance };
+    const lesson = asLesson(data);
+    if (!lesson) throw new Error("The lesson builder returned nothing usable — try again.");
+
+    const kept = [];
+    const faults = [];
+    for (const [i, section] of lesson.sections.entries()) {
+      const problem = auditPanel({ demo: section.demo });
+      if (!problem) { kept.push(section); continue; }
+      faults.push(`section ${i + 1} ("${section.heading || "untitled"}"): ${problem}`);
+    }
+
+    if (!faults.length) {
+      return { lesson, cost: spent, remainingBalance: data.remainingBalance, dropped: null };
     }
 
     if (attempt === 0) {
-      console.warn("panel failed audit, retrying with the reason", problem);
-      firstProblem = problem;
+      console.warn("lesson sections failed audit, retrying with the reasons", faults);
+      firstProblem = faults.join("\n");
       continue;
     }
 
-    // Both attempts failed. Report the SECOND verdict — it describes the
-    // panel the reader actually didn't get — and the full cost of both.
-    const e = new Error(`This passage didn't produce a working panel — ${problem}.`);
+    /* Final attempt, some sections still broken. Deliver the ones that work —
+     * the reader paid for a lesson and four good sections of six IS a lesson —
+     * and say plainly which were dropped and why. */
+    if (kept.length) {
+      return {
+        lesson: { ...lesson, sections: kept },
+        cost: spent,
+        remainingBalance: data.remainingBalance,
+        dropped: faults.join("\n"),
+      };
+    }
+
+    const e = new Error(`This passage didn't produce a working lesson — ${faults[0] || "every section failed its test run"}.`);
     e.code = "audit";
     e.cost = spent;
     e.remainingBalance = data.remainingBalance;

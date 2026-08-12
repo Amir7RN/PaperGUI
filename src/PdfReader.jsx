@@ -324,9 +324,11 @@ const ACTIONS = {
    * every line of the algorithm. So selecting one is the honest way to hand
    * it to the panel builder: the model gets the numbers and the steps, not a
    * JPEG it has to squint at. Offered wherever a selection looks like one. */
-  table:    { label: "Build from this table", icon: Table2, kind: "panel-table" },
-  // The one action that costs money and generates code — see panelGen.js.
-  panel:    { label: "Build me a panel", icon: SlidersHorizontal, kind: "panel" },
+  table:    { label: "Teach me this table", icon: Table2, kind: "panel-table" },
+  /* The one action that costs money and generates code — see panelGen.js. It
+   * builds a LESSON: one interactive section per concept in the selection, so
+   * the label promises teaching, not a widget. */
+  panel:    { label: "Teach me this", icon: SlidersHorizontal, kind: "panel" },
   highlight:{ label: "Highlight", icon: Highlighter, kind: "highlight" },
   keep:     { label: "Keep this", icon: NotebookPen, kind: "keep" },
   steelman: { label: "Steelman it", icon: ShieldQuestion,
