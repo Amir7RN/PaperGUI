@@ -1,4 +1,4 @@
-# Interactive Paper Playground (PaperGUI)
+# SciLoupe (PaperGUI)
 
 Turn a static scientific paper (PDF) into a living, interactive computational dashboard —
 concept figures explained, methodology formulas on live sliders, and synchronized

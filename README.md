@@ -1,4 +1,4 @@
-# Interactive Paper Playground (PaperGUI)
+# SciLoupe (PaperGUI)
 
 Turn a static scientific paper (PDF) into a visual dashboard you can trust enough to put
 the PDF away: the paper's story (problem → gap → contribution), its real figures cropped
@@ -14,7 +14,7 @@ must match the original's chart type (line / bar / scatter — a histogram is ne
 as a time series), are test-executed client-side, and any panel that fails or plots flat
 is silently dropped instead of shown.
 
-**Live site:** https://amir7rn.github.io/PaperGUI/
+**Live site:** https://sciloupe.com
 
 ## How it works
 

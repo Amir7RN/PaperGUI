@@ -64,7 +64,7 @@ Deno.serve(async (req) => {
     "line_items[0][price_data][unit_amount]": String(Math.round(totals.charge * 100)),
     "line_items[0][price_data][product_data][name]": packDescription(counts),
     "line_items[0][price_data][product_data][description]":
-      "Interactive Paper Playground — analysis credit, including narrated walkthroughs and the section tutor.",
+      "SciLoupe — analysis credit, including narrated walkthroughs and the section tutor.",
     customer_email: user.email || "",
     client_reference_id: user.id,
     // The success page shows what was bought (papers), not the dollar amount —

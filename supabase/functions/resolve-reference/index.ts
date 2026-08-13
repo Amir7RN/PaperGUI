@@ -304,7 +304,7 @@ async function get(url, headers = {}) {
 
 function userAgent() {
   const mail = Deno.env.get("UNPAYWALL_EMAIL") || "openaccess@example.com";
-  return `InteractivePaperPlayground/1.0 (mailto:${mail})`;
+  return `SciLoupe/1.0 (+https://sciloupe.com; mailto:${mail})`;
 }
 
 /**

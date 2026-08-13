@@ -290,7 +290,7 @@ function SiteFooter({ onContact }) {
         </div>
 
         <p className="mt-6 text-center text-[10px] text-slate-400">
-          Interactive Paper Playground — turning scientific papers into explorable, interactive labs.
+          SciLoupe — turning scientific papers into explorable, interactive labs.
         </p>
       </div>
     </footer>
@@ -464,7 +464,7 @@ function Landing({
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-2 px-4 py-4 sm:px-6">
           <div className="flex items-center gap-2 text-sm font-semibold text-white" style={{ fontFamily: "'Sora', system-ui, sans-serif" }}>
             <FlaskConical size={18} className="text-sky-400" />
-            Interactive Paper Playground
+            SciLoupe
           </div>
           <div className="flex items-center gap-2">
             <button

@@ -37,7 +37,7 @@ const CORS_HEADERS = {
 
 const MAX_PDF_BYTES = 32 * 1024 * 1024;   // the analyzer's own ceiling
 const TICKET_TTL_MS = 30 * 60 * 1000;
-const UA = "InteractivePaperPlayground/1.0 (mailto:%EMAIL%)";
+const UA = "SciLoupe/1.0 (+https://sciloupe.com; mailto:%EMAIL%)";
 
 /** Hosts the download proxy will talk to. Belt to the signature's braces. */
 const ALLOWED_HOSTS = [

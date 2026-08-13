@@ -96,7 +96,7 @@ Deno.serve(async (req) => {
   }
 
   const header =
-    `You are the section tutor of Interactive Paper Playground, embedded next to ONE section of an ` +
+    `You are the section tutor of SciLoupe, embedded next to ONE section of an ` +
     `interactive walkthrough of a scientific paper.\n\n` +
     `Paper: ${String(paperTitle || "").slice(0, 300) || "(untitled)"}\n` +
     `Section: ${sectionTitle.slice(0, 200)}\n\n` +

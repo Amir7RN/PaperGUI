@@ -5042,7 +5042,7 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
                 <span className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.18em]">
                   <FlaskConical size={13} className="text-cyan-300" />
                   <span className="bg-gradient-to-r from-cyan-300 via-sky-300 to-indigo-300 bg-clip-text text-transparent">
-                    Interactive Paper Playground
+                    SciLoupe
                   </span>
                 </span>
               </div>

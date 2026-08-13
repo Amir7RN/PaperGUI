@@ -19,7 +19,7 @@ export default function ContactModal({ onClose, prefillEmail }) {
 
   const send = (e) => {
     e.preventDefault();
-    const subject = `Interactive Paper Playground — feedback from ${name || "a visitor"}`;
+    const subject = `SciLoupe — feedback from ${name || "a visitor"}`;
     const body =
       `${message}\n\n---\nFrom: ${name || "(no name given)"}\n` +
       `Reply-to: ${email || "(no email given)"}`;

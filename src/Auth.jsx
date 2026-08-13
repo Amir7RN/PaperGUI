@@ -58,7 +58,7 @@ export default function Auth({ onClose, initialMode = "signin" }) {
           <div className="mb-2 flex h-11 w-11 items-center justify-center rounded-xl bg-blue-600 text-white">
             <FlaskConical size={22} />
           </div>
-          <h1 className="text-lg font-bold text-slate-900">Interactive Paper Playground</h1>
+          <h1 className="text-lg font-bold text-slate-900">SciLoupe</h1>
           <p className="mt-1 text-xs text-slate-500">
             {mode === "signin" ? "Sign in to continue" : "Create an account to get started"}
           </p>
