@@ -4,7 +4,7 @@ Turn a static scientific paper (PDF) into a living, interactive computational da
 concept figures explained, methodology formulas on live sliders, and synchronized
 baseline-vs-modified plots. Inspired by Wolfram Mathematica's slider-driven modules.
 
-**Live site:** https://amir7rn.github.io/PaperGUI/
+**Live site:** https://sciloupe.com
 
 ## How it works
 
