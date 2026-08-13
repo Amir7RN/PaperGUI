@@ -76,12 +76,23 @@ const REF_SMELL = new RegExp(
 );
 
 /**
- * Where the bibliography starts, even in papers whose "References" heading we
- * never saw: scanning from the end, the longest tail of sentences that is
- * mostly citations *is* the reference list.
+ * Where the bibliography starts.
+ *
+ * The heading is the answer when we have one. The citation-smell scan below —
+ * scanning from the end, the longest tail of sentences that is mostly
+ * citations IS the reference list — exists for the papers whose "References"
+ * heading we never saw, and it is a fallback rather than a correction.
+ *
+ * It used to run unconditionally and take whichever answer was EARLIER, which
+ * quietly overrode a heading we had found. A discussion section that cites
+ * heavily smells like a bibliography by this measure, so the boundary landed
+ * several thousand characters early, inside the prose — and every in-text
+ * "[58]" in that prose then matched the bibliography reader's entry pattern
+ * and claimed the slot belonging to the real entry 58.
  */
 function referencesStart(sentences, headingPos) {
-  let start = headingPos;
+  if (Number.isFinite(headingPos)) return headingPos;
+  let start = Infinity;
   let smell = 0, total = 0;
   for (let i = sentences.length - 1; i >= 0; i--) {
     total++;
@@ -95,8 +106,24 @@ function referencesStart(sentences, headingPos) {
  *  Exported for paperText.js, which cuts the document into sections using the
  *  same rule the anchor index does — two heading detectors would drift. */
 export function headingKey(raw) {
-  const line = String(raw || "").trim();
+  let line = String(raw || "").trim();
   if (!line || line.length > 70) return null;
+
+  /* Heal LaTeX small caps.
+   *
+   * `\textsc{Conclusion}` sets the C larger than the rest, so pdf.js reports
+   * two runs with a real gap between them and the index — correctly — puts a
+   * space there. The heading arrives as "V. C ONCLUSION", and every section
+   * heading in an IEEE-template paper is typeset this way: Introduction,
+   * Conclusion, Appendix, References. None of them were being detected, which
+   * is not a cosmetic loss — "where do the references start" is what stops the
+   * bibliography reader from scanning the Discussion and matching in-text
+   * citation markers as though they were entries.
+   *
+   * Only a STANDALONE capital is glued to the all-caps word after it, so
+   * "FTM AND GAIT" is untouched (its M is not a token of its own). */
+  line = line.replace(/(^|\s)([A-Z])\s+([A-Z]{2,})/g, "$1$2$3");
+
   // drop leading numbering: "IV.", "3.", "3.1", "(2)"
   const clean = line
     .replace(/^[[(]?\s*(?:[ivxlcIVXLC]{1,6}|\d{1,2}(?:\.\d{1,2})*)\s*[.):\-–]?\s+/, "")
@@ -119,12 +146,59 @@ export function headingKey(raw) {
  * be different columns, become the column edges. One peak (or too little text
  * to tell) means one column, which is also the safe fallback.
  */
+/**
+ * Where lines actually START, which is not where text runs start.
+ *
+ * pdf.js splits a line at every style change, so one reference line —
+ * `[12] A. Author, “A title,” Journal, 2021.` — arrives as six or seven runs
+ * at six or seven different x positions, only the first of which is a margin.
+ * Histogramming all of them buries the two real margins under the noise of
+ * mid-line fragments, and on a page that is fragmented enough NO bin clears
+ * the threshold, columns come back as "one column", and the two columns get
+ * read interleaved line by line.
+ *
+ * That is not a hypothetical: it is what a two-column IEEE reference list does
+ * — the most typographically chopped-up page in the paper — so the bibliography
+ * came out as left-column entries with the right column's bare numbers spliced
+ * between them, and roughly a tenth of the references were unrecoverable.
+ *
+ * A run starts a line when nothing on its own row ends just to its left. That
+ * yields two x values per row on a two-column page: the two margins.
+ */
+function lineStartXs(items) {
+  const rows = [];
+  for (const it of [...items].sort((a, b) => a.y - b.y || a.x - b.x)) {
+    const last = rows[rows.length - 1];
+    if (last && Math.abs(it.y - last.y) <= Math.max(it.h, last.h) * 0.6) {
+      last.items.push(it);
+      last.y = Math.min(last.y, it.y);
+      last.h = Math.max(last.h, it.h);
+    } else {
+      rows.push({ y: it.y, h: it.h, items: [it] });
+    }
+  }
+
+  const xs = [];
+  for (const row of rows) {
+    row.items.sort((a, b) => a.x - b.x);
+    let prevRight = -1;
+    for (const it of row.items) {
+      // A gap wider than a few characters means a new column, not a word space.
+      if (prevRight < 0 || it.x - prevRight > 0.04) xs.push(it.x);
+      prevRight = Math.max(prevRight, it.x + it.w);
+    }
+  }
+  return xs;
+}
+
 function columnEdges(items) {
-  const total = items.length;
-  if (total < 60) return null;
+  if (items.length < 60) return null;
+  const starts = lineStartXs(items);
+  const total = starts.length;
+  if (total < 20) return null;
   const B = 200;
   const hist = new Float64Array(B);
-  for (const it of items) hist[Math.min(B - 1, Math.max(0, Math.floor(it.x * B)))]++;
+  for (const x of starts) hist[Math.min(B - 1, Math.max(0, Math.floor(x * B)))]++;
   // light smoothing so a margin that wobbles by a bin still reads as one peak
   const sm = new Float64Array(B);
   for (let i = 0; i < B; i++) sm[i] = (hist[i - 1] || 0) * 0.5 + hist[i] + (hist[i + 1] || 0) * 0.5;
@@ -148,9 +222,20 @@ function columnEdges(items) {
 function columnOf(items) {
   const edges = columnEdges(items);
   if (!edges) return () => 0;
+  /* Split on the MIDPOINTS between margins, not on the margins themselves.
+   *
+   * Testing `x >= margin` with a fixed tolerance has to guess how far left of
+   * its column a line may legitimately start, and a hanging indent — the `[12]`
+   * of a reference, sitting a few percent left of the text it labels — is
+   * exactly that case. Guess too small and every right-column reference number
+   * is filed under the left column; guess too large and a narrow gutter
+   * collapses. A midpoint needs no guess: columns are at least 15% of the page
+   * apart, so nothing legitimate lands near one. */
+  const mids = [];
+  for (let i = 1; i < edges.length; i++) mids.push((edges[i - 1] + edges[i]) / 2);
   return (it) => {
     let c = 0;
-    for (let i = 0; i < edges.length; i++) if (it.x + 0.02 >= edges[i]) c = i;
+    while (c < mids.length && it.x >= mids[c]) c++;
     return c;
   };
 }
@@ -255,7 +340,10 @@ export function buildPaperIndex(pageDatas) {
         // `ih` keeps the run's own glyph height, which is the only signal that
         // separates a superscript citation ("…grid.14,15") from body text —
         // see the superscript scan in paperRefs.js.
-        flat.push({ x: it.x, y: ln.y, w: it.w, h: ln.h, line: li, ih: it.h });
+        // `ih`/`iy` are the run's OWN glyph box. A superscript citation sits in
+        // the top third of its line, so drawing it at the line's height and
+        // position put the chip over the whole line — see rectsForSpan.
+        flat.push({ x: it.x, y: ln.y, w: it.w, h: ln.h, line: li, ih: it.h, iy: it.y, str: it.str });
         for (let k = 0; k < it.str.length; k++) owner.push(fi);
         text += it.str;
         prev = it;
@@ -294,7 +382,14 @@ export function buildPaperIndex(pageDatas) {
   }
 
   headings.sort((a, b) => a.pos - b.pos);
-  const refsAt = referencesStart(sentences, headings.find((h) => h.key === "refs")?.pos ?? Infinity);
+  /* The FIRST refs-ish heading — "References", but also "Acknowledgements" or
+   * "Data availability", which sit just before the list and cost nothing to
+   * include. Restricted to the back half of the document so a paper that
+   * happens to print "References" in a running header cannot declare the
+   * bibliography to start on page one. */
+  const total = base;
+  const refsHead = headings.find((h) => h.key === "refs" && h.pos > total * 0.5);
+  const refsAt = referencesStart(sentences, refsHead?.pos ?? Infinity);
   return { pages, sentences, headings, df, refsAt, nSent: sentences.length || 1 };
 }
 
@@ -416,7 +511,50 @@ function keyTerms(text, df, nSent) {
  *
  * `start`/`end` are indices into that page's own `text`.
  */
-export function rectsForSpan(index, pageIdx, start, end) {
+/**
+ * Roughly how wide each character is, relative to the others in its run.
+ *
+ * A citation marker is four characters inside a run that pdf.js often hands
+ * back as an entire line, so where the marker sits has to be interpolated —
+ * and interpolating by character COUNT assumes a monospace font. It isn't one:
+ * in "…the sustainable–intensification literature [12]" the count-based guess
+ * drifts left by several characters, because the run is full of i's, l's,
+ * spaces and full stops that the estimate charged full width for. That drift
+ * is exactly the "the highlight isn't on the number" complaint.
+ *
+ * These are eyeballed proportional-serif ratios, not metrics from the embedded
+ * font — which we deliberately don't load. They don't need to be exact: the
+ * run's TOTAL width is known and correct, so only the distribution inside it
+ * is being estimated, and being roughly right about which characters are
+ * narrow removes almost all of the error.
+ */
+const NARROW = new Set([..."ijltfrI.,;:'’`|!()[]{}-–— "]);
+const WIDE = new Set([..."mwMW@%"]);
+const charW = (c) => (NARROW.has(c) ? 0.45 : WIDE.has(c) ? 1.5 : /[A-Z0-9]/.test(c) ? 1.15 : 1);
+
+/** Cumulative width fractions across a run's string, from 0 to 1. */
+function cumulative(str) {
+  const out = new Float64Array(str.length + 1);
+  let total = 0;
+  for (let i = 0; i < str.length; i++) {
+    total += charW(str[i]);
+    out[i + 1] = total;
+  }
+  if (total > 0) for (let i = 0; i <= str.length; i++) out[i] /= total;
+  else for (let i = 0; i <= str.length; i++) out[i] = i / Math.max(1, str.length);
+  return out;
+}
+
+/**
+ * Page-fraction rectangles covering a character range.
+ *
+ * `tight` chooses the vertical box. A reader's highlight wants the LINE box,
+ * so consecutive highlighted lines stack flush. A cross-reference chip wants
+ * the run's own INK box: a superscript "14,15" occupies the top third of its
+ * line, and drawing it at line height put a pill over the whole line — three
+ * of them on one line read as scattered blocks rather than as three markers.
+ */
+export function rectsForSpan(index, pageIdx, start, end, { tight = false } = {}) {
   const p = index?.pages?.[pageIdx];
   if (!p) return [];
 
@@ -431,8 +569,7 @@ export function rectsForSpan(index, pageIdx, start, end) {
     // How much of THIS glyph run the range actually covers. pdf.js hands back
     // whole lines as single runs, so a "Fig. 3" inside one would otherwise be
     // drawn across the entire line — the box is interpolated by character
-    // position instead. Proportional spacing makes this approximate; for a
-    // marker a few pixels out is invisible, and it beats a 350px underline.
+    // WIDTH instead (see charW above).
     let a = i;
     while (a > 0 && p.owner[a - 1] === fi) a--;
     let b = i;
@@ -441,26 +578,41 @@ export function rectsForSpan(index, pageIdx, start, end) {
 
     const from = Math.max(a, start);
     const to = Math.min(b, end - 1);
-    const x1 = it.x + (it.w * (from - a)) / len;
-    const x2 = it.x + (it.w * (to - a + 1)) / len;
+    const cum = it.str && it.str.length === len ? cumulative(it.str) : null;
+    const at = (k) => (cum ? cum[Math.max(0, Math.min(len, k))] : Math.max(0, Math.min(len, k)) / len);
+    const x1 = it.x + it.w * at(from - a);
+    const x2 = it.x + it.w * at(to - a + 1);
 
-    const r = byLine.get(it.line);
-    if (!r) byLine.set(it.line, { x1, y1: it.y, x2, y2: it.y + it.h });
+    // Ink box when we have one and it is genuinely smaller than the line;
+    // otherwise the line box, which is what a full-height run occupies anyway.
+    const useInk = tight && it.ih > 0 && Number.isFinite(it.iy) && it.ih < it.h;
+    const y1 = useInk ? it.iy : it.y;
+    const y2 = y1 + (useInk ? it.ih : it.h);
+
+    const key = tight ? `${it.line}:${Math.round(y1 * 2000)}` : it.line;
+    const r = byLine.get(key);
+    if (!r) byLine.set(key, { x1, y1, x2, y2 });
     else {
       r.x1 = Math.min(r.x1, x1); r.x2 = Math.max(r.x2, x2);
-      r.y1 = Math.min(r.y1, it.y); r.y2 = Math.max(r.y2, it.y + it.h);
+      r.y1 = Math.min(r.y1, y1); r.y2 = Math.max(r.y2, y2);
     }
     i = b + 1;
   }
 
+  /* Padding: generous for a highlight (it should cover the line it marks),
+   * minimal for a chip (it should sit ON the characters, not over the line
+   * above). The chip still gets a hair of headroom so its border has somewhere
+   * to live and so it stays comfortably clickable. */
+  const padY = tight ? 0.14 : 0.1;
+  const grow = tight ? 1 + padY * 2 : 1.2;
   return [...byLine.values()]
     .map((r) => {
       const h = r.y2 - r.y1;
       return {
         x: Math.max(0, r.x1 - 0.001),
-        y: Math.max(0, r.y1 - h * 0.1),
+        y: Math.max(0, r.y1 - h * padY),
         w: Math.min(1, r.x2 - r.x1 + 0.002),
-        h: h * 1.2,
+        h: h * grow,
       };
     })
     .filter((r) => r.w > 0.002 && r.h > 0.002);

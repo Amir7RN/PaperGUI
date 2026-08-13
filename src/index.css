@@ -334,37 +334,105 @@
  *
  * `mix-blend-mode` is deliberately NOT set on the border — multiplying a
  * border into body text muddies it into the wash we are getting away from. */
+/* A cross-reference marker on the page.
+ *
+ * Deliberately quiet. The box is now measured on the glyphs themselves rather
+ * than on the whole line (see rectsForSpan's `tight` mode), so it lands on the
+ * number instead of near it — and once it does, a heavy filled pill with a
+ * solid border reads as damage to the typography. What makes it legible as a
+ * control is the underline plus the hover state, the same vocabulary a link
+ * has had for thirty years, not the amount of colour poured over the digits. */
 .pdfr-xref {
   position: absolute;
-  border-radius: 4px;
+  border-radius: 3px;
   box-sizing: border-box;
-  /* Grow a hair past the glyph box so the pill has visible shoulders. */
-  margin: -1px -2px;
-  padding: 0 2px;
-  background: rgba(99, 102, 241, 0.16);
-  border: 1px solid rgba(79, 70, 229, 0.55);
-  box-shadow: 0 1px 0 rgba(67, 56, 202, 0.25);
-  transition: background 0.15s ease, border-color 0.15s ease;
+  /* Just enough shoulder for the underline to clear the descenders. */
+  margin: 0 -1.5px;
+  padding: 0 1.5px;
+  background: rgba(99, 102, 241, 0.1);
+  border-bottom: 1.5px solid rgba(79, 70, 229, 0.75);
+  transition: background 0.12s ease, border-color 0.12s ease;
 }
 
 /* What the chip opens, by colour — a reference, one of the paper's own
  * figures, or one of its equations. Three tints is a small enough vocabulary
  * that the third one teaches the set. */
 .pdfr-xref[data-kind="figure"] {
-  background: rgba(16, 185, 129, 0.16);
-  border-color: rgba(5, 150, 105, 0.6);
-  box-shadow: 0 1px 0 rgba(5, 150, 105, 0.25);
+  background: rgba(16, 185, 129, 0.1);
+  border-bottom-color: rgba(5, 150, 105, 0.75);
 }
 .pdfr-xref[data-kind="equation"] {
-  background: rgba(14, 165, 233, 0.16);
-  border-color: rgba(2, 132, 199, 0.6);
-  box-shadow: 0 1px 0 rgba(2, 132, 199, 0.25);
+  background: rgba(14, 165, 233, 0.1);
+  border-bottom-color: rgba(2, 132, 199, 0.75);
 }
 
-/* The reader is over a chip: the page's own hover state, since the chips
- * themselves cannot receive the pointer. */
-.pdfr-page:has(.pdfr-textlayer[style*="pointer"]) .pdfr-xref {
-  background: rgba(99, 102, 241, 0.28);
+/* The chip the pointer is actually on. The chips are decorative and cannot
+ * receive the pointer themselves, so hit-testing marks the one under the
+ * cursor — see PdfPageView's onPageMove. It used to be a page-level rule keyed
+ * off the text layer's cursor, which lit every chip on the page at once. */
+.pdfr-xref[data-hot] {
+  background: rgba(99, 102, 241, 0.3);
+  border-bottom-color: #4338ca;
+}
+.pdfr-xref[data-kind="figure"][data-hot] {
+  background: rgba(16, 185, 129, 0.3);
+  border-bottom-color: #047857;
+}
+.pdfr-xref[data-kind="equation"][data-hot] {
+  background: rgba(14, 165, 233, 0.3);
+  border-bottom-color: #0369a1;
+}
+
+/* A whole figure, offered as something you can open and make live.
+ *
+ * Not a chip: a chip over a plot would cover the plot. A dashed frame at the
+ * crop boundary says "this region is a thing" without touching what is inside
+ * it, and it only firms up on hover — so a page of figures reads as a page of
+ * figures, not as a page of boxes. */
+.pdfr-figarea {
+  position: absolute;
+  box-sizing: border-box;
+  border: 1.5px dashed rgba(16, 185, 129, 0.45);
+  border-radius: 8px;
+  background: transparent;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.pdfr-figarea-tag {
+  position: absolute;
+  top: -9px;
+  left: 8px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: #059669;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  line-height: 1.4;
+  white-space: nowrap;
+  opacity: 0.72;
+  transition: opacity 0.15s ease;
+}
+/* The tag says what the frame is; the "make it live" half only appears on the
+ * figure being pointed at, so a page of figures isn't a page of shouting. */
+.pdfr-figarea-tag em {
+  display: none;
+  font-style: normal;
+}
+.pdfr-figarea[data-hot] {
+  border-color: rgba(5, 150, 105, 0.9);
+  border-style: solid;
+  background: rgba(16, 185, 129, 0.08);
+}
+.pdfr-figarea[data-hot] .pdfr-figarea-tag {
+  opacity: 1;
+}
+.pdfr-figarea[data-hot] .pdfr-figarea-tag em::before {
+  content: " · ";
+  opacity: 0.6;
+}
+.pdfr-figarea[data-hot] .pdfr-figarea-tag em {
+  display: inline;
 }
 
 /* pdf.js text layer — the part that makes words clickable and selectable */
@@ -444,6 +512,62 @@
 .pp-cite:focus-visible {
   outline: 2px solid #6366f1;
   outline-offset: 1px;
+}
+
+/* One row of the bibliography — the whole line is the control. */
+.pp-ref-row {
+  display: flex;
+  width: 100%;
+  align-items: baseline;
+  gap: 0.55rem;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  padding: 0.3rem 0.5rem;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.pp-ref-row:hover {
+  background: rgba(99, 102, 241, 0.06);
+  border-color: rgba(99, 102, 241, 0.3);
+}
+.pp-ref-row:focus-visible {
+  outline: 2px solid #6366f1;
+  outline-offset: 1px;
+}
+.pp-ref-num {
+  flex: none;
+  min-width: 1.9rem;
+  border-radius: 5px;
+  background: rgba(99, 102, 241, 0.12);
+  padding: 0 4px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: #4338ca;
+}
+.pp-ref-row:hover .pp-ref-num {
+  background: #4f46e5;
+  color: #fff;
+}
+.pp-ref-text {
+  flex: 1 1 auto;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: #475569;
+}
+/* The affordance stays out of the way until the row is the one being read. */
+.pp-ref-go {
+  flex: none;
+  align-self: center;
+  color: #a5b4fc;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.pp-ref-row:hover .pp-ref-go,
+.pp-ref-row:focus-visible .pp-ref-go {
+  opacity: 1;
 }
 
 /* Tables and algorithm listings — the blocks that used to arrive as pictures. */

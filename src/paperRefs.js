@@ -59,17 +59,28 @@ function expandNums(s) {
  * confident, wrong text to a card. The numbered entries are read out of the
  * document instead, which is the only source that actually knows what [12] is.
  */
+/** Does this read like a printed reference rather than a stray numbered line? */
+const CITATION_SHAPED = /\b(?:19|20)\d{2}\b|\bet\s+al\b|\bdoi[:\s]|arxiv|\bpp?\.\s*\d|\bvol\.?\s*\d|[A-Z][\p{L}'’-]+,\s*[A-Z]\./iu;
+
 function readBibliography(index) {
   const entries = new Map(); // number -> citation string
   if (!index?.pages?.length) return entries;
 
-  // One string for the whole tail of the document, from wherever the
-  // bibliography begins.
+  /* One string for the tail of the document, cut at the exact offset the
+   * bibliography starts.
+   *
+   * Cutting per PAGE rather than per character used to leave the end of the
+   * conclusion in front of the reference list — and every in-text "[3]" in it
+   * matched the entry pattern first. Because the first match for a number
+   * wins, a citation marker in a sentence could take the slot belonging to the
+   * real entry [3], which is how entries went missing while the count looked
+   * plausible. */
   const from = Number.isFinite(index.refsAt) ? index.refsAt : Infinity;
   let tail = "";
   for (const p of index.pages) {
-    if (p.base + p.text.length < from) continue;
-    tail += p.text + "\n";
+    const end = p.base + p.text.length;
+    if (end < from) continue;
+    tail += (from > p.base ? p.text.slice(from - p.base) : p.text) + "\n";
   }
   if (!tail) return entries;
 
@@ -77,27 +88,99 @@ function readBibliography(index) {
    *   "[12] A. Author, Title, Journal, 2021."   (bracketed, IEEE-ish)
    *   "12. Author, A. (2021). Title. Journal."  (line-numbered, Cell/Nature)
    * The second is only accepted at the start of a line, otherwise every "3."
-   * in running prose would open a reference. */
+   * in running prose would open a reference.
+   *
+   * Whitespace is allowed INSIDE the brackets. pdf.js splits a line wherever
+   * the glyph boxes leave a gap, and the index inserts a space at each split,
+   * so a bibliography whose numbers are set with a little letter-spacing
+   * arrives as "[ 12 ]" and matched nothing at all. */
   const patterns = [
-    /\[(\d{1,3})\]\s*([\s\S]*?)(?=\n?\s*\[\d{1,3}\]|$)/g,
+    /\[\s*(\d{1,3})\s*\]\s*([\s\S]*?)(?=\n?\s*\[\s*\d{1,3}\s*\]|$)/g,
     /(?:^|\n)\s*(\d{1,3})\.\s+([\s\S]*?)(?=\n\s*\d{1,3}\.\s+|$)/g,
+    // "(12) Author, …" — used by a minority of chemistry and materials titles.
+    /(?:^|\n)\s*\(\s*(\d{1,3})\s*\)\s*([\s\S]*?)(?=\n\s*\(\s*\d{1,3}\s*\)|$)/g,
   ];
 
+  /* Length bounds, loosened at both ends.
+   *
+   * A one-line entry ("[7] IEA, World Energy Outlook, 2023.") is 34 characters
+   * but a "[53] Ibid., p. 14." is 14, and the old 20-character floor threw the
+   * short ones away. At the other end a reference with a long DOI, a URL and
+   * an access date runs well past 600, and the old ceiling dropped exactly the
+   * data-set and standards citations that need the lookup most. */
+  const MAX_ENTRY = 1400;
+  const plausible = (t) => t.length >= 10 && t.length <= MAX_ENTRY;
+
+  let best = null;
   for (const re of patterns) {
+    const got = new Map();
     re.lastIndex = 0;
     let m;
     while ((m = re.exec(tail))) {
       const n = +m[1];
       const text = m[2].replace(/\s+/g, " ").trim();
-      // A plausible entry has an author and a title; a stray "[3]" inside a
-      // formula, or "3." starting a numbered list, does not.
-      if (text.length < 20 || text.length > 600) continue;
-      if (!entries.has(n)) entries.set(n, text);
+      if (text.length < 10) continue;
+      if (!got.has(n)) got.set(n, text);
     }
-    // The first convention that yields a real bibliography wins — running both
-    // over the same text would let list numbering pollute real entries.
-    if (entries.size >= 3) break;
+    // The convention that finds the most entries wins outright — running them
+    // together would let list numbering pollute a real bibliography.
+    if (!best || got.size > best.size) best = got;
   }
+  if (!best) return entries;
+
+  /* THE LAST ENTRY HAS NOTHING AFTER IT TO STOP AT.
+   *
+   * Every entry is cut at the next "[n]" marker; the final one is cut at the
+   * end of the text, so it absorbs whatever follows the reference list. In a
+   * paper with an appendix after its references — which this pattern is common
+   * enough to matter for — that is several thousand characters of prose, the
+   * entry blows the length ceiling, and the paper's LAST reference is the one
+   * that silently goes missing.
+   *
+   * Its real end is found by asking the other entries how long a reference is
+   * in this paper, and trimming back to the last full stop inside that window.
+   * References end in a full stop (a year, a page range, a DOI); the running
+   * header and body prose that follow do not begin with one. */
+  const lens = [...best.values()].map((t) => t.length).filter((n) => n <= MAX_ENTRY).sort((a, b) => a - b);
+  const median = lens.length ? lens[lens.length >> 1] : 240;
+  const window = Math.max(400, Math.min(MAX_ENTRY, median * 3));
+  const trim = (t) => {
+    if (t.length <= MAX_ENTRY) return t;
+    const head = t.slice(0, window);
+    const cut = head.lastIndexOf(". ");
+    return cut > 40 ? head.slice(0, cut + 1) : null;
+  };
+
+  for (const [n, raw] of best) {
+    const t = trim(raw);
+    if (t && plausible(t)) entries.set(n, t);
+  }
+
+  /* Fill the gaps, conservatively.
+   *
+   * A numbered list is a contiguous run, so if the winning pattern found 52 of
+   * 58 the six it missed are KNOWN by number — they are the holes below the
+   * highest entry. Those specific numbers are re-cut with a looser rule (the
+   * marker followed by anything up to the next marker, on any line, with no
+   * shape assumptions), and a candidate is only accepted if it actually reads
+   * like a citation. This can only ever ADD a numbered entry the reader can
+   * see is missing; it cannot overwrite one that was already found. */
+  const max = Math.max(...entries.keys());
+  if (entries.size && max <= 400) {
+    for (let n = 1; n <= max; n++) {
+      if (entries.has(n)) continue;
+      const re = new RegExp(
+        `(?:\\[\\s*${n}\\s*\\]|(?:^|\\n)\\s*${n}[.)])\\s*([\\s\\S]{10,1400}?)` +
+        `(?=\\[\\s*\\d{1,3}\\s*\\]|\\n\\s*\\d{1,3}[.)]\\s|$)`,
+        "m",
+      );
+      const m = re.exec(tail);
+      if (!m) continue;
+      const text = m[1].replace(/\s+/g, " ").trim();
+      if (plausible(text) && CITATION_SHAPED.test(text)) entries.set(n, text);
+    }
+  }
+
   return entries;
 }
 
@@ -175,23 +258,34 @@ function labelNum(s) {
   return m ? +m[1] : null;
 }
 
-/** Every figure we hold an image for, keyed by the paper's own figure number. */
+/**
+ * Every figure we hold an image for, keyed by the paper's own figure number.
+ *
+ * `figIndex` is the position in `spec.resultFigures`, and it is what makes a
+ * figure DIGITIZABLE: it is the handle "make this one live" writes its result
+ * back through. Without it a figure card can explain a figure but cannot
+ * reproduce it, which is the difference between a caption and a live plot —
+ * so it is carried on every result figure regardless of which section of the
+ * paper the figure happens to sit in.
+ */
 function figureIndex(spec) {
   const byNum = new Map();
   const add = (num, fig) => {
     if (num == null || byNum.has(num)) return;
     byNum.set(num, fig);
   };
-  for (const f of spec?.resultFigures || []) {
+  (spec?.resultFigures || []).forEach((f, idx) => {
     add(labelNum(f.figureLabel), {
       label: f.figureLabel || `Fig. ${labelNum(f.figureLabel)}`,
       title: f.title, explanation: f.explanation, image: f.image, page: f.page,
+      bbox: f.bbox, figIndex: idx, panels: f.panels || [],
     });
-  }
+  });
   for (const f of spec?.conceptFigures || []) {
     add(labelNum(f.title), {
       label: (String(f.title).split(/[—–-]/)[0] || "").trim() || `Fig. ${labelNum(f.title)}`,
       title: f.title, explanation: f.explanation, image: f.image, page: f.page,
+      bbox: f.bbox,
     });
   }
   return byNum;
@@ -418,8 +512,10 @@ export function buildInlineRefs(index, spec) {
     const p = index.pages[pageIdx];
     const spots = [];
 
+    /* `tight`: a cross-reference chip is drawn on the characters themselves,
+     * not on the line box a highlight uses. See rectsForSpan. */
     const push = (start, end, kind, label, payload) => {
-      const rects = rectsForSpan(index, pageIdx, start, end);
+      const rects = rectsForSpan(index, pageIdx, start, end, { tight: true });
       if (!rects.length) return;
       spots.push({ id: `r${seq++}`, kind, page: p.page, rects, label, payload });
     };
@@ -470,6 +566,35 @@ export function buildInlineRefs(index, spec) {
       if (!eq) return;
       push(m.index, m.index + m[0].length, "equation", m[0], { ...eq, citing: sentenceAt(abs) });
     });
+
+    /* THE FIGURE ITSELF IS A TARGET, not only the words "Fig. 3".
+     *
+     * A reader looking at a plot and wanting it live reaches for the plot.
+     * Until now the only way in was an in-text mention, which meant a figure
+     * whose number is never written out in prose — and, worse, every figure in
+     * an appendix or a supplementary section, where the prose that mentions it
+     * often isn't on the same page — had no way to be opened at all. The crop
+     * box the analysis already recorded is exactly the region to make live, so
+     * it is drawn as an outline over the figure on its own page.
+     *
+     * Added LAST on purpose: hit-testing walks this list in order, and a
+     * figure-sized box would otherwise swallow the citation chips inside its
+     * own caption.
+     */
+    for (const fig of figs.values()) {
+      if (fig.page !== p.page) continue;
+      const b = fig.bbox;
+      if (!b || !(b.w > 0.02) || !(b.h > 0.02)) continue;
+      spots.push({
+        id: `r${seq++}`, kind: "figure", area: true, page: p.page,
+        rects: [{
+          x: Math.max(0, b.x), y: Math.max(0, b.y),
+          w: Math.min(1 - Math.max(0, b.x), b.w), h: Math.min(1 - Math.max(0, b.y), b.h),
+        }],
+        label: fig.label,
+        payload: { ...fig, citing: null },
+      });
+    }
 
     if (spots.length) byPage.set(p.page, spots);
   }

@@ -1345,7 +1345,7 @@ const resultFiguresIndexOnly = {
     },
   },
   description:
-    "An INDEX of the paper's key result figures (3-8) — just enough to crop each one and name it: its own label, the page it is on, its bounding box, and a one-line title. NO explanation, NO hotspots, NO axis seed: those are produced later, only if the reader asks for them. Getting the bbox right is the part that matters here, because everything downstream reads the crop it produces.",
+    "An INDEX of EVERY figure in this paper that plots data — no matter which section it sits in. Results, Discussion, Appendix, Supplementary, Extended Data: a reader who wants a figure made live wants THAT figure, and cannot ask for one nobody listed. Include it if it has axes, bars, boxes, points, curves, a colour scale or a survival/ROC/Bland-Altman style plot, and exclude only pure schematics, block diagrams, photographs and flowcharts (those go in conceptFigures). List them in page order. Each entry is just enough to crop and name the figure: its own label, its page, its bounding box, a one-line title. NO explanation, NO hotspots, NO axis seed — those are produced later, only if the reader asks. Getting the bbox right is the part that matters here, because everything downstream reads the crop it produces.",
 };
 
 /** One figure's interactive panels — the whole output of the on-demand
@@ -1489,11 +1489,20 @@ export function phaseInstruction(phase, contextSpec) {
       "guided tours of the figures, and the interactive reproduction of any figure — is now a separate, " +
       "individually-priced action they trigger later, on the one or two things they actually care " +
       "about. Do NOT produce any of it now, and do NOT pad these fields to compensate.\n\n" +
-      "`resultFigures` IS AN INDEX, NOT A TOUR. For each key result figure emit exactly four things: " +
+      "`resultFigures` IS AN INDEX, NOT A TOUR. For each figure emit exactly four things: " +
       "its own label, its page, its bounding box, and a ONE-LINE title. No explanation, no hotspots, " +
       "no axis seed — those are the deferred call's job. Spend your care on the BBOX: every later " +
       "action reads the crop it produces, so a box that clips an axis or swallows a neighbouring " +
       "figure poisons work the reader will pay for.\n\n" +
+      "INDEX EVERY DATA FIGURE, IN EVERY SECTION. Walk the paper from page one to the last page of " +
+      "the appendices and list every figure that plots data — Results, Discussion, Methods, " +
+      "Appendix, Supplementary, Extended Data alike. Do NOT stop at the Results section and do NOT " +
+      "prune to the ones you judge most important: this index is the ONLY way a reader can ask for a " +
+      "figure to be read and made interactive, so a figure you leave out is a figure they cannot " +
+      "reach at all, and 'it was only in the appendix' is not a reason — appendix figures are " +
+      "frequently the ones with the raw data. If a multi-panel figure is labelled once (Fig. 4a-d), " +
+      "that is ONE entry covering the whole labelled figure. Pure schematics, block diagrams, " +
+      "flowcharts and photographs are the only exclusions, and they belong in `conceptFigures`.\n\n" +
       "Classify the archetype honestly — it decides whether the method can later be simulated live or " +
       "only explored through the paper's own equations and reported numbers, and every deferred call " +
       "is told your decision.\n\n" +

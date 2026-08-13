@@ -28,7 +28,7 @@ import {
 } from "lucide-react";
 import SectionChat from "./SectionChat.jsx";
 import PdfReader, { PaperReader, XrefCard } from "./PdfReader.jsx";
-import SectionsView, { ReferenceList } from "./SectionsView.jsx";
+import { ReferenceList } from "./SectionsView.jsx";
 import { unlockSection } from "./api.js";
 import { PHASE_VALIDATORS } from "./validators.js";
 import { estimateActionUsd, formatEstimate, estimateVerdict } from "../supabase/functions/_shared/actionCosts.js";
@@ -4788,26 +4788,15 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
         />
       ),
     },
-    {
-      /* The same document, as text. Peer to the page view rather than a
-       * replacement for it: the pages are the real paper, and this is where a
-       * table is a table, an algorithm keeps its steps, and a citation is a
-       * real button rather than a rectangle drawn over glyphs. */
-      id: "text", boxId: "sec-text", boxLabel: "Sections", navLabel: "Text",
-      ariaLabel: "The paper's own text, section by section", raw: true,
-      show: spineOn, tone: "blue", icon: FileText,
-      content: (
-        <SectionsView
-          paperText={paperText}
-          estimate={formatEstimate(estimateFor("panel"))}
-          onBuildPanel={requestPanel}
-          onAsk={setChatSection}
-          onKeep={keepPassage}
-          onGoToPage={(p) => { selectSection("paper"); setPaperPage({ page: p }); }}
-          onCite={openRefCard}
-        />
-      ),
-    },
+    /* There is no separate "Text" section any more.
+     *
+     * It rendered the same document a second time, as extracted prose, beside
+     * the pages that already showed it — so the rail read "The paper / Text /
+     * References" and two of those three were the paper. Every gesture it
+     * offered (select a passage, build a lesson from it, keep it, ask about
+     * it) the page view offers on the real document, with the real typography
+     * and the real figures. The extraction itself is untouched and still runs:
+     * it is where the bibliography below comes from. */
     {
       id: "references", boxId: "sec-references", boxLabel: "References", navLabel: "Refs",
       ariaLabel: "The paper's reference list", raw: true,
@@ -4819,8 +4808,8 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
           </h3>
           <p className="mb-3 text-[12.5px] leading-relaxed text-slate-500">
             Read straight out of the paper’s own bibliography — all {paperText?.bibliography?.size} of
-            them, not a selection. Click any one to look it up live in Semantic Scholar, OpenAlex or
-            Crossref and see what it actually is.
+            them, not a selection. Click any entry to look it up live in OpenAlex, Semantic Scholar,
+            Crossref, Europe PMC or arXiv and see what it actually is.
           </p>
           <ReferenceList bibliography={paperText?.bibliography} onCite={openRefCard} />
         </div>

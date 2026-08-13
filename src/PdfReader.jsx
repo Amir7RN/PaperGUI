@@ -75,6 +75,15 @@ function PdfPageView({ doc, pageNo, scale, marks, activeMark, tone, turnKey, hot
   const textRef = useRef(null);
   const activeRef = useRef(null);
   const [dims, setDims] = useState(null);
+  /* WHICH marker the pointer is on, not merely THAT it is on one.
+   *
+   * The hover state used to be a page-level CSS rule keyed off the text
+   * layer's cursor, so touching any one marker lit every marker on the page at
+   * once — a whole page of citations flashing together, which is what made
+   * them read as scattered highlights rather than as individual links. It gets
+   * worse with figure regions, which are large enough that the pointer is
+   * inside one most of the time. */
+  const [hotId, setHotId] = useState(null);
 
   /* graphics */
   useEffect(() => {
@@ -152,11 +161,20 @@ function PdfPageView({ doc, pageNo, scale, marks, activeMark, tone, turnKey, hot
     if (!box.width || !box.height) return;
     const x = (e.clientX - box.left) / box.width;
     const y = (e.clientY - box.top) / box.height;
-    const over = hotspots.some((h) =>
+    // Same order the click uses: small text markers before figure regions, so
+    // a citation inside a figure's caption still wins its own hover.
+    const over = hotspots.find((h) =>
       h.rects.some((r) => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h));
+    setHotId(over?.id || null);
     const layer = textRef.current;
     if (layer) layer.style.cursor = over ? "pointer" : "";
   }, [hotspots, onHotspot]);
+
+  const onPageLeave = useCallback(() => {
+    setHotId(null);
+    const layer = textRef.current;
+    if (layer) layer.style.cursor = "";
+  }, []);
 
   const onPageClick = useCallback((e) => {
     if (!onHotspot) return;
@@ -189,7 +207,8 @@ function PdfPageView({ doc, pageNo, scale, marks, activeMark, tone, turnKey, hot
 
   return (
     <div key={turnKey} className="pdfr-page pdfr-shadow relative bg-white"
-      style={{ width: dims?.w, height: dims?.h }} onClick={onPageClick} onMouseMove={onPageMove}>
+      style={{ width: dims?.w, height: dims?.h }}
+      onClick={onPageClick} onMouseMove={onPageMove} onMouseLeave={onPageLeave}>
       <canvas ref={canvasRef} className="block" />
 
       {/* Cross-reference CHIPS — decorative only; see onPageClick.
@@ -203,17 +222,38 @@ function PdfPageView({ doc, pageNo, scale, marks, activeMark, tone, turnKey, hot
       {hotspots?.length > 0 && (
         <div className="pointer-events-none absolute inset-0 z-[2]" aria-hidden="true">
           {hotspots.map((h) =>
-            h.rects.map((r, j) => (
-              <span
-                key={`${h.id}-${j}`}
-                className="pdfr-xref"
-                data-kind={h.kind}
-                style={{
-                  left: `${r.x * 100}%`, top: `${r.y * 100}%`,
-                  width: `${r.w * 100}%`, height: `${r.h * 100}%`,
-                }}
-              />
-            ))
+            h.rects.map((r, j) =>
+              /* A whole FIGURE is not a chip. Drawn as a quiet dashed frame
+                 with its own label in the corner, so a reader can see at a
+                 glance which pictures on this page can be opened and made
+                 live — without a tinted pill sitting on top of the artwork. */
+              h.area ? (
+                <span
+                  key={`${h.id}-${j}`}
+                  className="pdfr-figarea"
+                  data-hot={h.id === hotId ? "" : undefined}
+                  style={{
+                    left: `${r.x * 100}%`, top: `${r.y * 100}%`,
+                    width: `${r.w * 100}%`, height: `${r.h * 100}%`,
+                  }}
+                >
+                  <span className="pdfr-figarea-tag">
+                    {h.label || "Figure"}<em>make it live</em>
+                  </span>
+                </span>
+              ) : (
+                <span
+                  key={`${h.id}-${j}`}
+                  className="pdfr-xref"
+                  data-kind={h.kind}
+                  data-hot={h.id === hotId ? "" : undefined}
+                  style={{
+                    left: `${r.x * 100}%`, top: `${r.y * 100}%`,
+                    width: `${r.w * 100}%`, height: `${r.h * 100}%`,
+                  }}
+                />
+              )
+            )
           )}
         </div>
       )}

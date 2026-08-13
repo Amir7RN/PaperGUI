@@ -1,6 +1,17 @@
 /**
  * The paper as TEXT — its own sections, in order, as things you can select.
  *
+ * ⚠️ THE SECTIONS VIEW ITSELF IS NOT CURRENTLY MOUNTED. The reading rail is
+ * "The paper / References": rendering the same document twice, once as pages
+ * and once as extracted prose, made two of the three rail stops the same
+ * thing, and every gesture this surface offers the page view already offers on
+ * the real document. `ReferenceList` at the bottom of this file IS mounted —
+ * it is the References section — and the extraction that feeds it (paperText.js)
+ * still runs on every paper. The rest is kept intact rather than deleted
+ * because the argument for it below is still sound and re-mounting it is one
+ * line in Workspace.jsx; if it is still unmounted a few papers from now, delete
+ * it rather than let it drift out of sync with the reader.
+ *
  * The rendered pages remain the primary reading surface: they are the real
  * document, with the real typography and the real figures. This is the peer
  * surface where the CONTENT is structure rather than pixels, and it exists
@@ -446,7 +457,16 @@ export default function SectionsView({
   );
 }
 
-/** The whole bibliography, as chips. Free — it is the document's own list. */
+/**
+ * The whole bibliography. Free — it is the document's own list.
+ *
+ * THE WHOLE ROW is the button, not the "[12]" chip beside it. A reader
+ * scanning a reference list is reading the titles, and asking them to hit a
+ * 20-pixel number to look one up makes the useful half of the row inert while
+ * the target is the part they weren't looking at. The chip stays as the
+ * numbering, because that is what ties the entry back to the markers in the
+ * text — it just isn't the thing you have to aim for any more.
+ */
 export function ReferenceList({ bibliography, onCite }) {
   const entries = useMemo(
     () => [...(bibliography?.entries?.() || [])].sort((a, b) => a[0] - b[0]),
@@ -460,20 +480,30 @@ export function ReferenceList({ bibliography, onCite }) {
     );
   }
   return (
-    <ol className="space-y-1.5">
+    <ol className="space-y-1">
       {entries.map(([n, text]) => (
-        <li key={n} className="flex gap-2">
+        <li key={n}>
           <button
             type="button"
-            className="pp-cite mt-px shrink-0"
+            className="pp-ref-row"
+            title={`Look up reference ${n}`}
             onClick={(e) => {
               const r = e.currentTarget.getBoundingClientRect();
-              onCite?.({ nums: [n], label: `[${n}]`, at: { x: r.left + r.width / 2, y: r.top }, citing: null });
+              onCite?.({
+                nums: [n],
+                label: `[${n}]`,
+                // Anchored to the LEFT of the row rather than its centre: an
+                // entry is a full-width line, and a card centred on it lands
+                // wherever the line happens to end.
+                at: { x: Math.min(r.left + 120, r.right), y: r.top },
+                citing: null,
+              });
             }}
           >
-            [{n}]
+            <span className="pp-ref-num">{n}</span>
+            <span className="pp-ref-text">{text}</span>
+            <ChevronRight size={13} className="pp-ref-go" />
           </button>
-          <span className="text-[12.5px] leading-snug text-slate-600">{text}</span>
         </li>
       ))}
     </ol>
