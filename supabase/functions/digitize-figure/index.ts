@@ -31,7 +31,9 @@
 import Anthropic from "npm:@anthropic-ai/sdk@^0.68.0";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { jsonrepair } from "npm:jsonrepair@3";
-import { MODEL_CATALOG, FIGURE_PANELS_SCHEMA, figureDigitizePrompt, usageCostUsd } from "../_shared/paperSpec.js";
+import {
+  MODEL_CATALOG, FIGURE_PANELS_SCHEMA, figureDigitizePrompt, usageCostUsd, forStructuredOutput,
+} from "../_shared/paperSpec.js";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -194,7 +196,7 @@ Deno.serve(async (req) => {
   try {
     response = await run(
       [imageBlock, { type: "text", text: prompt }],
-      { effort: "high", format: { type: "json_schema", schema: FIGURE_PANELS_SCHEMA } },
+      { effort: "high", format: { type: "json_schema", schema: forStructuredOutput(FIGURE_PANELS_SCHEMA) } },
     );
   } catch (e) {
     if (e?.timeout) return digitizeTimeout();

@@ -36,7 +36,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { jsonrepair } from "npm:jsonrepair@3";
 import {
   MODEL_CATALOG, LESSON_PLAN_SCHEMA, LESSON_SECTION_SCHEMA,
-  lessonPlanPrompt, lessonSectionShared, lessonSectionAsk, usageCostUsd,
+  lessonPlanPrompt, lessonSectionShared, lessonSectionAsk, usageCostUsd, forStructuredOutput,
 } from "../_shared/paperSpec.js";
 
 const CORS_HEADERS = {
@@ -184,14 +184,11 @@ Deno.serve(async (req) => {
    * is what turns "the platform killed us" into an error the reader can read.
    * A severed socket is indistinguishable from a dead network at the browser;
    * a 504 with a sentence in it is not. */
-  async function run(messageContent) {
+  async function run(messageContent, config) {
     const stream = client.messages.stream({
       model: PANEL_MODEL,
       max_tokens: maxTokens,
-      output_config: {
-        effort: "medium",
-        format: { type: "json_schema", schema },
-      },
+      output_config: config,
       messages: [{ role: "user", content: messageContent }],
     });
     let timedOut = false;
@@ -222,7 +219,10 @@ Deno.serve(async (req) => {
      * fenced, prefaced with commentary, or missing a field — the whole class
      * of "malformed panel" failures the lenient parser below existed to paper
      * over. `effort` bounds what the thinking costs. */
-    response = await run(content);
+    response = await run(content, {
+      effort: "medium",
+      format: { type: "json_schema", schema: forStructuredOutput(schema) },
+    });
   } catch (e) {
     if (e?.timeout) return timeoutError(mode);
     /* Structured outputs compile the schema into a decoding grammar, and that
@@ -240,10 +240,13 @@ Deno.serve(async (req) => {
     console.warn("lesson structured output rejected, falling back", { status, message: e?.message });
     structured = false;
     try {
+      /* The fallback has to actually differ: no `format`, schema in the prompt
+       * instead. Passing the same output_config here would re-send the request
+       * the decoder just refused and fail identically. */
       response = await run([
         { type: "text", text: shared + schemaNote, cache_control: CACHE },
         ...(ask ? [{ type: "text", text: ask }] : []),
-      ]);
+      ], { effort: "medium" });
     } catch (e2) {
       if (e2?.timeout) return timeoutError(mode);
       return json(502, { error: `The lesson builder failed: ${e2?.message || e2}` });

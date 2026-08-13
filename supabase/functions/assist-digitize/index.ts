@@ -29,7 +29,9 @@
 import Anthropic from "npm:@anthropic-ai/sdk@^0.68.0";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { jsonrepair } from "npm:jsonrepair@3";
-import { MODEL_CATALOG, DIGITIZE_ASSIST_SCHEMA, digitizeAssistPrompt, usageCostUsd } from "../_shared/paperSpec.js";
+import {
+  MODEL_CATALOG, DIGITIZE_ASSIST_SCHEMA, digitizeAssistPrompt, usageCostUsd, forStructuredOutput,
+} from "../_shared/paperSpec.js";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -122,7 +124,7 @@ Deno.serve(async (req) => {
        * is wrong by a constant factor. */
       output_config: {
         effort: "high",
-        format: { type: "json_schema", schema: DIGITIZE_ASSIST_SCHEMA },
+        format: { type: "json_schema", schema: forStructuredOutput(DIGITIZE_ASSIST_SCHEMA) },
       },
       messages: [{ role: "user", content: content(prompt) }],
     });

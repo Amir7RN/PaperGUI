@@ -141,6 +141,63 @@ const CACHE_READ_MULTIPLIER = 0.1;
 
 /** `priced` is a MODEL_CATALOG entry (from modelForPhase) — NOT the tier, which
  *  no longer carries pricing now that one tier can run several models. */
+/* ---------------- schemas, as the structured-output decoder accepts them ----
+ *
+ * Structured outputs compile the schema into a decoding grammar, and the
+ * grammar supports a SMALLER JSON Schema than the schemas here are written in.
+ * Count and range keywords — `maxItems`, `minimum`, `maxLength` — are rejected
+ * outright: `output_config.format.schema: For 'array' type, property
+ * 'maxItems' is not supported`, a 400 on the whole request.
+ *
+ * Keeping two hand-maintained copies of every schema, one bounded and one not,
+ * is how they drift. So the bounds stay written where they belong — next to
+ * the field, where they document the intent and are enforced on our own side —
+ * and this strips them on the way to the decoder, folding each one into the
+ * description so the model is still TOLD the bound it is no longer forced to.
+ *
+ * This is not a small correctness detail. Every one of these requests has a
+ * schema-in-the-prompt fallback for when the grammar is refused, so a schema
+ * the decoder won't take doesn't fail loudly — it quietly runs every call on
+ * the weaker path, where a fenced or malformed reply is possible again.
+ */
+const UNSUPPORTED_IN_GRAMMAR = [
+  "minItems", "maxItems", "uniqueItems", "contains", "minContains", "maxContains",
+  "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "multipleOf",
+  "minLength", "maxLength",
+];
+
+/** How a stripped bound reads once it is prose instead of a constraint. */
+function boundNote(node) {
+  const bits = [];
+  const range = (lo, hi, noun) =>
+    lo != null && hi != null ? `${lo}-${hi} ${noun}`
+      : lo != null ? `at least ${lo} ${noun}`
+        : hi != null ? `at most ${hi} ${noun}` : null;
+  const items = range(node.minItems, node.maxItems, "items");
+  if (items) bits.push(items);
+  const len = range(node.minLength, node.maxLength, "characters");
+  if (len) bits.push(len);
+  const num = range(node.minimum, node.maximum, "");
+  if (num) bits.push(num.trim());
+  return bits.length ? `(${bits.join("; ")})` : "";
+}
+
+export function forStructuredOutput(schema) {
+  if (Array.isArray(schema)) return schema.map(forStructuredOutput);
+  if (!schema || typeof schema !== "object") return schema;
+
+  const note = boundNote(schema);
+  const out = {};
+  for (const [k, v] of Object.entries(schema)) {
+    if (UNSUPPORTED_IN_GRAMMAR.includes(k)) continue;
+    out[k] = forStructuredOutput(v);
+  }
+  if (note) {
+    out.description = out.description ? `${out.description} ${note}` : note;
+  }
+  return out;
+}
+
 export function usageCostUsd(priced, usage) {
   if (!usage) return 0;
   const inTok = usage.input_tokens || 0;
