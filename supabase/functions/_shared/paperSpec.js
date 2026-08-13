@@ -434,7 +434,27 @@ const lessonSectionSchema = {
   },
 };
 
-export const LESSON_SCHEMA = {
+export const LESSON_SECTION_SCHEMA = lessonSectionSchema;
+
+/**
+ * A LESSON IS BUILT IN PIECES, NOT IN ONE CALL.
+ *
+ * The whole lesson — up to eight concepts, each with tutor prose and a working
+ * simulation — used to be one request. It could not be: an Edge Function is
+ * killed at its wall clock (150s on the free plan), and writing eight small
+ * simulations reliably runs past that. The kill severs the socket before any
+ * response, so the browser reports it as "Failed to fetch" — a network error
+ * for what is really a budget overrun, with nothing in it to act on.
+ *
+ * So the work is cut where it is naturally separable. One cheap call plans the
+ * lesson (what the concepts are, in passage order); one call per concept
+ * writes that concept. Every call comfortably fits the window, the reader
+ * watches sections arrive instead of staring at a spinner, a section that
+ * fails its test run is retried on its own instead of dragging the whole
+ * lesson back through the model, and a lesson that goes wrong at section six
+ * still delivers five.
+ */
+export const LESSON_PLAN_SCHEMA = {
   type: "object",
   additionalProperties: false,
   required: ["title", "intro", "sections"],
@@ -445,8 +465,17 @@ export const LESSON_SCHEMA = {
       type: "array",
       minItems: 1,
       maxItems: 8,
-      items: lessonSectionSchema,
-      description: "ONE section per distinct concept in the selection, in the order the passage introduces them. A selection with one idea gets one section; a methods passage with six gets six. Never merge two concepts into one section to save space.",
+      description: "ONE entry per distinct concept in the selection, in the order the passage introduces them. A selection with one idea gets one entry; a methods passage with six gets six. Merging two concepts into one entry is the failure this format exists to prevent.",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["heading", "brief"],
+        properties: {
+          heading: { type: "string", description: "This concept's name, as a short title — e.g. 'The velocity residual', 'Why k = 1 favours fast detection'." },
+          brief: { type: "string", description: "ONE sentence naming exactly what this section will teach and what its demo will let the reader drag. This is a plan, not the lesson: do not write the teaching prose here." },
+          source: { type: "string", description: "Where in the passage this concept lives — 'Eq. (4)', 'Sec. II.B' — or empty string." },
+        },
+      },
     },
   },
 };
@@ -470,34 +499,74 @@ const DEMO_RULES =
   "- Include insightJs — body of function(params, result, helpers) => one plain sentence with real computed numbers " +
   "saying what the current slider values show.";
 
-/**
- * The instruction for one on-demand LESSON: the reader selected a passage,
- * possibly a long one, and wants to be TAUGHT it — every concept in it, one
- * interactive section each, in order.
- */
-export function lessonPrompt({ paperTitle, sectionLabel, quote, context }) {
+/** What both lesson calls need in front of them, byte-identical so the section
+ *  calls read it from the prompt cache instead of paying for it N times. */
+function lessonContext({ paperTitle, sectionLabel, quote, context }) {
   return (
-    "You are a tutor building an interactive LESSON for one passage of a scientific paper that a " +
-    "reader selected because they want to actually understand it — not skim it, understand it.\n\n" +
     `PAPER: ${paperTitle || "(untitled)"}\n` +
     `WHERE THEY ARE: ${sectionLabel}\n\n` +
     `THE PASSAGE THEY SELECTED:\n"""${quote}"""\n\n` +
-    (context ? `WHAT THE ANALYSIS ALREADY KNOWS ABOUT THIS PAPER (use it to stay faithful to the paper's own quantities, symbols and numbers):\n"""${context}"""\n\n` : "") +
-    "STEP 1 — INVENTORY THE CONCEPTS (do this first, before writing anything):\n" +
-    "Read the passage and list every DISTINCT concept it introduces or uses: each equation, each " +
-    "mechanism, each deliberate design decision (a chosen constant, a trade-off, a filter, a voting " +
-    "rule), each defined quantity. A methods passage routinely carries four to eight. Two sentences " +
-    "about the same object are one concept; a new symbol with its own role is a new one.\n\n" +
-    "STEP 2 — ONE SECTION PER CONCEPT, IN PASSAGE ORDER:\n" +
-    "Build `sections` with exactly one entry per concept from your inventory, in the order the " +
-    "passage introduces them, so the lesson reads as a guided walk through the reader's own " +
-    "selection. Collapsing several concepts into one section is the failure this format exists to " +
-    "prevent — the reader asked to be taught the passage, not shown a sample of it.\n\n" +
-    "EACH SECTION, like a page of a good tutor:\n" +
-    "- `teach`: teach THIS concept from scratch in the paper's context. Why does the method need it? " +
-    "What does each symbol mean, in words? What are the paper's actual numbers for it? End by " +
-    "telling the reader what to try on the demo. Assume they are smart but new to this field.\n" +
-    "- `equation`: the concept's equation from the passage, plain unicode, or empty string.\n" +
+    (context
+      ? "WHAT THE ANALYSIS ALREADY KNOWS ABOUT THIS PAPER (use it to stay faithful to the paper's " +
+        `own quantities, symbols and numbers):\n"""${context}"""\n\n`
+      : "")
+  );
+}
+
+/**
+ * CALL 1 — plan the lesson.
+ *
+ * Deliberately cheap and short: naming the concepts is a reading task, and
+ * separating it from the writing means the reader sees the shape of their
+ * lesson in a few seconds and every section afterwards is written knowing what
+ * the others cover.
+ */
+export function lessonPlanPrompt({ paperTitle, sectionLabel, quote, context }) {
+  return (
+    "You are a tutor planning an interactive LESSON for one passage of a scientific paper that a " +
+    "reader selected because they want to actually understand it — not skim it, understand it.\n\n" +
+    lessonContext({ paperTitle, sectionLabel, quote, context }) +
+    "INVENTORY THE CONCEPTS. List every DISTINCT concept the passage introduces or uses: each " +
+    "equation, each mechanism, each deliberate design decision (a chosen constant, a trade-off, a " +
+    "filter, a voting rule), each defined quantity. A methods passage routinely carries four to " +
+    "eight. Two sentences about the same object are one concept; a new symbol with its own role is a " +
+    "new one.\n\n" +
+    "Emit one `sections` entry per concept, in the order the passage introduces them, so the lesson " +
+    "reads as a guided walk through the reader's own selection. Collapsing several concepts into one " +
+    "entry is the failure this format exists to prevent — they asked to be taught the passage, not " +
+    "shown a sample of it.\n\n" +
+    "THIS CALL PLANS ONLY. Each entry is a heading plus ONE sentence saying what that section will " +
+    "teach and what its demo will let the reader drag. The teaching prose and the working simulation " +
+    "are written afterwards, one call per section. Do not write them here."
+  );
+}
+
+/**
+ * CALL 2..N — write ONE section of the planned lesson.
+ *
+ * Split into a shared half and an asking half: the shared half is identical
+ * across every section of a lesson, so it is sent as a cached block and the
+ * later sections read it at a tenth of the price.
+ */
+export function lessonSectionShared({ paperTitle, sectionLabel, quote, context, plan }) {
+  const outline = (plan?.sections || [])
+    .map((s, i) => `  ${i + 1}. ${s.heading}${s.brief ? ` — ${s.brief}` : ""}`)
+    .join("\n");
+  return (
+    "You are a tutor writing ONE page of an interactive LESSON about a passage of a scientific " +
+    "paper. The lesson has already been planned; you are writing a single section of it.\n\n" +
+    lessonContext({ paperTitle, sectionLabel, quote, context }) +
+    `THE LESSON: "${plan?.title || "Lesson"}"\n${plan?.intro || ""}\n\n` +
+    `ITS SECTIONS:\n${outline}\n\n` +
+    "Write only the section you are asked for. The others are being written separately, so do not " +
+    "cover their material — but do assume the reader has already read the ones before it and has " +
+    "not yet read the ones after.\n\n" +
+    "THE SECTION, like a page of a good tutor:\n" +
+    "- `teach`: 4-8 sentences teaching THIS concept from scratch in the paper's context. Why does " +
+    "the method need it? What does each symbol mean, in words? What are the paper's actual numbers " +
+    "for it? End by telling the reader what to try on the demo. Assume they are smart but new to " +
+    "this field.\n" +
+    "- `equation`: this concept's equation from the passage, plain unicode, or empty string.\n" +
     "- `demo`: the interactive half. THE RULE: no claim that can be made draggable is left as prose. " +
     "Choose what teaches best —\n" +
     "    * kind \"chart\" with sliders for anything with a relationship to feel: a threshold rule " +
@@ -508,13 +577,34 @@ export function lessonPrompt({ paperTitle, sectionLabel, quote, context }) {
     "stepping).\n" +
     "    * kind \"digitized\" ONLY when the passage points at a real figure whose values you were " +
     "handed.\n" +
-    "  Calibrate every default to the passage's own numbers (its k, its Nc, its cutoff frequency, its " +
-    "sampling rate) so the demo shows the PAPER's operating point, not a generic one.\n" +
+    "  Calibrate every default to the passage's own numbers (its k, its Nc, its cutoff frequency, " +
+    "its sampling rate) so the demo shows the PAPER's operating point, not a generic one.\n" +
     "- `takeaway`: one memorable line, with the concrete number where there is one.\n\n" +
     "HONESTY: never invent data the paper does not have. A concept that cannot be simulated honestly " +
     "gets the nearest honest demo — the equation itself on sliders, or the reported numbers as a " +
     "chart — and its `teach` says so.\n\n" +
     DEMO_RULES
+  );
+}
+
+export function lessonSectionAsk({ plan, index, retryReason }) {
+  const s = plan?.sections?.[index] || {};
+  return (
+    `WRITE SECTION ${index + 1} OF ${plan?.sections?.length || 1}: "${s.heading || "this concept"}"\n` +
+    (s.brief ? `Its plan: ${s.brief}\n` : "") +
+    (s.source ? `Where it lives: ${s.source}\n` : "") +
+    (retryReason
+      ? "\nYOUR PREVIOUS ATTEMPT AT THIS SECTION WAS EXECUTED AND REJECTED:\n" +
+        `  “${retryReason}”\n` +
+        "Fix that specific fault. The usual causes, in order of likelihood:\n" +
+        "- A slider the code reads but that cannot change the shape of the output, or never reads at " +
+        "all. Every slider must appear in computeJs somewhere that moves the plotted values.\n" +
+        "- A slider whose range includes a value that breaks the maths — a zero denominator, a " +
+        "negative square root, a log of zero. Choose min/max so every value in the range is safe, or " +
+        "clamp inside the kernel. The reader WILL drag it to both ends.\n" +
+        "- Series of different lengths, or a constant output.\n" +
+        "Return a complete section, not a patch."
+      : "")
   );
 }
 
@@ -626,65 +716,6 @@ export function digitizeAssistPrompt({ figureLabel, title, caption }) {
   );
 }
 
-/** The instruction for one on-demand panel. Deliberately short: this is a
- *  single small artifact on a metered per-click budget, not an analysis. */
-export function panelPrompt({ paperTitle, sectionLabel, quote, context }) {
-  return (
-    "You build ONE small interactive panel that teaches exactly what a reader just highlighted " +
-    "while reading a scientific paper. They chose this passage because they did not follow it.\n\n" +
-    `PAPER: ${paperTitle || "(untitled)"}\n` +
-    `WHERE THEY ARE: ${sectionLabel}\n\n` +
-    `THE PASSAGE THEY SELECTED:\n"""${quote}"""\n\n` +
-    (context ? `WHAT THE ANALYSIS ALREADY KNOWS ABOUT THIS PAPER (use it to stay faithful to the paper's own quantities, symbols and numbers):\n"""${context}"""\n\n` : "") +
-    "STEP 1 — CLASSIFY BEFORE YOU BUILD (do this first, every time):\n" +
-    "Decide what the reader is actually pointing at. If it is a REAL FIGURE of the paper (the passage " +
-    "names one, or you were handed its digitized values), name its chart family by looking at what it is: " +
-    "line, bar, groupedBar, scatter, box, violin, heatmap, stackedBar, stackedBarH, radar, radialBar, " +
-    "kaplanMeier. Classify HONESTLY — a grid of coloured cells is a heatmap, never a set of lines; a box " +
-    "is 'box', never 'bar'; stacked segments are never side-by-side groups; a survival staircase is " +
-    "'kaplanMeier', never 'line'; a horizontal stacked bar is never rotated vertical.\n" +
-    "- Family is heatmap / box / violin / groupedBar / stackedBar / stackedBarH / radar / radialBar / " +
-    "scatter-cloud / kaplanMeier → set demo.kind to \"digitized\", fill demo.digitized with the matching " +
-    "carrier (grid + rowLabels + colLabels + palette for heatmap; categories[].boxes for box; " +
-    "categories[].violins for violin; groups for groupedBar/radialBar; subPanels for stackedBar; rows for " +
-    "stackedBarH; axes + series for radar; series[].points for scatter; km for kaplanMeier), set " +
-    "computeJs to the empty string and params to []. Set T=1 and dt=1. The client renders this with the " +
-    "SAME faithful renderer the analysis uses — same chart family, same orientation, same colours.\n" +
-    "- Family is a plain x-y line/bar/scatter, OR the passage is an EQUATION / mechanism / trade-off with " +
-    "no figure behind it → set demo.kind to \"chart\" and build the sliders-and-computeJs panel described " +
-    "below. This is the right answer for most passages; it is the WRONG answer for a real figure of any " +
-    "family above.\n" +
-    "Never force a figure into the wrong family to keep the sliders. A faithful reproduction with no " +
-    "dials beats an invented curve with three.\n\n" +
-    "BUILD THE PANEL THAT MAKES THIS PASSAGE CLICK (kind \"chart\" / \"frames\"):\n" +
-    "- Pick the ONE mechanism, trade-off or relationship in the passage that a slider can reveal, and build that. " +
-    "Not a summary of the passage — a thing the reader can move.\n" +
-    "- 1-3 sliders. Every slider must visibly change the plot at its default operating point; a slider that does nothing is a failure.\n" +
-    "- At default values the plot must show an obviously shaped, clearly varying curve. Flat or constant output is a failure.\n" +
-    "- Calibrate ranges and magnitudes to the paper's own reported numbers wherever the passage or the context gives them.\n" +
-    "- If the passage includes a block of \"THE PAPER'S OWN DIGITIZED VALUES\" for a figure, that data is GROUND TRUTH, already " +
-    "read off the real figure — treat it as the paper's own reported numbers, not a suggestion. Carry it through in the family it " +
-    "already declares (demo.kind \"digitized\" with the matching carrier), use its actual labels and magnitudes verbatim, and never " +
-    "substitute a different quantity or a synthetic parametric model when real digitized numbers were handed to you.\n" +
-    "- xLabel and yLabel MUST name the quantity AND its unit as the paper uses them ('peak demand (GW)', 'iteration', " +
-    "'log₁₀ power density (W/m²)'). A bare word with no unit is a failure.\n" +
-    "- `source` must be traceable: name the equation, figure, table or section the passage refers to, or say it comes from the selected passage. Never cite a number the paper did not give.\n" +
-    "- HONESTY BEFORE COMPLETENESS: if the passage describes something no slider can honestly represent (a photograph, a claim about " +
-    "prior work, a bare experimental protocol), build the nearest thing that IS honest — the equation it rests on, or the " +
-    "reported quantities it compares — and say so in `story`. Never fabricate data the paper does not have.\n\n" +
-    "RULES FOR demo.computeJs (this code is EXECUTED in the reader's browser — SKIP this whole section " +
-    "when demo.kind is \"digitized\": there computeJs is the empty string and the values live in " +
-    "demo.digitized):\n" +
-    "- It is the BODY of: function(params, helpers).\n" +
-    "- chart kind: return { x?: number[], categories?: string[] (bar only), series: [{ label, data: number[] }] } — 1-4 series, all the same length; x defaults to helpers.t.\n" +
-    "- frames kind: return { frames: [{ grid: number[][] (max 10x10), note: string }] } with 4-25 frames.\n" +
-    "- `params` holds slider values by key. `helpers` = { n, dt, t, T, noise, clamp(v,lo,hi), step(ti,t0,amp) }.\n" +
-    "- ONLY Math, basic JS and helpers. No imports, no fetch, no Date, no randomness except helpers.noise. Deterministic.\n" +
-    "- Keep numerics stable: explicit Euler with helpers.dt, clamp integrators, never divide by something that can reach zero.\n" +
-    "- Include `insightJs` — body of function(params, result, helpers) => one plain sentence with real computed numbers, " +
-    "saying what the current slider values are showing. This is what turns a slider toy into a lesson."
-  );
-}
 
 /** "The physics & the model" section — the methodology at the depth authors
  *  expect: experiment vs simulation, the real toolchain, the governing

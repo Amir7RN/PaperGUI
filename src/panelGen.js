@@ -221,129 +221,177 @@ export function auditPanel(panel) {
   return null;
 }
 
-/** One request to the builder. `retryReason` is the audit's verdict on the
- *  previous attempt, if there was one. */
-async function requestPanel({ paperTitle, sectionLabel, quote, context, retryReason }) {
+/**
+ * One request to the builder.
+ *
+ * A lesson is several of these: one to plan it, then one per section. That is
+ * not an optimisation — an Edge Function is killed at its wall clock, and
+ * writing a whole lesson in a single call ran past it, which arrived in the
+ * browser as "Failed to fetch" because the socket was severed before any
+ * response. Small calls also mean a section that fails its test run is retried
+ * on its own, and a lesson that dies at section six still delivers five.
+ */
+async function requestPanel(body) {
   const token = await getAccessToken();
   if (!token) {
-    const e = new Error("Sign in to build a panel for this passage.");
+    const e = new Error("Sign in to build a lesson for this passage.");
     e.code = "auth";
     throw e;
   }
 
-  const res = await fetch(`${functionsUrl}/generate-panel`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-      apikey: supabaseAnonKey,
-    },
-    body: JSON.stringify({ paperTitle, sectionLabel, quote, context, retryReason }),
-  });
+  let res;
+  try {
+    res = await fetch(`${functionsUrl}/generate-panel`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+        apikey: supabaseAnonKey,
+      },
+      body: JSON.stringify(body),
+    });
+  } catch (netErr) {
+    /* fetch() only rejects for network-level failures, and the browser's own
+     * message for all of them is the unhelpful "Failed to fetch". Say what it
+     * actually means from here. */
+    const e = new Error(
+      "Couldn't reach the lesson builder — check your connection and try again.",
+    );
+    e.code = "network";
+    e.cause = netErr;
+    throw e;
+  }
 
   let data = null;
   try { data = await res.json(); } catch { /* non-JSON error body */ }
   if (!res.ok) {
-    const e = new Error(data?.error || `Panel request failed (${res.status}).`);
+    const e = new Error(data?.error || `Lesson request failed (${res.status}).`);
     if (res.status === 402) e.code = "credit";
+    else if (data?.code) e.code = data.code;
+    e.cost = data?.cost || 0;
+    e.remainingBalance = data?.remainingBalance ?? null;
     throw e;
   }
-  if (!data?.lesson && !data?.demo) throw new Error("The lesson builder returned nothing — try again.");
   return data;
-}
-
-/**
- * Whatever the server sent, as a LESSON.
- *
- * The endpoint now returns { lesson: { title, intro, sections } }; a stale
- * deployment still returns the old single { demo: { title, story, source,
- * demo } }. One shape downstream, so the notebook and the renderer never
- * branch on the server's age.
- */
-function asLesson(data) {
-  if (data?.lesson?.sections?.length) return data.lesson;
-  const p = data?.demo;
-  if (!p?.demo) return null;
-  return {
-    title: p.title || "Panel",
-    intro: p.story || "",
-    sections: [{
-      heading: p.title || "The idea",
-      teach: p.story || "",
-      equation: "",
-      demo: p.demo,
-      takeaway: "",
-      source: p.source || "",
-    }],
-  };
 }
 
 /**
  * Ask the server for a LESSON about `quote` — one interactive section per
  * concept in the selection.
  *
- * The audit runs per section, and it decides at the section level: a lesson
- * whose fourth demo divides by zero loses its fourth section, not the whole
- * purchase. A failed audit gets ONE retry with every verdict fed back, named
- * by section, because the reader has already been charged by the time the
- * audit runs — and the failures it catches are exactly the kind a model fixes
- * once told which section made them. One retry, not a loop: after that,
- * whatever sections work are delivered and the dropped ones are reported.
+ * Built in pieces: one call plans it, then one call per section. Each section
+ * is test-run the moment it lands, and a section that fails gets ONE retry
+ * with the verdict fed back — targeted at that section, not at the whole
+ * lesson, so fixing the fourth demo no longer means regenerating the three
+ * that already worked and paying for them twice.
  *
- * Returns { lesson, cost, remainingBalance, dropped }; throws only when not a
- * single section survived both attempts.
+ * `onProgress({ phase, done, total, title })` is called as the lesson builds,
+ * because it is now genuinely incremental: the reader watches sections arrive
+ * instead of waiting on one long silence.
+ *
+ * Returns { lesson, cost, remainingBalance, dropped }; throws only when the
+ * plan fails or not one section survived.
  */
-export async function generatePanel({ paperTitle, sectionLabel, quote, context }) {
-  if (!functionsUrl) throw new Error("Panel building isn't configured for this deployment.");
+export async function generatePanel({ paperTitle, sectionLabel, quote, context, onProgress }) {
+  if (!functionsUrl) throw new Error("Lesson building isn't configured for this deployment.");
 
+  const base = { paperTitle, sectionLabel, quote, context };
   let spent = 0;
-  let firstProblem = null;
+  let balance = null;
+  const tell = (o) => { try { onProgress?.(o); } catch { /* never fail on UI */ } };
 
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const data = await requestPanel({
-      paperTitle, sectionLabel, quote, context,
-      retryReason: attempt === 0 ? undefined : firstProblem,
-    });
-    spent += data.cost || 0;
-
-    const lesson = asLesson(data);
-    if (!lesson) throw new Error("The lesson builder returned nothing usable — try again.");
-
-    const kept = [];
-    const faults = [];
-    for (const [i, section] of lesson.sections.entries()) {
-      const problem = auditPanel({ demo: section.demo });
-      if (!problem) { kept.push(section); continue; }
-      faults.push(`section ${i + 1} ("${section.heading || "untitled"}"): ${problem}`);
-    }
-
-    if (!faults.length) {
-      return { lesson, cost: spent, remainingBalance: data.remainingBalance, dropped: null };
-    }
-
-    if (attempt === 0) {
-      console.warn("lesson sections failed audit, retrying with the reasons", faults);
-      firstProblem = faults.join("\n");
-      continue;
-    }
-
-    /* Final attempt, some sections still broken. Deliver the ones that work —
-     * the reader paid for a lesson and four good sections of six IS a lesson —
-     * and say plainly which were dropped and why. */
-    if (kept.length) {
-      return {
-        lesson: { ...lesson, sections: kept },
-        cost: spent,
-        remainingBalance: data.remainingBalance,
-        dropped: faults.join("\n"),
-      };
-    }
-
-    const e = new Error(`This passage didn't produce a working lesson — ${faults[0] || "every section failed its test run"}.`);
-    e.code = "audit";
-    e.cost = spent;
-    e.remainingBalance = data.remainingBalance;
+  // --- 1. what are we teaching, and in what order? --------------------------
+  tell({ phase: "plan", done: 0, total: 0 });
+  let planData;
+  try {
+    planData = await requestPanel({ ...base, mode: "plan" });
+  } catch (e) {
+    e.cost = (e.cost || 0) + spent;
     throw e;
   }
+  spent += planData.cost || 0;
+  balance = planData.remainingBalance ?? balance;
+
+  const plan = planData.plan;
+  if (!Array.isArray(plan?.sections) || !plan.sections.length) {
+    const e = new Error("The lesson builder couldn't find anything to teach in that selection.");
+    e.cost = spent;
+    e.remainingBalance = balance;
+    throw e;
+  }
+
+  // --- 2. one section at a time, audited as it lands ------------------------
+  const total = plan.sections.length;
+  const kept = [];
+  const faults = [];
+
+  for (let i = 0; i < total; i++) {
+    tell({ phase: "section", done: i, total, title: plan.sections[i]?.heading || "" });
+
+    let section = null;
+    let problem = null;
+
+    /* Two attempts per section. The audit runs the generated kernel for real,
+     * so it can report faults the prompt cannot know about — a dial that moves
+     * nothing, a divide by zero at the end of a slider's range — and those are
+     * exactly the kind a model fixes once told which one it made. */
+    for (let attempt = 0; attempt < 2 && !section; attempt++) {
+      let data;
+      try {
+        data = await requestPanel({
+          ...base, mode: "section", plan, index: i,
+          retryReason: attempt === 0 ? undefined : problem,
+        });
+      } catch (e) {
+        spent += e.cost || 0;
+        balance = e.remainingBalance ?? balance;
+        /* A section that cannot be built is one lost page, not a lost lesson —
+         * unless the whole purchase is blocked, in which case stopping now is
+         * the only thing that respects the balance. */
+        if (e.code === "credit" || e.code === "auth" || e.code === "network") {
+          if (kept.length) break;
+          e.cost = spent;
+          e.remainingBalance = balance;
+          throw e;
+        }
+        problem = e.message;
+        continue;
+      }
+      spent += data.cost || 0;
+      balance = data.remainingBalance ?? balance;
+
+      const candidate = data.section;
+      if (!candidate?.demo) { problem = "the section came back without a demo"; continue; }
+      problem = auditPanel({ demo: candidate.demo });
+      if (!problem) section = candidate;
+      else if (attempt === 0) console.warn(`lesson section ${i + 1} failed audit, retrying`, problem);
+    }
+
+    if (section) kept.push({ ...section, source: section.source || plan.sections[i]?.source || "" });
+    else faults.push(`section ${i + 1} ("${plan.sections[i]?.heading || "untitled"}"): ${problem}`);
+
+    // Blocked mid-lesson (no credit, no network): stop rather than run the
+    // remaining sections into the same wall.
+    if (!section && (problem || "").length === 0) break;
+  }
+
+  tell({ phase: "done", done: total, total });
+
+  if (kept.length) {
+    return {
+      lesson: { title: plan.title, intro: plan.intro, sections: kept },
+      cost: spent,
+      remainingBalance: balance,
+      dropped: faults.length ? faults.join("\n") : null,
+    };
+  }
+
+  const e = new Error(
+    `This passage didn't produce a working lesson — ${faults[0] || "every section failed its test run"}.`,
+  );
+  e.code = "audit";
+  e.cost = spent;
+  e.remainingBalance = balance;
+  throw e;
 }
 

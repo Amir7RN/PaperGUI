@@ -55,6 +55,17 @@ const MAX_DRAFT_CHARS = 12_000;
  * spend. */
 const MAX_OUTPUT_TOKENS = 24_000;
 
+/**
+ * How long the read may run before we stop it ourselves.
+ *
+ * Supabase hard-kills an Edge Function at 150s of wall clock on the free plan
+ * and 400s on Pro, and the kill severs the connection with no response — which
+ * the browser reports as "Failed to fetch". Stopping first turns that into an
+ * error that says what happened. Raise it with the plan:
+ *   supabase secrets set EDGE_WALL_MS=390000
+ */
+const WALL_MS = Math.min(590_000, Math.max(20_000, Number(Deno.env.get("EDGE_WALL_MS")) || 140_000));
+
 /* Reading a published figure's values off the pixels is exactly the vision
  * work MODEL_CATALOG reserves Opus for: everything downstream (the reproduced
  * chart, the reader's trust in it) inherits a mis-read axis, and a wrong
@@ -143,19 +154,50 @@ Deno.serve(async (req) => {
 
   const imageBlock = { type: "image", source: { type: "base64", media_type: mediaType, data: b64 } };
 
+  /* STREAMED, with a deadline.
+   *
+   * Reading a multi-panel figure at high effort is one of the longest calls
+   * this app makes, and a non-streaming request that outlives the Edge
+   * Function's wall clock is killed with no response at all — which reaches
+   * the browser as "Failed to fetch", a network error for what is really a
+   * budget overrun. Streaming is also what the SDK asks for at this
+   * `max_tokens`. Stopping ourselves first is what makes the failure
+   * something a reader can act on. */
+  async function run(messageContent, config) {
+    const stream = client.messages.stream({
+      model: DIGITIZE_MODEL,
+      max_tokens: MAX_OUTPUT_TOKENS,
+      output_config: config,
+      messages: [{ role: "user", content: messageContent }],
+    });
+    let timedOut = false;
+    const deadline = setTimeout(() => {
+      timedOut = true;
+      try { stream.abort(); } catch { /* already finished */ }
+    }, WALL_MS);
+    try {
+      return await stream.finalMessage();
+    } catch (err) {
+      if (timedOut) {
+        const e = new Error("timeout");
+        e.timeout = true;
+        throw e;
+      }
+      throw err;
+    } finally {
+      clearTimeout(deadline);
+    }
+  }
+
   let response;
   let structured = true;
   try {
-    response = await client.messages.create({
-      model: DIGITIZE_MODEL,
-      max_tokens: MAX_OUTPUT_TOKENS,
-      output_config: {
-        effort: "high",
-        format: { type: "json_schema", schema: FIGURE_PANELS_SCHEMA },
-      },
-      messages: [{ role: "user", content: [imageBlock, { type: "text", text: prompt }] }],
-    });
+    response = await run(
+      [imageBlock, { type: "text", text: prompt }],
+      { effort: "high", format: { type: "json_schema", schema: FIGURE_PANELS_SCHEMA } },
+    );
   } catch (e) {
+    if (e?.timeout) return digitizeTimeout();
     /* Structured outputs compile the schema into a decoding grammar and that
      * compilation can be refused (analyze-paper hit "the compiled grammar is
      * too large" on the full PaperSpec). Any 4xx falls back to schema-in-prompt;
@@ -167,22 +209,18 @@ Deno.serve(async (req) => {
     console.warn("digitize-figure structured output rejected, falling back", { status, message: e?.message });
     structured = false;
     try {
-      response = await client.messages.create({
-        model: DIGITIZE_MODEL,
-        max_tokens: MAX_OUTPUT_TOKENS,
-        output_config: { effort: "high" },
-        messages: [{
-          role: "user",
-          content: [imageBlock, {
-            type: "text",
-            text: prompt +
-              "\n\nOUTPUT FORMAT (critical):\nRespond with ONLY one JSON object — no markdown fences, no " +
-              "commentary. Escape newlines inside strings as \\n. It must validate against this JSON Schema:\n" +
-              JSON.stringify(FIGURE_PANELS_SCHEMA),
-          }],
+      response = await run(
+        [imageBlock, {
+          type: "text",
+          text: prompt +
+            "\n\nOUTPUT FORMAT (critical):\nRespond with ONLY one JSON object — no markdown fences, no " +
+            "commentary. Escape newlines inside strings as \\n. It must validate against this JSON Schema:\n" +
+            JSON.stringify(FIGURE_PANELS_SCHEMA),
         }],
-      });
+        { effort: "high" },
+      );
     } catch (e2) {
+      if (e2?.timeout) return digitizeTimeout();
       return json(502, { error: `Reading the figure failed: ${e2?.message || e2}` });
     }
   }
@@ -236,6 +274,16 @@ Deno.serve(async (req) => {
 
   return json(200, { panels, cost: isOwner ? 0 : cost, remainingBalance: newBalance });
 });
+
+/** The deliberate stop, said in words. See WALL_MS. */
+function digitizeTimeout() {
+  return json(504, {
+    error:
+      "Reading this figure took longer than the server allows. Figures with many subplots are the " +
+      "usual cause — try one panel of it, or try again.",
+    code: "timeout",
+  });
+}
 
 function json(status, body) {
   return new Response(JSON.stringify(body), {

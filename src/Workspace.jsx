@@ -4249,10 +4249,34 @@ function PanelJobDialog({ job, est, onConfirm, onCancel }) {
               )}
             </div>
             <p className="text-[12px] leading-relaxed text-slate-500">
-              Reading your selection, finding every distinct concept in it, and building one
-              interactive section per concept — each test-run before you see it. A long passage
-              takes a minute or two; you get a section for every idea in it, not a sample.
+              {job.progress?.phase === "section"
+                ? "Each section is written and then test-run in your browser before you see it — a demo whose dials do nothing never reaches you."
+                : "Reading your selection and finding every distinct concept in it. You get a section for every idea in your selection, not a sample."}
             </p>
+            {/* The lesson is built one section at a time, so the wait has real
+                structure — showing it is the difference between "working" and
+                "possibly hung". */}
+            {job.progress?.total > 0 && (
+              <div className="mt-3">
+                <div className="mb-1 flex items-baseline justify-between text-[11px] font-semibold text-slate-500">
+                  <span>
+                    {job.progress.phase === "done"
+                      ? "Finishing up…"
+                      : `Section ${Math.min(job.progress.done + 1, job.progress.total)} of ${job.progress.total}`}
+                    {job.progress.title ? <span className="font-normal text-slate-400"> · {job.progress.title}</span> : null}
+                  </span>
+                  <span className="tabular-nums text-slate-400">
+                    {job.progress.done}/{job.progress.total}
+                  </span>
+                </div>
+                <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
+                  <div
+                    className="h-full rounded-full bg-indigo-500 transition-[width] duration-500"
+                    style={{ width: `${Math.round((job.progress.done / job.progress.total) * 100)}%` }}
+                  />
+                </div>
+              </div>
+            )}
             <p className="mt-2 border-l-2 border-slate-200 pl-2 text-[11px] italic leading-snug text-slate-400">
               {job.quote.length > 180 ? `${job.quote.slice(0, 180)}…` : job.quote}
             </p>
@@ -4608,6 +4632,11 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
         // result figures were grounded in unrelated methodology instead of
         // the figure's own data.
         context: buildSectionContext(spec, req.sectionId || "model"),
+        /* A lesson is built one section at a time, so the wait has real
+         * structure and the dialog can show it. A spinner that says nothing
+         * for two minutes is indistinguishable from a hang — which is exactly
+         * how the previous single-call version failed. */
+        onProgress: (p) => setPanelJob({ ...req, status: "working", progress: p }),
       });
       setNotebook(addPanel(spec, { lesson, quote: req.quote, page: req.page, sectionLabel: req.sectionLabel, cost }));
       setPanelJob({ ...req, status: "done", cost, sections: lesson.sections.length, dropped });
