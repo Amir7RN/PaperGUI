@@ -11,7 +11,8 @@
     "check:refs": "node scripts/refs-count.mjs",
     "fixture:prompt": "node scripts/phase-prompt.mjs",
     "fixture:write": "node scripts/fixture-write.mjs",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "check:axis": "node scripts/check-axis.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.110.0",

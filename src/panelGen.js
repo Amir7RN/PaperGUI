@@ -380,6 +380,11 @@ export async function generatePanel({ paperTitle, sectionLabel, quote, context, 
   if (kept.length) {
     return {
       lesson: { title: plan.title, intro: plan.intro, sections: kept },
+      /* The plan and what it was built from travel with the lesson, so ONE
+       * section can be rebuilt later without re-planning or re-paying for the
+       * others — see regenerateSection. */
+      plan,
+      built: base,
       cost: spent,
       remainingBalance: balance,
       dropped: faults.length ? faults.join("\n") : null,
@@ -395,3 +400,76 @@ export async function generatePanel({ paperTitle, sectionLabel, quote, context, 
   throw e;
 }
 
+
+/**
+ * Rebuild ONE section of a lesson to the reader's instruction.
+ *
+ * A generated panel is a first attempt at teaching something, and the reader
+ * is the only one who knows whether it landed — "the slider range is wrong",
+ * "show the noisy case too", "this is the wrong quantity on y". Before the
+ * lesson was built section by section this was impossible to offer at a sane
+ * price: changing one demo meant regenerating the whole lesson and paying for
+ * the sections that were already right. Now it is one small call.
+ *
+ * The instruction rides the same channel the automatic audit uses, because it
+ * is the same kind of message — a specific, concrete complaint about THIS
+ * section, with the rest of the lesson unchanged around it.
+ *
+ * Returns { section, cost, remainingBalance }; throws if the rebuild can't
+ * produce a section that passes its test run, leaving the original in place.
+ */
+export async function regenerateSection({ built, plan, index, instruction }) {
+  if (!functionsUrl) throw new Error("Lesson building isn't configured for this deployment.");
+  if (!plan?.sections?.length || !Number.isInteger(index) || index < 0 || index >= plan.sections.length) {
+    throw new Error("This lesson was saved before section rebuilding existed — build it again to edit it.");
+  }
+  const ask = String(instruction || "").trim();
+  if (ask.length < 3) throw new Error("Say what you'd like changed.");
+
+  let spent = 0;
+  let balance = null;
+  let problem = null;
+
+  /* Two attempts, as everywhere else: the first carries the reader's request,
+   * and if the result fails its test run the second carries both — their
+   * change AND why the attempt at it broke. */
+  for (let attempt = 0; attempt < 2; attempt++) {
+    let data;
+    try {
+      data = await requestPanel({
+        ...built,
+        mode: "section",
+        plan,
+        index,
+        retryReason: attempt === 0
+          ? `THE READER ASKED FOR THIS CHANGE TO THIS SECTION: “${ask}”. Rebuild the section with it, keeping everything else about the section that already worked.`
+          : `THE READER ASKED FOR THIS CHANGE TO THIS SECTION: “${ask}”. Your attempt at it was executed and rejected: “${problem}”. Make the change AND fix that fault.`,
+      });
+    } catch (e) {
+      spent += e.cost || 0;
+      balance = e.remainingBalance ?? balance;
+      e.cost = spent;
+      e.remainingBalance = balance;
+      throw e;
+    }
+    spent += data.cost || 0;
+    balance = data.remainingBalance ?? balance;
+
+    const candidate = data.section;
+    if (!candidate?.demo) { problem = "the section came back without a demo"; continue; }
+    problem = auditPanel({ demo: candidate.demo });
+    if (!problem) {
+      return {
+        section: { ...candidate, source: candidate.source || plan.sections[index]?.source || "" },
+        cost: spent,
+        remainingBalance: balance,
+      };
+    }
+  }
+
+  const e = new Error(`That change didn't produce a working panel — ${problem}. The original is untouched.`);
+  e.code = "audit";
+  e.cost = spent;
+  e.remainingBalance = balance;
+  throw e;
+}

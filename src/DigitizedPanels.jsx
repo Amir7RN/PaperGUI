@@ -15,6 +15,7 @@
  */
 
 import React, { useState } from "react";
+import { fmt, axisFmt } from "./axis.js";
 import {
   RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar,
   ResponsiveContainer, Tooltip, Legend,
@@ -37,7 +38,6 @@ export const PALETTE = [
   "#b83280", // magenta
 ];
 const HUES = PALETTE;
-const fmt = (v, d = 2) => (v === undefined || v === null || Number.isNaN(+v) ? "–" : (+v).toFixed(d));
 
 /** Shared card chrome + "traced from figure" badge. */
 function PanelShell({ panel, children, footer }) {
@@ -159,6 +159,7 @@ function BoxPanel({ panel, height = 220 }) {
   const yPix = (v) => padT + plotH * (1 - (v - lo) / (hi - lo));
   const slot = plotW / cats.length;
   const ticks = 5;
+  const tick = axisFmt(lo, hi, ticks);
 
   return (
     <PanelShell panel={panel} footer={
@@ -173,7 +174,7 @@ function BoxPanel({ panel, height = 220 }) {
           {Array.from({ length: ticks }, (_, i) => { const v = lo + (hi - lo) * (i / (ticks - 1)); const y = yPix(v); return (
             <g key={i}>
               <line x1={padL} y1={y} x2={W - padR} y2={y} stroke="#e1e0d9" strokeWidth="1" />
-              <text x={padL - 5} y={y + 3} textAnchor="end" fontSize="9" fill="#94a3b8">{fmt(v, 1)}</text>
+              <text x={padL - 5} y={y + 3} textAnchor="end" fontSize="9" fill="#94a3b8">{tick(v)}</text>
             </g>
           ); })}
           {cats.map((c, i) => {
@@ -311,6 +312,7 @@ function ViolinPanel({ panel, height = 240 }) {
   const slot = plotW / cats.length;
   const halfMax = Math.min(44, slot * 0.4);
   const ticks = 5;
+  const tick = axisFmt(lo, hi, ticks);
 
   return (
     <PanelShell panel={panel} footer={
@@ -324,7 +326,7 @@ function ViolinPanel({ panel, height = 240 }) {
           {Array.from({ length: ticks }, (_, i) => { const v = lo + (hi - lo) * (i / (ticks - 1)); const y = yPix(v); return (
             <g key={i}>
               <line x1={padL} y1={y} x2={W - padR} y2={y} stroke="#e1e0d9" strokeWidth="1" />
-              <text x={padL - 5} y={y + 3} textAnchor="end" fontSize="9" fill="#94a3b8">{fmt(v, 1)}</text>
+              <text x={padL - 5} y={y + 3} textAnchor="end" fontSize="9" fill="#94a3b8">{tick(v)}</text>
             </g>
           ); })}
           {cats.map((c, i) => {
@@ -387,6 +389,7 @@ function GroupedBarPanel({ panel, height = 220 }) {
   const yPix = (v) => padT + plotH * (1 - v / hi);
   const slot = plotW / groups.length;
   const ticks = 5;
+  const tick = axisFmt(0, hi, ticks);
 
   return (
     <PanelShell panel={panel} footer={
@@ -400,7 +403,7 @@ function GroupedBarPanel({ panel, height = 220 }) {
           {Array.from({ length: ticks }, (_, i) => { const v = hi * (i / (ticks - 1)); const y = yPix(v); return (
             <g key={i}>
               <line x1={padL} y1={y} x2={W - padR} y2={y} stroke="#e1e0d9" strokeWidth="1" />
-              <text x={padL - 5} y={y + 3} textAnchor="end" fontSize="9" fill="#94a3b8">{fmt(v, hi >= 100 ? 0 : 1)}</text>
+              <text x={padL - 5} y={y + 3} textAnchor="end" fontSize="9" fill="#94a3b8">{tick(v)}</text>
             </g>
           ); })}
           {(d.refLines || []).map((r, i) => (
@@ -551,6 +554,7 @@ function StackedBarPanel({ panel, height = 260 }) {
     hi *= 1.08;
   }
   const ticks = 5;
+  const tick = axisFmt(0, hi, ticks);
   const H = height, padL = 40, padT = 10, padB = 30, gapBetween = 16;
   const plotH = H - padT - padB;
   const yPix = (v) => padT + plotH * (1 - v / hi);
@@ -570,7 +574,7 @@ function StackedBarPanel({ panel, height = 260 }) {
           {Array.from({ length: ticks }, (_, i) => { const v = hi * (i / (ticks - 1)); const y = yPix(v); return (
             <g key={i}>
               <line x1={padL} y1={y} x2={W - 6} y2={y} stroke="#eceae4" strokeWidth="1" />
-              <text x={padL - 5} y={y + 3} textAnchor="end" fontSize="9" fill="#94a3b8">{fmt(v, hi >= 100 ? 0 : 1)}</text>
+              <text x={padL - 5} y={y + 3} textAnchor="end" fontSize="9" fill="#94a3b8">{tick(v)}</text>
             </g>
           ); })}
           {subPanels.map((s, si) => {
@@ -938,6 +942,7 @@ function KaplanMeierPanel({ panel, height = 250 }) {
   const xPix = (t) => padL + plotW * (Math.max(0, Math.min(xMax, t)) / xMax);
   const yPix = (s) => padT + plotH * (1 - Math.max(0, Math.min(yTop, s)) / yTop);
   const yTicks = pct ? [0, 25, 50, 75, 100] : [0, 0.25, 0.5, 0.75, 1];
+  const tick = axisFmt(0, pct ? 100 : 1, yTicks.length);
 
   // step-after staircase: hold previous survival across the interval, then drop
   const stepPath = (steps) => {
@@ -977,7 +982,7 @@ function KaplanMeierPanel({ panel, height = 250 }) {
           {yTicks.map((v, i) => { const y = yPix(v); return (
             <g key={i}>
               <line x1={padL} y1={y} x2={W - padR} y2={y} stroke={v === (pct ? 50 : 0.5) ? "#cbd5e1" : "#e1e0d9"} strokeWidth="1" strokeDasharray={v === (pct ? 50 : 0.5) ? "3 3" : ""} />
-              <text x={padL - 5} y={y + 3} textAnchor="end" fontSize="9" fill="#94a3b8">{pct ? v : v.toFixed(2)}</text>
+              <text x={padL - 5} y={y + 3} textAnchor="end" fontSize="9" fill="#94a3b8">{pct ? v : tick(v)}</text>
             </g>
           ); })}
           {/* x ticks */}
@@ -1091,8 +1096,17 @@ export function evalReportedPanel(panel) {
 
 /** Plain line/bar/scatter of the paper's own reported values — no model
  *  overlay, no sliders, because there is nothing here to vary. */
-export function ReportedPanel({ panel, height = 200 }) {
+export function ReportedPanel({ panel, height = 260 }) {
   const [hover, setHover] = useState(null);
+  /* Which x the pointer is nearest, for the crosshair trace. Line charts had
+   * no hover targets at all — a polyline is one <path>, so there was nothing
+   * under the cursor to fire an event, and "hover for the value" silently did
+   * nothing on the most common chart the digitizer produces. Tracking x over
+   * the whole plot is also the right interaction for a curve: you want the
+   * value AT a point on the axis, across every series at once, not whichever
+   * 3-pixel dot you managed to hit. */
+  const [traceI, setTraceI] = useState(null);
+  const svgRef = React.useRef(null);
   const run = React.useMemo(() => evalReportedPanel(panel), [panel]);
   if (!run) return null;
 
@@ -1113,29 +1127,77 @@ export function ReportedPanel({ panel, height = 200 }) {
   y0 -= pad; y1 += pad;
 
   const x0 = Math.min(...xs), x1 = Math.max(...xs);
-  const W = 320, H = height, padL = 40, padR = 8, padT = 8, padB = categories ? 30 : 24;
+  const W = 480, H = height, padL = 46, padR = 10, padT = 10, padB = categories ? 34 : 28;
   const plotW = W - padL - padR, plotH = H - padT - padB;
   const px = (v) => padL + plotW * ((v - x0) / ((x1 - x0) || 1));
   const py = (v) => padT + plotH * (1 - (v - y0) / ((y1 - y0) || 1));
   const shell = { ...panel, digitized: { source: panel.digitized?.source || "the paper's reported values" } };
+  const tick = axisFmt(y0, y1, 5);
+  const xTick = axisFmt(x0, x1, 5);
 
   const bandW = plotW / Math.max(1, n);
   const barW = Math.max(2, (bandW * 0.7) / series.length);
 
+  /* Pointer x → nearest sample index, in the SVG's own coordinates. The svg
+   * scales to its container, so client pixels have to come back through the
+   * viewBox or the trace drifts as the card is resized. */
+  const traceAt = (e) => {
+    const box = svgRef.current?.getBoundingClientRect();
+    if (!box?.width) return;
+    const sx = ((e.clientX - box.left) / box.width) * W;
+    if (sx < padL - 4 || sx > W - padR + 4) { setTraceI(null); return; }
+    const frac = (sx - padL) / (plotW || 1);
+    const target = x0 + frac * (x1 - x0);
+    let best = 0, bestD = Infinity;
+    for (let i = 0; i < n; i++) {
+      const d = Math.abs(xs[i] - target);
+      if (d < bestD) { bestD = d; best = i; }
+    }
+    setTraceI(best);
+  };
+
+  const traced = traceI != null && traceI < n
+    ? series
+        .map((s, si) => ({
+          label: s.label || `series ${si + 1}`,
+          color: s.color || HUES[si % HUES.length],
+          value: s.data[traceI],
+        }))
+        .filter((r) => Number.isFinite(r.value))
+    : [];
+
   return (
     <PanelShell panel={shell} footer={
       <>
-        <Readout idle={`${panel.yLabel || "value"} — the paper's own reported numbers`}
-          hover={hover && <><strong>{hover.label}</strong> · {hover.at} → {fmt(hover.value, 3)}</>} />
+        <Readout
+          idle={`${panel.yLabel || "value"} — hover the plot to read every series at that point`}
+          hover={
+            hover
+              ? <><strong>{hover.label}</strong> · {hover.at} → {fmt(hover.value, 3)}</>
+              : traced.length
+                ? (
+                  <span className="flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5">
+                    <strong>{panel.xLabel ? `${panel.xLabel} ` : ""}{categories?.[traceI] ?? xTick(xs[traceI])}</strong>
+                    {traced.map((r, i) => (
+                      <span key={i} className="inline-flex items-center gap-1">
+                        <span className="inline-block h-2 w-2 rounded-sm" style={{ background: r.color }} />
+                        {r.label} <span className="font-semibold">{fmt(r.value, 3)}</span>
+                      </span>
+                    ))}
+                  </span>
+                )
+                : null
+          } />
         <ChipLegend items={series.map((s, i) => ({ label: s.label || `series ${i + 1}`, color: s.color || HUES[i % HUES.length] }))} />
       </>}>
       <div className="overflow-x-auto">
-        <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ minWidth: 260 }}>
+        <svg ref={svgRef} width="100%" viewBox={`0 0 ${W} ${H}`} style={{ minWidth: 300 }}
+          onMouseMove={traceAt} onMouseLeave={() => setTraceI(null)}>
           {[0, 0.25, 0.5, 0.75, 1].map((t, i) => (
             <g key={i}>
               <line x1={padL} y1={padT + plotH * t} x2={W - padR} y2={padT + plotH * t} stroke="#eceae4" strokeWidth="1" />
-              <text x={padL - 4} y={padT + plotH * t + 3} textAnchor="end" fontSize="7.5" fill="#94a3b8">
-                {fmt(y1 - (y1 - y0) * t, Math.abs(y1 - y0) < 10 ? 2 : 0)}
+              <text x={padL - 4} y={padT + plotH * t + 3} textAnchor="end" fontSize="8.5" fill="#94a3b8">
+                {tick(y1 - (y1 - y0) * t)}
               </text>
             </g>
           ))}
@@ -1164,12 +1226,33 @@ export function ReportedPanel({ panel, height = 200 }) {
               .join(" ");
             return <path key={si} d={dpath} fill="none" stroke={col} strokeWidth="1.8" strokeLinejoin="round" />;
           })}
+          {/* The trace: a rule at the sampled x, a dot on every series there.
+              Drawn after the data so it is never hidden under a curve, and
+              pointer-transparent so it cannot steal its own mouse events. */}
+          {traceI != null && traced.length > 0 && (
+            <g pointerEvents="none">
+              <line x1={px(xs[traceI])} y1={padT} x2={px(xs[traceI])} y2={padT + plotH}
+                stroke="#475569" strokeWidth="1" strokeDasharray="3 3" opacity="0.7" />
+              {traced.map((r, i) => (
+                <circle key={i} cx={px(xs[traceI])} cy={py(r.value)} r="3.4"
+                  fill={r.color} stroke="#fff" strokeWidth="1.4" />
+              ))}
+            </g>
+          )}
           {categories && n <= 12 && categories.slice(0, n).map((c, i) => (
-            <text key={i} x={padL + bandW * (i + 0.5)} y={H - 14} textAnchor="middle" fontSize="7.5" fill="#94a3b8">
-              {String(c).length > 9 ? `${String(c).slice(0, 8)}…` : c}
+            <text key={i} x={padL + bandW * (i + 0.5)} y={H - 16} textAnchor="middle" fontSize="8.5" fill="#94a3b8">
+              {String(c).length > 11 ? `${String(c).slice(0, 10)}…` : c}
             </text>
           ))}
-          <text x={padL + plotW / 2} y={H - 3} textAnchor="middle" fontSize="8.5" fill="#94a3b8">{panel.xLabel || ""}</text>
+          {/* A numeric x axis needs its own ticks — without them the trace can
+              say "0.42" against a plot with no scale to check it on. */}
+          {!categories && [0, 0.25, 0.5, 0.75, 1].map((t, i) => (
+            <text key={i} x={padL + plotW * t} y={H - 16} textAnchor={i === 0 ? "start" : i === 4 ? "end" : "middle"}
+              fontSize="8.5" fill="#94a3b8">
+              {xTick(x0 + (x1 - x0) * t)}
+            </text>
+          ))}
+          <text x={padL + plotW / 2} y={H - 4} textAnchor="middle" fontSize="9" fill="#94a3b8">{panel.xLabel || ""}</text>
         </svg>
       </div>
     </PanelShell>
@@ -1184,6 +1267,42 @@ export function ReportedPanel({ panel, height = 200 }) {
 export function FreePanel({ panel, height }) {
   if (isSpecialDigitized(panel)) return <DigitizedPanel panel={panel} height={height} />;
   return <ReportedPanel panel={panel} height={height} />;
+}
+
+/**
+ * A figure's panels, ARRANGED THE WAY THE PAPER ARRANGED THEM.
+ *
+ * A reproduction is checked against the original by eye, and that only works
+ * if the two are the same shape. Stacking a 2x2 figure into four cards down a
+ * column forces the reader to hold the mapping in their head, and a figure
+ * printed as a row of three reads as three unrelated charts. Stage A already
+ * measured the grid when it segmented the crop (see layoutOf in
+ * figureDigitize.js), so the arrangement is the paper's own, not a guess.
+ *
+ * Falls back to a sensible grid when there is no measured layout: one column
+ * for a single panel, two for anything more, which is still closer to how
+ * figures are printed than a single stack.
+ */
+export function FigurePanels({ panels, layout, height, className = "" }) {
+  const list = panels || [];
+  if (!list.length) return null;
+
+  const cols = Math.max(1, Math.min(4, layout?.cols || (list.length > 1 ? 2 : 1)));
+  /* Panels get shorter as the grid gets wider, but never cramped: below about
+   * 200px a plot with an axis, a legend and a readout has no room left for the
+   * data, which is the complaint this is fixing. */
+  const h = height || Math.max(210, 320 - (cols - 1) * 45);
+
+  return (
+    <div
+      className={`grid gap-2 ${className}`}
+      style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}
+    >
+      {list.map((panel, i) => (
+        <FreePanel key={i} panel={panel} height={h} />
+      ))}
+    </div>
+  );
 }
 
 /** Which of a figure's panels can be drawn for free, right now. This is the

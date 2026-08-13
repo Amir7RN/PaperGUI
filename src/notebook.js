@@ -70,7 +70,7 @@ const newId = () => `${Date.now().toString(36)}${Math.random().toString(36).slic
  *  one interactive section per concept in the selection. Entries written
  *  before the lesson format carry `panel` ({title, story, source, demo})
  *  instead, and the drawer renders both. */
-export function addPanel(spec, { lesson, panel, quote, page, sectionLabel, cost }) {
+export function addPanel(spec, { lesson, panel, quote, page, sectionLabel, cost, plan, built }) {
   return push(spec, {
     id: newId(),
     kind: "panel",
@@ -79,7 +79,28 @@ export function addPanel(spec, { lesson, panel, quote, page, sectionLabel, cost 
     cost: cost || 0,
     ...(lesson ? { lesson } : {}),
     ...(panel ? { panel } : {}),
+    /* The plan the lesson was built from, and what it was built about.
+     * Together these are what let ONE section be rebuilt to the reader's
+     * instruction later without re-planning the lesson or re-paying for the
+     * sections that already work. Entries written before this existed simply
+     * have no `plan`, and the UI offers explanation but not editing on them. */
+    ...(plan ? { plan } : {}),
+    ...(built ? { built } : {}),
   });
+}
+
+/** Replace one section of a saved lesson, in place. */
+export function replacePanelSection(spec, id, index, section, extraCost = 0) {
+  const all = readAll();
+  const key = paperKey(spec);
+  const next = (all[key] || []).map((e) => {
+    if (e.id !== id || !e.lesson?.sections?.[index]) return e;
+    const sections = e.lesson.sections.map((s, i) => (i === index ? section : s));
+    return { ...e, lesson: { ...e.lesson, sections }, cost: (e.cost || 0) + extraCost };
+  });
+  all[key] = next;
+  writeAll(all);
+  return next;
 }
 
 /** A passage the reader kept, with whatever the assistant said about it. */

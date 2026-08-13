@@ -24,7 +24,7 @@ import {
   Sparkles, BookMarked, Play, Pause, Puzzle, Rocket, Network, ChevronLeft, FileCode2, Crosshair,
   Shuffle, Wand2, Trophy, Bot, ListChecks, GraduationCap, Images, Link2,
   ShieldCheck, Layers, RotateCw, Check as CheckIcon, GripVertical, Volume2, VolumeX,
-  NotebookPen, Trash2, Loader2, Quote, ShieldAlert, Highlighter,
+  NotebookPen, Trash2, Loader2, Quote, ShieldAlert, Highlighter, MessageCircle,
 } from "lucide-react";
 import SectionChat from "./SectionChat.jsx";
 import PdfReader, { PaperReader, XrefCard } from "./PdfReader.jsx";
@@ -40,11 +40,11 @@ import DigitizerEditor from "./DigitizerEditor.jsx";
 import { DigitizedPanel, isSpecialDigitized, isDigitizedDemo, panelFromDemo, PALETTE } from "./DigitizedPanels.jsx";
 import DesignBox from "./DesignBox.jsx";
 import { loadLayout, saveLayout, layoutStyle, sectionByKey } from "./layout.js";
-import { generatePanel, PANEL_SOFT_CAP } from "./panelGen.js";
+import { generatePanel, regenerateSection, PANEL_SOFT_CAP } from "./panelGen.js";
 import { digitizeFigure } from "./figureDigitize.js";
 import { updateAnalysisSpec } from "./supabase.js";
 import { buildSectionContext } from "./sectionChat.js";
-import { loadNotebook, addPanel, addNote, removeEntry, clearNotebook, panelSpend } from "./notebook.js";
+import { loadNotebook, addPanel, addNote, removeEntry, clearNotebook, panelSpend, replacePanelSection } from "./notebook.js";
 import { loadHighlights, addHighlight, removeHighlight, colorOf } from "./highlights.js";
 import {
   buildHelpers, defaultsFromSpec, compileSpec, runSpec, buildRows,
@@ -2839,24 +2839,39 @@ function ResultsLab({ spec, pipelineCompiled, helpers, baseOutputs, actOutputs, 
                 <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
                   Interactive reproduction · solid = your dials, dashed = paper's values
                 </div>
-                <div className={`grid gap-3 ${(fig.panels?.length || 0) > 1 ? "md:grid-cols-2" : ""}`}>
-                  {(fig.panels || []).map((panel, pi) => (
-                    <div key={pi}>
-                      <PredictGate predict={panel.reproduce === false ? null : panel.predict}>
-                        {panel.reproduce === false ? (
-                          <OriginalOnlyPanel panel={panel} />
-                        ) : isSpecialDigitized(panel) ? (
-                          <DigitizedPanel panel={panel} height={panelH} />
-                        ) : (
-                          <PanelChart panel={panel} baseRun={runs[pi]?.base} actRun={runs[pi]?.act}
-                            height={panelH} onHover={setHover}
-                            activeSuffix={runs[pi]?.digitized ? "traced" : ""}
-                            baselineSuffix={runs[pi]?.digitized ? "live model" : "paper's value"} />
-                        )}
-                      </PredictGate>
+                {/* THE PAPER'S OWN ARRANGEMENT.
+                    A reproduction is checked against the original by eye, and
+                    that only works when the two are the same shape — a figure
+                    printed as a row of three read as three unrelated charts
+                    when this was hardcoded to two columns. `panelLayout` is
+                    measured off the crop by Stage A during digitization.
+                    Panels also get real height: at 170px an axis, a legend and
+                    a readout leave almost nothing for the data. */}
+                {(() => {
+                  const n = fig.panels?.length || 0;
+                  const cols = Math.max(1, Math.min(4, fig.panelLayout?.cols || (n > 1 ? 2 : 1)));
+                  const h = Math.max(panelH, 300 - (cols - 1) * 40);
+                  return (
+                    <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
+                      {(fig.panels || []).map((panel, pi) => (
+                        <div key={pi}>
+                          <PredictGate predict={panel.reproduce === false ? null : panel.predict}>
+                            {panel.reproduce === false ? (
+                              <OriginalOnlyPanel panel={panel} />
+                            ) : isSpecialDigitized(panel) ? (
+                              <DigitizedPanel panel={panel} height={h} />
+                            ) : (
+                              <PanelChart panel={panel} baseRun={runs[pi]?.base} actRun={runs[pi]?.act}
+                                height={h} onHover={setHover}
+                                activeSuffix={runs[pi]?.digitized ? "traced" : ""}
+                                baselineSuffix={runs[pi]?.digitized ? "live model" : "paper's value"} />
+                            )}
+                          </PredictGate>
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
+                  );
+                })()}
                 <p className="mt-2 text-[11px] leading-relaxed text-slate-400">
                   Plots marked <strong>traced from figure</strong> are the paper's real curve, digitized
                   point-for-point off the figure (solid, locked) — any dashed line is our live model
@@ -3909,7 +3924,73 @@ function EvidenceCheck({ evidence, onGoToPage }) {
  * the draggable demo, and a one-line takeaway with the paper's number in it.
  * Each demo renders through the same audited components everything else uses.
  */
-function LessonBody({ lesson }) {
+/**
+ * The assistant that sits ON a panel.
+ *
+ * A generated panel is a first attempt at teaching something, and the reader
+ * is the only one who can tell whether it landed. Two different needs, so two
+ * different affordances rather than one vague "chat":
+ *
+ *   ASK — free. The panel is explained, in place, by the same tutor the rest
+ *   of the app uses. Nothing is regenerated and nothing is charged, because
+ *   "what is this axis" must never cost anything to ask.
+ *
+ *   CHANGE — priced. The section is rebuilt to a specific instruction. Only
+ *   possible at a sane price because a lesson is now generated section by
+ *   section: this rebuilds one page, not the book.
+ */
+function PanelAssist({ onAsk, onChange, busy, disabled }) {
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState("");
+  if (!onAsk && !onChange) return null;
+
+  return (
+    <div className="mt-2 border-t border-slate-200 pt-2">
+      <div className="flex flex-wrap items-center gap-1.5">
+        {onAsk && (
+          <button onClick={onAsk} disabled={busy}
+            className="flex items-center gap-1 rounded-lg border border-indigo-200 bg-indigo-50 px-2 py-1 text-[11px] font-semibold text-indigo-700 transition hover:border-indigo-300 hover:bg-indigo-100 disabled:opacity-50">
+            <MessageCircle size={12} /> Ask about this panel
+          </button>
+        )}
+        {onChange && (
+          <button onClick={() => setOpen((v) => !v)} disabled={busy || disabled}
+            title={disabled ? "This lesson was built before panels could be edited — rebuild it to edit its sections." : undefined}
+            className="flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 text-[11px] font-semibold text-slate-600 transition hover:border-slate-300 hover:text-slate-900 disabled:opacity-40">
+            <SlidersHorizontal size={12} /> Change it
+          </button>
+        )}
+        {busy && (
+          <span className="flex items-center gap-1 text-[11px] text-slate-400">
+            <Loader2 size={12} className="animate-spin" /> Rebuilding this panel…
+          </span>
+        )}
+      </div>
+      {open && onChange && !busy && (
+        <form
+          className="mt-2 flex gap-1.5"
+          onSubmit={(e) => { e.preventDefault(); if (text.trim()) { onChange(text.trim()); setText(""); setOpen(false); } }}>
+          <input
+            autoFocus value={text} onChange={(e) => setText(e.target.value)}
+            placeholder="e.g. widen the k slider, or plot the noisy case too"
+            className="min-w-0 flex-1 rounded-lg border border-slate-200 px-2 py-1 text-[11.5px] outline-none focus:border-indigo-400" />
+          <button type="submit" disabled={!text.trim()}
+            className="shrink-0 rounded-lg bg-indigo-600 px-2.5 py-1 text-[11.5px] font-semibold text-white transition hover:bg-indigo-500 disabled:opacity-40">
+            Rebuild
+          </button>
+        </form>
+      )}
+      {open && onChange && (
+        <p className="mt-1 text-[10px] leading-snug text-slate-400">
+          Rebuilds this one section and charges for it. The rest of the lesson is untouched, and if
+          the change doesn’t produce a working panel the original stays.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function LessonBody({ lesson, onAskSection, onChangeSection, busyIndex, canEdit = true }) {
   return (
     <div>
       {lesson.intro && (
@@ -3947,6 +4028,12 @@ function LessonBody({ lesson }) {
                 <Lightbulb size={13} className="mt-px shrink-0" /> {sec.takeaway}
               </p>
             )}
+            <PanelAssist
+              busy={busyIndex === i}
+              disabled={!canEdit}
+              onAsk={onAskSection ? () => onAskSection(sec, i) : null}
+              onChange={onChangeSection ? (t) => onChangeSection(i, t) : null}
+            />
           </div>
         ))}
       </div>
@@ -3954,17 +4041,57 @@ function LessonBody({ lesson }) {
   );
 }
 
-function NotebookDrawer({ open, entries, highlights = [], onClose, onRemove, onClear, onGoToPage, onRemoveHighlight }) {
+function NotebookDrawer({ open, entries, highlights = [], onClose, onRemove, onClear, onGoToPage, onRemoveHighlight, onAskSection, onChangeSection, sectionJob }) {
   useEffect(() => {
     if (!open) return undefined;
     const onKey = (e) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
+  /* ONE LESSON PER PAGE.
+   *
+   * A lesson is several interactive sections; three of them on one scroll is
+   * thousands of pixels of unrelated material, and finding the one you built
+   * ten minutes ago means scrolling past two others. A notebook with pages is
+   * how a notebook works — you turn to the entry you want. Kept passages are
+   * short and stay together on their own page, because paginating one-line
+   * clippings would be pagination for its own sake.
+   */
+  const [page, setPage] = useState(0);
+  const lessons = useMemo(() => entries.filter((e) => e.kind === "panel"), [entries]);
+  const notes = useMemo(() => entries.filter((e) => e.kind !== "panel"), [entries]);
+  const pages = useMemo(
+    () => [
+      ...lessons.map((e) => ({ key: e.id, label: e.lesson?.title || e.panel?.title || "Lesson", entries: [e] })),
+      ...(notes.length
+        ? [{ key: "kept", label: `Kept passages (${notes.length})`, entries: notes }]
+        : []),
+    ],
+    [lessons, notes],
+  );
+
+  // A new lesson opens on its own page rather than leaving the reader on an
+  // older one wondering where the thing they just paid for went.
+  const count = pages.length;
+  useEffect(() => { if (page > count - 1) setPage(Math.max(0, count - 1)); }, [count, page]);
+  useEffect(() => { if (open) setPage(0); }, [open, lessons[0]?.id]);
+
+  useEffect(() => {
+    if (!open || count < 2) return undefined;
+    const onKey = (e) => {
+      if (e.key === "ArrowRight") setPage((p) => Math.min(count - 1, p + 1));
+      if (e.key === "ArrowLeft") setPage((p) => Math.max(0, p - 1));
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, count]);
+
   if (!open) return null;
 
-  const panels = entries.filter((e) => e.kind === "panel");
+  const panels = lessons;
   const spend = panels.reduce((s, e) => s + (e.cost || 0), 0);
+  const current = pages[Math.min(page, Math.max(0, count - 1))];
+  const shown = current?.entries || [];
 
   return (
     <div className="fixed inset-0 z-[70] flex justify-end bg-slate-950/60 backdrop-blur-sm"
@@ -4035,7 +4162,7 @@ function NotebookDrawer({ open, entries, highlights = [], onClose, onRemove, onC
             </div>
           ) : (
             <div className="space-y-4">
-              {entries.map((e) => (
+              {shown.map((e) => (
                 <div key={e.id} className="rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm">
                   <div className="mb-2 flex items-start gap-2">
                     <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-lg ${
@@ -4080,7 +4207,19 @@ function NotebookDrawer({ open, entries, highlights = [], onClose, onRemove, onC
                   {/* A LESSON: the selection's concepts taught in order, one
                       interactive section each. Entries from before the lesson
                       format carry a single `panel` and render below. */}
-                  {e.lesson?.sections?.length > 0 && <LessonBody lesson={e.lesson} />}
+                  {e.lesson?.sections?.length > 0 && (
+                    <LessonBody
+                      lesson={e.lesson}
+                      /* Editing needs the plan the lesson was built from.
+                         Entries saved before that was stored can still be
+                         asked about, just not rebuilt — said plainly on the
+                         button rather than by hiding it. */
+                      canEdit={!!e.plan?.sections?.length}
+                      busyIndex={sectionJob?.entryId === e.id ? sectionJob.index : null}
+                      onAskSection={onAskSection ? (sec, i) => onAskSection(e, sec, i) : null}
+                      onChangeSection={onChangeSection ? (i, t) => onChangeSection(e, i, t) : null}
+                    />
+                  )}
                   {/* An on-demand panel can come back as a faithful
                       reproduction of a real figure (heat map, box, violin,
                       stacked, radar, survival) rather than an x-y kernel — the
@@ -4098,6 +4237,52 @@ function NotebookDrawer({ open, entries, highlights = [], onClose, onRemove, onC
             </div>
           )}
         </div>
+
+        {/* The pager. Only when there is something to turn to — a notebook with
+            one entry is not a book. */}
+        {count > 1 && (
+          <div className="flex shrink-0 items-center gap-2 border-t border-slate-200 bg-white px-4 py-2.5">
+            <button
+              onClick={() => setPage((p) => Math.max(0, p - 1))}
+              disabled={page === 0}
+              className="rounded-lg border border-slate-200 p-1.5 text-slate-500 transition hover:border-slate-300 hover:text-slate-800 disabled:opacity-35"
+              aria-label="Previous page">
+              <ChevronLeft size={15} />
+            </button>
+            {/* The page numbers are the entries: a reader looking for "the one
+                about the residual" needs its name, not its index. */}
+            <div className="min-w-0 flex-1 overflow-x-auto">
+              <div className="flex gap-1">
+                {pages.map((pg, i) => (
+                  <button
+                    key={pg.key}
+                    onClick={() => setPage(i)}
+                    title={pg.label}
+                    className={`shrink-0 rounded-lg px-2.5 py-1 text-[11px] font-semibold transition ${
+                      i === page
+                        ? "bg-slate-800 text-white"
+                        : "border border-slate-200 text-slate-500 hover:border-slate-300 hover:text-slate-800"
+                    }`}>
+                    <span className="tabular-nums">{i + 1}</span>
+                    <span className="ml-1.5 hidden max-w-[16ch] truncate align-middle sm:inline-block">
+                      {pg.label}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+            <button
+              onClick={() => setPage((p) => Math.min(count - 1, p + 1))}
+              disabled={page >= count - 1}
+              className="rounded-lg border border-slate-200 p-1.5 text-slate-500 transition hover:border-slate-300 hover:text-slate-800 disabled:opacity-35"
+              aria-label="Next page">
+              <ChevronRight size={15} />
+            </button>
+            <span className="shrink-0 text-[10.5px] tabular-nums text-slate-400">
+              {page + 1} / {count}
+            </span>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -4557,13 +4742,16 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
    * Deliberately the SAME card the page view opens, with the same payload
    * shape, so a reference chased from a paragraph and one chased from a page
    * image resolve identically and share one cache. */
-  const openRefCard = useCallback(({ nums, label, at, citing }) => {
+  const openRefCard = useCallback(({ nums, label, at, citing, citedCount }) => {
     const bib = paperText?.bibliography;
     const entries = (nums || [])
       .filter((n) => bib?.has(n))
       .map((n) => ({ n, text: bib.get(n) }));
     if (!entries.length) return;
-    setRefCard({ at, kind: "citation", label, payload: { nums, entries, citing } });
+    /* A marker in the text carries the one sentence it sits in. An entry
+     * opened from the reference list carries every sentence that cites it —
+     * `citedCount` is how many, so the card can say so. */
+    setRefCard({ at, kind: "citation", label, payload: { nums, entries, citing, citedCount } });
   }, [paperText]);
 
   /* ---- the reader's own notebook: panels they had built, kept per paper ---- */
@@ -4620,7 +4808,7 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
   const runPanelJob = useCallback(async (req) => {
     setPanelJob({ ...req, status: "working" });
     try {
-      const { lesson, cost, dropped } = await generatePanel({
+      const { lesson, plan, built, cost, dropped } = await generatePanel({
         paperTitle: spec.meta?.title,
         sectionLabel: req.sectionLabel,
         quote: req.quote,
@@ -4638,7 +4826,12 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
          * how the previous single-call version failed. */
         onProgress: (p) => setPanelJob({ ...req, status: "working", progress: p }),
       });
-      setNotebook(addPanel(spec, { lesson, quote: req.quote, page: req.page, sectionLabel: req.sectionLabel, cost }));
+      setNotebook(addPanel(spec, {
+        lesson, quote: req.quote, page: req.page, sectionLabel: req.sectionLabel, cost,
+        // Kept so ONE section can be rebuilt later without re-planning the
+        // lesson or paying for the sections that already work.
+        plan, built,
+      }));
       setPanelJob({ ...req, status: "done", cost, sections: lesson.sections.length, dropped });
     } catch (e) {
       setPanelJob({ ...req, status: "error", message: e?.message || String(e) });
@@ -4658,16 +4851,60 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
     const est = estimateFor("figure");
     setLiveJob({ figIndex, status: "working" });
     try {
-      const { panels, cost } = await digitizeFigure({ figure: fig, spec });
+      const { panels, layout, cost } = await digitizeFigure({ figure: fig, spec });
       setDigitizedOverrides((prev) => ({ ...prev, [figIndex]: panels }));
       setLiveJob(null);
       setLastReceipt({ what: `${fig.figureLabel || "Figure"} digitized`, est, actual: cost });
       if (spec.analysisId) {
-        const figures = (spec.resultFigures || []).map((f, i) => (i === figIndex ? { ...f, panels } : f));
+        // `panelLayout` is how the ORIGINAL figure arranged its subplots, so
+        // the reproduction can be arranged the same way instead of stacking.
+        const figures = (spec.resultFigures || []).map((f, i) => (i === figIndex ? { ...f, panels, panelLayout: layout || f.panelLayout || null } : f));
         try { await updateAnalysisSpec(spec.analysisId, { ...spec, resultFigures: figures }); } catch { /* live this session regardless */ }
       }
     } catch (e) {
       setLiveJob({ figIndex, status: "error", message: e?.message || String(e) });
+    }
+  }, [spec]);
+
+  /* ---- the assistant that sits on a built panel ----
+   *
+   * A generated panel is a first attempt, and the reader is the only one who
+   * knows whether it landed. Asking about it is free and answered by the same
+   * tutor as everything else; changing it rebuilds ONE section, which is only
+   * affordable because a lesson is generated section by section. */
+  const [sectionJob, setSectionJob] = useState(null);
+
+  const askAboutSection = useCallback((entry, sec, i) => {
+    setNotebookOpen(false);
+    setChatSection({
+      sectionId: "story",
+      title: sec.heading || "This panel",
+      initialDraft:
+        `About panel ${i + 1} of “${entry.lesson?.title || "my lesson"}” — “${sec.heading}”.\n` +
+        (sec.teach ? `It says: “${sec.teach.slice(0, 400)}”\n` : "") +
+        (sec.equation ? `Its equation: ${sec.equation}\n` : "") +
+        "\nMy question: ",
+    });
+  }, []);
+
+  const changeSection = useCallback(async (entry, i, instruction) => {
+    if (!entry.plan?.sections?.length) return;
+    setSectionJob({ entryId: entry.id, index: i });
+    try {
+      const { section, cost } = await regenerateSection({
+        built: entry.built || { paperTitle: spec.meta?.title, sectionLabel: entry.sectionLabel, quote: entry.quote, context: "" },
+        plan: entry.plan,
+        index: i,
+        instruction,
+      });
+      setNotebook(replacePanelSection(spec, entry.id, i, section, cost));
+      setLastReceipt({ what: `Panel ${i + 1} rebuilt`, est: estimateFor("panel"), actual: cost });
+      setSectionJob(null);
+    } catch (e) {
+      setSectionJob(null);
+      // The original panel is untouched, so this is a notice, not a failure
+      // state the reader has to recover from.
+      setPanelJob({ quote: entry.quote, sectionLabel: entry.sectionLabel, status: "error", message: e?.message || String(e) });
     }
   }, [spec]);
 
@@ -4840,7 +5077,7 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
             them, not a selection. Click any entry to look it up live in OpenAlex, Semantic Scholar,
             Crossref, Europe PMC or arXiv and see what it actually is.
           </p>
-          <ReferenceList bibliography={paperText?.bibliography} onCite={openRefCard} />
+          <ReferenceList bibliography={paperText?.bibliography} citings={paperText?.citings} onCite={openRefCard} />
         </div>
       ),
     },
@@ -5268,6 +5505,9 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
         onRemoveHighlight={unhighlight}
         onClear={() => setNotebook(clearNotebook(spec))}
         onGoToPage={(p) => { setNotebookOpen(false); selectSection("paper"); setPaperPage({ page: p }); }}
+        onAskSection={askAboutSection}
+        onChangeSection={changeSection}
+        sectionJob={sectionJob}
       />
       <PanelJobDialog
         job={panelJob}

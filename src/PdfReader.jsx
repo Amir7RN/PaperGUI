@@ -44,7 +44,7 @@ import { scanRobustness } from "./robustness.js";
 import { buildSectionContext } from "./sectionChat.js";
 import { resolveReference, cachedReference } from "./refResolve.js";
 import { HL_COLORS, colorOf } from "./highlights.js";
-import { FreePanel, freePanels } from "./DigitizedPanels.jsx";
+import { FreePanel, FigurePanels, freePanels } from "./DigitizedPanels.jsx";
 import { resolveFigureForPanel } from "./figureResolve.js";
 
 const BASE_SCALE = 1.5;
@@ -523,7 +523,29 @@ export function PaperReader({
     if (!onPaperText) return;
     if (!index || !pageItems?.length) return;
     const bibliography = refs.bibliography;
-    onPaperText({ ...buildPaperText(pageItems, index), bibliography });
+    /* EVERY SENTENCE THAT CITES EACH REFERENCE.
+     *
+     * The in-text card can explain why a reference is used because it knows
+     * the sentence it was clicked in. The reference LIST had no such context,
+     * so clicking an entry there could only ever say what the cited paper is —
+     * never what this paper wanted from it, which is the more useful half.
+     *
+     * The sentences are already computed for the hotspots; collecting them by
+     * reference number costs nothing and makes an entry in the list strictly
+     * better informed than a single marker: it carries every place the paper
+     * leans on that work, not just one. */
+    const citings = new Map();
+    for (const spots of refs.byPage.values()) {
+      for (const s of spots) {
+        if (s.kind !== "citation" || !s.payload?.citing) continue;
+        for (const n of s.payload.nums || []) {
+          const list = citings.get(n) || [];
+          if (list.length < 4 && !list.includes(s.payload.citing)) list.push(s.payload.citing);
+          citings.set(n, list);
+        }
+      }
+    }
+    onPaperText({ ...buildPaperText(pageItems, index), bibliography, citings });
   }, [index, pageItems, refs, onPaperText]);
 
   /* Every figure we hold a crop for, by the paper's own figure number — so a
@@ -1354,6 +1376,25 @@ function useResolvedRefs({ entries, citing, paperTitle, enabled }) {
 }
 
 /** One resolved reference, or an honest account of why there isn't one. */
+/** The cited paper's own abstract: a readable opening, the rest on request. */
+function Abstract({ text }) {
+  const [open, setOpen] = useState(false);
+  const long = text.length > 340;
+  return (
+    <div className="mt-1.5">
+      <p className="text-[11px] leading-snug text-slate-400">
+        {open || !long ? text : `${text.slice(0, 340).replace(/\s+\S*$/, "")}…`}
+      </p>
+      {long && (
+        <button onClick={() => setOpen((v) => !v)}
+          className="mt-1 text-[10.5px] font-semibold text-indigo-300 transition hover:text-indigo-200">
+          {open ? "Show less" : "Read the whole abstract"}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function ResolvedRef({ n, entry, parsed, resolved }) {
   const r = resolved?.reference;
   const failed = resolved?.error;
@@ -1394,11 +1435,11 @@ function ResolvedRef({ n, entry, parsed, resolved }) {
           </p>
         ) : resolved.found && r ? (
           <>
-            {r.abstract && (
-              <p className="mt-1.5 line-clamp-4 text-[11px] leading-snug text-slate-400">
-                {r.abstract.length > 320 ? `${r.abstract.slice(0, 320)}…` : r.abstract}
-              </p>
-            )}
+            {/* The abstract is the point of looking it up — it is what turns
+                "a paper called X" into "here is what that paper did". A hard
+                four-line clamp answered the first question and stopped short
+                of the second, so it opens on request instead of being cut. */}
+            {r.abstract && <Abstract text={r.abstract} />}
             <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
               {r.url && (
                 <a href={r.url} target="_blank" rel="noreferrer noopener"
@@ -1530,27 +1571,41 @@ export function XrefCard({
               ))}
             </ul>
 
-            {p.citing && (
-              <div className="mt-2.5 border-t border-white/10 pt-2">
-                <div className="mb-1 text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                  Why it’s cited here
-                </div>
-                {why?.explanation ? (
-                  <p className="text-[11.5px] leading-snug text-slate-200">{why.explanation}</p>
-                ) : resolved.loading ? (
-                  <div className="flex items-center gap-1.5 text-[11.5px] text-slate-400">
-                    <Loader2 size={12} className="animate-spin text-indigo-300" /> Reading the sentence…
-                  </div>
-                ) : (
-                  <p className="text-[11.5px] leading-snug text-slate-500">
-                    Couldn’t summarise this one. The paper’s own words:
-                  </p>
-                )}
-                <p className="mt-1.5 border-l-2 border-indigo-400/40 pl-2 text-[10.5px] italic leading-snug text-slate-500">
-                  {p.citing}
-                </p>
+            {/* WHAT IT IS, AND WHY THIS PAPER USES IT.
+                Not gated on having a citing sentence any more: an entry opened
+                from the reference list has no single marker behind it, and
+                skipping the explanation there made the list — where a reader
+                is deciding what to go and read — the thinnest place to click.
+                It now arrives with every sentence that cites the entry, so it
+                has more to work from there, not less. */}
+            <div className="mt-2.5 border-t border-white/10 pt-2">
+              <div className="mb-1 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                {p.citing
+                  ? p.citedCount > 1
+                    ? `Why this paper cites it · ${p.citedCount} places`
+                    : "Why it’s cited here"
+                  : "What this work is"}
               </div>
-            )}
+              {why?.explanation ? (
+                <p className="text-[11.5px] leading-snug text-slate-200">{why.explanation}</p>
+              ) : resolved.loading ? (
+                <div className="flex items-center gap-1.5 text-[11.5px] text-slate-400">
+                  <Loader2 size={12} className="animate-spin text-indigo-300" />
+                  {p.citing ? "Reading the sentence…" : "Looking it up…"}
+                </div>
+              ) : (
+                <p className="text-[11.5px] leading-snug text-slate-500">
+                  {p.citing
+                    ? "Couldn’t summarise this one. The paper’s own words:"
+                    : "No summary available for this one."}
+                </p>
+              )}
+              {p.citing && (
+                <p className="mt-1.5 border-l-2 border-indigo-400/40 pl-2 text-[10.5px] italic leading-snug text-slate-500">
+                  {p.citing.length > 600 ? `${p.citing.slice(0, 600)}…` : p.citing}
+                </p>
+              )}
+            </div>
           </>
         )}
 
@@ -1612,11 +1667,14 @@ export function XrefCard({
                   <div className="text-[9.5px] font-semibold uppercase tracking-wide text-emerald-400">
                     Live — traced from this figure's own numbers
                   </div>
-                  {ready.map((panel, pi) => (
-                    <div key={pi} className="rounded-lg bg-white p-1">
-                      <FreePanel panel={panel} height={180} />
-                    </div>
-                  ))}
+                  {/* Stacked here whatever the paper's grid was, because this
+                      card is a popover beside the page — two columns inside it
+                      would be smaller than the problem it fixes. The Results
+                      section renders the same panels in the paper's own
+                      arrangement, where there is width for it. */}
+                  <div className="rounded-lg bg-white p-1">
+                    <FigurePanels panels={ready} layout={{ cols: 1 }} height={260} />
+                  </div>
                 </div>
               );
             })()}

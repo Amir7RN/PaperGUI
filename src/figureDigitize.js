@@ -212,7 +212,23 @@ async function requestDigitize(payload) {
 }
 
 /**
- * Digitize one figure of `spec`. Returns { panels, cost, remainingBalance }.
+ * How the ORIGINAL figure was laid out, carried through to the reproduction.
+ *
+ * Stage A already measures this — it has to segment the crop into subplots
+ * before it can classify them — so it costs nothing extra. Without it the
+ * reproduced panels stack in one column whatever the paper did, and a figure
+ * printed as a 2x2 grid comes back as four cards in a row down the page,
+ * which stops looking like the figure it claims to be traced from. Arranging
+ * them the way the paper arranged them is most of what makes a reproduction
+ * checkable against the original at a glance.
+ */
+const layoutOf = (draft) =>
+  draft?.ok && draft.layout
+    ? { rows: draft.layout.rows || 1, cols: draft.layout.cols || 1, count: draft.layout.count || 0 }
+    : null;
+
+/**
+ * Digitize one figure of `spec`. Returns { panels, layout, cost, remainingBalance }.
  *
  * One retry, with the audit's verdict fed back — the reader has already been
  * charged by the time the check runs, and the faults it catches (a heat map
@@ -286,7 +302,7 @@ export async function digitizeFigure({ figure, spec }) {
     const fam = auditDraftFamilies(draft, panels);
 
     if (panels.length && !fam.problems) {
-      return { panels, cost: spent, remainingBalance: data.remainingBalance, problems };
+      return { panels, layout: layoutOf(draft), cost: spent, remainingBalance: data.remainingBalance, problems };
     }
 
     if (attempt === 0) {
@@ -299,6 +315,7 @@ export async function digitizeFigure({ figure, spec }) {
       const sanitized = degradeMismatches(panels, fam.verdicts);
       return {
         panels: sanitized,
+        layout: layoutOf(draft),
         cost: spent,
         remainingBalance: data.remainingBalance,
         problems: [problems, fam.problems].filter(Boolean).join("\n") || null,

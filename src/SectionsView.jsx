@@ -467,7 +467,7 @@ export default function SectionsView({
  * numbering, because that is what ties the entry back to the markers in the
  * text — it just isn't the thing you have to aim for any more.
  */
-export function ReferenceList({ bibliography, onCite }) {
+export function ReferenceList({ bibliography, citings, onCite }) {
   const entries = useMemo(
     () => [...(bibliography?.entries?.() || [])].sort((a, b) => a[0] - b[0]),
     [bibliography],
@@ -496,7 +496,12 @@ export function ReferenceList({ bibliography, onCite }) {
                 // entry is a full-width line, and a card centred on it lands
                 // wherever the line happens to end.
                 at: { x: Math.min(r.left + 120, r.right), y: r.top },
-                citing: null,
+                /* Every sentence in the paper that cites this entry — so the
+                 * card can answer "why does this paper use it" here, the same
+                 * as it does from a marker in the text, and from more evidence
+                 * than any single marker has. */
+                citing: (citings?.get?.(n) || []).join(" … ") || null,
+                citedCount: (citings?.get?.(n) || []).length,
               });
             }}
           >
