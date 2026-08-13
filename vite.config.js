@@ -4,6 +4,6 @@ import tailwindcss from "@tailwindcss/vite";
 
 // Served from https://<user>.github.io/PaperGUI/ in production.
 export default defineConfig(({ command }) => ({
-  base: command === "build" ? "/PaperGUI/" : "/",
+      base: "/",
   plugins: [react(), tailwindcss()],
 }));
