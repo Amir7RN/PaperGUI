@@ -1,14 +1,14 @@
 /**
- * App shell: landing page -> (sample | upload+analyze) -> workspace.
+ * App shell: landing page -> upload+analyze -> workspace.
  *
- * The landing page starts empty by design: the reader either loads the bundled
- * sample paper or uploads a PDF, which is analyzed by the AI service into a
- * PaperSpec that drives the generic workspace.
+ * The landing page starts empty by design: the reader uploads a PDF (or
+ * resolves a DOI), which is analyzed by the AI service into a PaperSpec that
+ * drives the generic workspace.
  */
 
 import React, { useState, useRef, useCallback, useEffect } from "react";
 import {
-  FlaskConical, Upload, BookOpenCheck, Wallet,
+  FlaskConical, Upload, Wallet,
   Loader2, TriangleAlert, FileText, Sparkles, SlidersHorizontal, LineChart, LogOut,
   ChevronDown, Wand2, Landmark, Image as ImageIcon, LogIn, BookMarked, Mail, MapPin,
   FileCode2, X as XIcon,
@@ -20,15 +20,6 @@ import BuyCredits from "./BuyCredits.jsx";
 import ContactModal from "./ContactModal.jsx";
 import Tilt3D, { Reveal } from "./Tilt3D.jsx";
 import DoiBox from "./DoiBox.jsx";
-import { SAMPLE_SPEC } from "./samplePaper.js";
-import { SAMPLE_SPEC_2 } from "./samplePaper2.js";
-import { SAMPLE_SPEC_3 } from "./samplePaper3.js";
-import { SAMPLE_SPEC_4 } from "./samplePaper4.js";
-import { SAMPLE_SPEC_5 } from "./samplePaper5.js";
-import { SAMPLE_SPEC_6 } from "./samplePaper6.js";
-import { SAMPLE_SPEC_7 } from "./samplePaper7.js";
-import { SAMPLE_SPEC_8 } from "./samplePaper8.js";
-import { SAMPLE_SPEC_9 } from "./samplePaper9.js";
 import { analyzePaper, fixturesEnabled, MODEL_TIERS, getModelTier, setModelTier } from "./api.js";
 import { PHASE_VALIDATORS } from "./validators.js";
 import { fileToBase64, renderPdfRegions } from "./pdf.js";
@@ -264,10 +255,9 @@ function SiteFooter({ onContact }) {
     <footer className="mt-auto border-t border-slate-200/70 bg-white/70 backdrop-blur">
       <div className="mx-auto max-w-5xl px-4 py-8 sm:px-8">
         <div className="rounded-xl border border-blue-200/70 bg-blue-50/80 px-4 py-3 text-center text-xs leading-relaxed text-blue-900">
-          <strong>Try it before you pay:</strong> run one paper on the free sample or your own
-          upload with your signup credit, no cost. If it's useful, add credit and analyze the
-          papers you actually care about — and use the interactive labs to learn the method,
-          not just read about it.
+          <strong>Try it before you pay:</strong> your signup credit covers a paper of your own,
+          at no cost. If it's useful, add credit and analyze the papers you actually care
+          about — and use the interactive labs to learn the method, not just read about it.
         </div>
 
         <div className="mt-6 flex flex-col items-center justify-between gap-4 sm:flex-row">
@@ -418,7 +408,7 @@ function smoothScrollToId(id) {
 /* ---------------- landing page ---------------- */
 
 function Landing({
-  onSample, onUpload, busy, progress, error, tier, onTier, balance, hints, onHints,
+  onUpload, busy, progress, error, tier, onTier, balance, hints, onHints,
   codeFiles, onCodeFiles,
   authOn, signedIn, onSignIn, onSignUp, onSignOut, onOpenLibrary, onBuyCredits, owner, onContact,
 }) {
@@ -578,15 +568,9 @@ function Landing({
                 >
                   <Upload size={16} /> Analyze a paper
                 </button>
-                <button
-                  onClick={goToAnalyze}
-                  className="inline-flex items-center gap-2 rounded-xl border border-white/20 bg-white/5 px-6 py-3.5 text-sm font-semibold text-white transition hover:border-white/40 hover:bg-white/10"
-                >
-                  <BookOpenCheck size={16} className="text-sky-400" /> Open a live example
-                </button>
               </div>
               <p className="mt-4 text-[12px] text-slate-500">
-                Free to try — one Advanced paper analysis on signup · live examples need no account.
+                Free to try — your first paper analysis is covered by the credit you get on signup.
               </p>
             </div>
 
@@ -807,40 +791,6 @@ function Landing({
           </div>
         </section>
 
-        {/* ===================== READY-MADE EXAMPLES ===================== */}
-        <section className="pp-scene border-t border-slate-200/70 bg-slate-50/60">
-          <div className="mx-auto max-w-6xl px-5 py-14 sm:px-8">
-            <div className="mb-5 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
-              <BookOpenCheck size={14} className="text-blue-600" /> Ready-made examples · no sign-in
-            </div>
-            <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4">
-              {[
-                { spec: SAMPLE_SPEC_5, tag: "Nature Materials", title: "Phonon interference in one molecule" },
-                { spec: SAMPLE_SPEC_4, tag: "Science Robotics", title: "Quadruped robots in the wild" },
-                { spec: SAMPLE_SPEC_9, tag: "Cell Reports Sust.", title: "Decarbonized power-gas planning" },
-                { spec: SAMPLE_SPEC_3, tag: "Supply-chain ML", title: "Hierarchical ML forecasting" },
-                { spec: SAMPLE_SPEC_2, tag: "Robotics", title: "Humanoid whole-body control" },
-                { spec: SAMPLE_SPEC_6, tag: "PRX Energy", title: "Zero-gap thermophotonics" },
-                { spec: SAMPLE_SPEC_8, tag: "Automatica", title: "Compositional synthesis (AG contracts)" },
-                { spec: SAMPLE_SPEC_7, tag: "Autom. in Constr.", title: "Prefab checking with 3D scans + BIM" },
-                { spec: SAMPLE_SPEC, tag: "Signals · easy", title: "Multi-stage filtering & control" },
-              ].map((s, i) => (
-                <Reveal key={s.title} delay={(i % 4) * 60} className="h-full">
-                  <Tilt3D className="h-full rounded-xl" max={11} lift={24}>
-                    <button
-                      onClick={() => onSample(s.spec)}
-                      disabled={busy}
-                      className="pp-3d-card group flex h-full w-full flex-col items-start gap-1 rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-left shadow-sm transition hover:border-blue-300 hover:shadow-[0_28px_50px_-30px_rgba(15,23,42,0.55)] disabled:opacity-50"
-                    >
-                      <span className="pp-pop-sm text-[13px] font-semibold leading-snug text-slate-900">{s.title}</span>
-                      <span className="text-[10.5px] font-medium text-slate-400">{s.tag}</span>
-                    </button>
-                  </Tilt3D>
-                </Reveal>
-              ))}
-            </div>
-          </div>
-        </section>
       </main>
 
       <SiteFooter onContact={onContact} />
@@ -860,9 +810,8 @@ export default function App() {
   const [hints, setHints] = useState({ domain: "", focus: "", signal: "", notes: "" });
   const [codeFiles, setCodeFiles] = useState([]); // [{name, text}] — the paper's actual code (optional)
 
-  // Auth is optional for browsing: anyone can open the sample papers. An
-  // account is only required to analyze a new PDF (that spends credit and the
-  // edge function needs an account to bill). The sign-in/up UI lives in the
+  // An account is required to analyze a paper: that spends credit, and the
+  // edge function needs an account to bill. The sign-in/up UI lives in the
   // landing page's top-right corner as a dismissible modal.
   const [session, setSession] = useState(null);
   const [authReady, setAuthReady] = useState(!authEnabled);
@@ -1153,7 +1102,6 @@ export default function App() {
     <>
       {bgLayer}
       <Landing
-        onSample={(s) => setSpec(s)}
         onUpload={handleUpload}
         busy={busy}
         progress={progress}
