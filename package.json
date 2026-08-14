@@ -5,14 +5,16 @@
   "type": "module",
   "scripts": {
     "dev": "vite --open",
-    "build": "vite build",
-    "check:panels": "node scripts/checkPanelFamilies.mjs",
-    "check:schemas": "node scripts/check-schemas.mjs",
-    "check:refs": "node scripts/refs-count.mjs",
-    "fixture:prompt": "node scripts/phase-prompt.mjs",
-    "fixture:write": "node scripts/fixture-write.mjs",
+    "build": "vite build && node scripts/prerender.mjs",
+    "build:only": "vite build",
     "preview": "vite preview",
-    "check:axis": "node scripts/check-axis.mjs"
+    "check:axis": "node scripts/check-axis.mjs",
+    "check:panels": "node scripts/checkPanelFamilies.mjs",
+    "check:prerender": "node scripts/check-prerender.mjs",
+    "check:refs": "node scripts/refs-count.mjs",
+    "check:schemas": "node scripts/check-schemas.mjs",
+    "fixture:prompt": "node scripts/phase-prompt.mjs",
+    "fixture:write": "node scripts/fixture-write.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.110.0",
@@ -26,6 +28,7 @@
     "@napi-rs/canvas": "^1.0.2",
     "@tailwindcss/vite": "^4.1.0",
     "@vitejs/plugin-react": "^4.6.0",
+    "playwright": "^1.62.1",
     "tailwindcss": "^4.1.0",
     "vite": "^6.3.5"
   }

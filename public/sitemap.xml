@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  One entry, because the app has one route.
+
+  A sitemap listing URLs that do not exist is worse than a short one: it
+  teaches the crawler that this host reports things it cannot serve. When
+  there are real content pages to list — a how-it-works page, per-method
+  writeups — they belong here, each at its own URL.
+-->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://sciloupe.com/</loc>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+</urlset>

@@ -24,6 +24,13 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # The build's last step renders the landing page in headless Chromium and
+      # bakes the result into dist/index.html (scripts/prerender.mjs), because
+      # a page that ships as an empty <div id="root"> has nothing for a crawler
+      # to index. If this install fails the build fails — deploying an
+      # unindexable shell while believing otherwise is the state that step
+      # exists to end, and the previous deploy stays up meanwhile.
+      - run: npx playwright install --with-deps chromium
       - run: npm run build
         env:
           # Required — sign-in is mandatory and analysis is proxied through a

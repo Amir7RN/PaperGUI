@@ -1,0 +1,18 @@
+# SciLoupe — https://sciloupe.com
+#
+# Everything is public and crawlable. The app has one route; the paths below
+# are build artefacts and reader-supplied material that have no business in an
+# index, not secrets — nothing here is an access control.
+
+User-agent: *
+Allow: /
+
+# Bundled assets: no readable content, and crawling them wastes crawl budget
+# on a new domain that has very little of it to spend.
+Disallow: /assets/
+
+# Sample data and fixtures shipped for the offline figure-classifier harness.
+Disallow: /fixtures/
+Disallow: /papers/
+
+Sitemap: https://sciloupe.com/sitemap.xml

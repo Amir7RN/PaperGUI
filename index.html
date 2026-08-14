@@ -11,6 +11,19 @@
     <link rel="canonical" href="https://sciloupe.com/" />
     <meta name="theme-color" content="#020617" />
 
+    <!-- Not defaults. Google truncates snippets and shrinks preview images
+         unless told otherwise, and for a page whose whole pitch is one
+         paragraph, a clipped snippet is most of the pitch. -->
+    <meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+
+    <!-- Google will not show an icon beside a result without a rel="icon"
+         pointing at a square of at least 48px. Icon.png is 700px and 458 KB;
+         these are downscales of it, so the tab icon isn't a half-megabyte
+         download on every visit. -->
+    <link rel="icon" href="/icon-48.png" sizes="48x48" type="image/png" />
+    <link rel="icon" href="/icon-192.png" sizes="192x192" type="image/png" />
+    <link rel="apple-touch-icon" href="/icon-192.png" />
+
     <!-- What a shared link looks like. Absolute URLs are required here: a
          crawler resolves these outside the page, so a root-relative path
          would point at the crawler's own host. -->
@@ -24,6 +37,56 @@
     />
     <meta property="og:image" content="https://sciloupe.com/Background.png" />
     <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="SciLoupe — read a paper by taking it apart" />
+    <meta
+      name="twitter:description"
+      content="Upload a scientific paper and read it as something you can operate: figures made live from their own numbers, methods you can run, references resolved, and a tutor for any passage you highlight."
+    />
+    <meta name="twitter:image" content="https://sciloupe.com/Background.png" />
+
+    <!-- Structured data. Two things, because they answer different questions:
+         WebSite names the site for a knowledge panel, SoftwareApplication says
+         what it IS and that it has a free tier — the fields a result actually
+         gets annotated with. Kept honest: no aggregateRating, no invented
+         review counts, no offer price the app doesn't charge. -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "WebSite",
+            "@id": "https://sciloupe.com/#website",
+            "url": "https://sciloupe.com/",
+            "name": "SciLoupe",
+            "description": "Read a scientific paper by taking it apart: live figures, runnable methods, resolved references, and a tutor for any passage.",
+            "inLanguage": "en"
+          },
+          {
+            "@type": "SoftwareApplication",
+            "@id": "https://sciloupe.com/#app",
+            "name": "SciLoupe",
+            "url": "https://sciloupe.com/",
+            "applicationCategory": "EducationalApplication",
+            "operatingSystem": "Any modern web browser",
+            "isPartOf": { "@id": "https://sciloupe.com/#website" },
+            "description": "SciLoupe turns a scientific paper (PDF or DOI) into something you can operate. Its result figures are digitized off the page and made interactive from their own numbers, its method is reconstructed as a runnable simulation where the paper allows one, every reference is resolved live against OpenAlex, Semantic Scholar, Crossref, Europe PMC and arXiv, and any passage you highlight becomes an interactive lesson with a working demo per concept.",
+            "featureList": [
+              "Figures digitized from the paper and made interactive",
+              "Runnable reconstruction of the paper's method",
+              "Every reference resolved live, with why it is cited",
+              "Highlight any passage to get an interactive lesson",
+              "The paper's own text, tables and algorithm listings as selectable text"
+            ],
+            "offers": {
+              "@type": "Offer",
+              "price": "0",
+              "priceCurrency": "USD",
+              "description": "Free credit on signup, enough to analyze a paper. Further analysis is charged at metered cost."
+            }
+          }
+        ]
+      }
+    </script>
 
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />

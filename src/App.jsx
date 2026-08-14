@@ -449,7 +449,12 @@ function Landing({
   const goToAnalyze = useCallback(() => smoothScrollToId("examples"), []);
 
   return (
-    <div className="flex min-h-screen flex-col" style={{ fontFamily: "system-ui, -apple-system, 'Segoe UI', sans-serif" }}>
+    /* `data-landing` is the prerenderer's contract (scripts/prerender.mjs).
+       The app shows a spinner until the auth session resolves, so a prerender
+       that waited on a timer could bake THAT — a page whose only content is a
+       loading spinner, which is worse for indexing than an empty one. It waits
+       for this marker instead, and fails the build if it never appears. */
+    <div data-landing="" className="flex min-h-screen flex-col" style={{ fontFamily: "system-ui, -apple-system, 'Segoe UI', sans-serif" }}>
       <header className="border-b border-white/10 bg-slate-950">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-2 px-4 py-4 sm:px-6">
           <div className="flex items-center gap-2 text-sm font-semibold text-white" style={{ fontFamily: "'Sora', system-ui, sans-serif" }}>
