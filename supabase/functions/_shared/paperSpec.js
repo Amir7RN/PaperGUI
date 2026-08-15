@@ -1258,7 +1258,7 @@ export const SPEC_SCHEMA = {
                 yLabel: { type: "string", description: "Same rules: quantity + unit from the original axis, log scales named as log₁₀." },
                 computeJs: {
                   type: "string",
-                  description: "Body of function(outputs, params, helpers) => {x?: number[], categories?: string[], series: [{label, data: number[]}]}. For chartKind 'bar', return categories (the bin/condition names from the original axis) and one data value per category per series. dataSource 'reported': return the paper's published values as literals. Reproduce EVERY series shown in this subplot. When `digitized` is provided instead, set this to the empty string.",
+                  description: "Body of function(outputs, params, helpers) => {x?: number[], categories?: string[], colors?: string[], series: [{label, data: number[], color?: string}]}. For chartKind 'bar', return categories (the bin/condition names from the original axis) and one data value per category per series. COLOURS ARE PART OF THE ANSWER: set each series' `color` to the #rrggbb read off the original, and when a single series' bars are drawn in different colours per category (a metrics bar chart: sensitivity blue, false-alarm red, detection-time green) return the top-level `colors` array — one #rrggbb per category, same order — so the reproduction is the same colour as the figure instead of one flat default. dataSource 'reported': return the paper's published values as literals. Reproduce EVERY series shown in this subplot. When `digitized` is provided instead, set this to the empty string.",
                 },
                 digitized: DIGITIZED_SCHEMA,
               },
@@ -1721,6 +1721,27 @@ export function figureDigitizePrompt({ paperTitle, figureLabel, title, explanati
     (explanation ? `THE ANALYSIS'S GUIDED TOUR OF IT: ${explanation}\n` : "") +
     "\nEmit one `panels` array: one entry per SUBPLOT in this figure, in reading order.\n\n" +
 
+    /* ---- COMPLETENESS, stated before anything else ----
+     *
+     * A figure printed as (a)(b)(c) that comes back as one card is not a
+     * reproduction of that figure — it is a different figure. The reader is
+     * looking at the original directly above it and counts the panels in a
+     * glance. This was the single most-reported fault: a three-panel figure
+     * digitized as its first panel only, with nothing said about the other
+     * two.
+     *
+     * The rule is therefore structural, not a preference: the panels array is
+     * a COVER of the figure's subplots. An unreadable subplot is an entry with
+     * reproduce:false and a degradeReason — never an omission, because an
+     * omission is indistinguishable from a figure that never had that panel.
+     */
+    "EVERY SUBPLOT GETS AN ENTRY — this is not negotiable and it is checked. Count the subplots in the " +
+    "image: each (a), (b), (c)… panel, each plot box with its own axes. The panels array must have EXACTLY " +
+    "that many entries, in the figure's own reading order (left→right, then top→bottom), each carrying that " +
+    "subplot's own label. A subplot you cannot read honestly is still an entry — reproduce:false with a " +
+    "degradeReason. Returning fewer entries than the figure has subplots is a rejected answer: the reader " +
+    "sees the original beside your reproduction and counts them.\n\n" +
+
     /* ---- STAGE B framing: verify a draft, don't generate blind ----
      *
      * A local, free, pixel-level pass has already run over this exact crop and
@@ -1793,11 +1814,29 @@ export function figureDigitizePrompt({ paperTitle, figureLabel, title, explanati
     "categories[].violins for violin; groups for groupedBar/radialBar; subPanels for stackedBar; rows for " +
     "stackedBarH; axes+series for radar; series[].points for scatter; km for kaplanMeier) and set computeJs " +
     "to the empty string. Match the ORIGINAL'S colours and orientation — read them off the image.\n" +
-    "5. LABEL THE AXES — xLabel and yLabel name the quantity AND its unit exactly as the subplot's own axes " +
+    /* ---- COLOUR, as data ----
+     *
+     * A reader checks a reproduction against the original by eye, and colour
+     * is the first thing the eye matches — in most result figures it is also
+     * the ENCODING: which bar is the proposed method, which box is the control.
+     * Redrawn in the renderer's default palette, a three-colour bar chart came
+     * back as three identical blue bars, which loses the encoding as well as
+     * the resemblance. The digitized carriers have always had `color`/`colors`
+     * fields; the plain x-y path did not, so it is spelled out here.
+     */
+    "5. MATCH THE COLOURS — read them off the image as #rrggbb, per mark, and carry them. In a `digitized` " +
+    "carrier that means the `color` on each box/violin/series/curve and the `colors` map of label → hex. " +
+    "In a plain x-y panel it means computeJs ALSO returns them: `series: [{label, data, color}]` for a " +
+    "colour per series, and — when one series' bars are drawn in DIFFERENT colours per category, which is " +
+    "common in a metrics bar chart — a top-level `colors: [hex, hex, …]`, one per category in the same " +
+    "order. Sample the actual fill of the actual mark; do not name a colour from memory, and do not leave " +
+    "them out and let the default palette recolour the figure.\n" +
+    "6. LABEL THE AXES — xLabel and yLabel name the quantity AND its unit exactly as the subplot's own axes " +
     "read ('unit sales', 'MAPE (%)', 'log₁₀ power density (W/m²)'). A bare word with no unit is a rejection.\n\n" +
     "You are looking at the real figure — read its actual numbers off it. Do NOT invent a parametric model, " +
     "do NOT substitute a different quantity, and do NOT pad the figure with subplots it does not have. " +
-    "Fewer subplots read perfectly beats all of them read poorly.\n\n" +
+    "Within a subplot, fewer series read perfectly beats all of them read poorly — but that is never a " +
+    "licence to drop a whole subplot, which must appear even when it degrades.\n\n" +
     (pipeline?.blocks?.length
       ? "This paper HAS a live simulation pipeline, given below. A subplot the pipeline honestly regenerates " +
         "may use dataSource 'simulated' with computeJs over ITS block outputs (by block key) and ITS param " +

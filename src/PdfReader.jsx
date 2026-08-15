@@ -44,7 +44,7 @@ import { scanRobustness } from "./robustness.js";
 import { buildSectionContext } from "./sectionChat.js";
 import { resolveReference, cachedReference } from "./refResolve.js";
 import { HL_COLORS, colorOf } from "./highlights.js";
-import { FreePanel, FigurePanels, freePanels } from "./DigitizedPanels.jsx";
+import { FreePanel, FigurePanels, freePanels, shownPanels } from "./DigitizedPanels.jsx";
 import { resolveFigureForPanel } from "./figureResolve.js";
 
 const BASE_SCALE = 1.5;
@@ -566,6 +566,11 @@ export function PaperReader({
         // this, "Make it live" had nothing but a label and a caption to go
         // on and was guessing the chart shape blind.
         panels: f.panels || [],
+        // How the ORIGINAL arranged its subplots, measured off the crop when
+        // the figure was digitized. The card lays its reproduction out the
+        // same way and sizes itself to it, so a row of three panels is a row
+        // of three panels here too.
+        panelLayout: f.panelLayout || null,
       });
     });
     for (const f of spec?.conceptFigures || []) {
@@ -1518,7 +1523,34 @@ export function XrefCard({
   }, [onClose]);
 
   const p = card.payload || {};
-  const W = 380;
+
+  /* ---- the card is as wide as what it has to show ----
+   *
+   * 380px is the right width for a citation and the wrong width for a figure
+   * printed as a row of three subplots: the reproduction was squeezed into one
+   * column of thumbnails beside a full-width original, which is the "the frame
+   * is tiny and it only shows (a)" complaint. A figure that came back live
+   * gets a card sized to its OWN grid — the paper's arrangement, measured off
+   * the crop during digitization — so the two can be compared at a glance,
+   * clamped to the viewport so it can never open off-screen.
+   */
+  /* Read off the LIVE spec, not the snapshot this card was opened with:
+   * "make this figure live" writes the panels onto the spec, and a card
+   * holding a copy of the figure as it was at click time keeps showing the
+   * plain original — with a button offering to buy what was just bought —
+   * until the reader closes and reopens it. */
+  const liveFig = card.kind === "figure" && Number.isInteger(p.figIndex)
+    ? spec?.resultFigures?.[p.figIndex]
+    : null;
+  const figPanels = card.kind === "figure" ? shownPanels(liveFig?.panels || p.panels) : [];
+  const figLayout = liveFig?.panelLayout || p.panelLayout;
+  const figCols = Math.max(1, Math.min(4, Math.min(
+    figLayout?.cols || (figPanels.length > 1 ? 2 : 1),
+    figPanels.length || 1,
+  )));
+  const W = figPanels.length
+    ? Math.max(380, Math.min(window.innerWidth - 24, 56 + 312 * figCols))
+    : 380;
   const bib = useMemo(
     () => (card.kind === "citation" ? (p.entries || []).map((e) => ({ ...e, parsed: parseBibEntry(e.text) })) : []),
     [card.kind, p.entries]
@@ -1659,25 +1691,27 @@ export function XrefCard({
              *  calendar heat map came back as an invented line chart. Only
              *  figures the analysis couldn't honestly digitize (or that have no
              *  panels at all) fall through to the on-demand builder below. */}
-            {(() => {
-              const ready = freePanels(p.panels);
-              if (!ready.length) return null;
-              return (
-                <div className="mt-2 mb-1 flex flex-col gap-2">
-                  <div className="text-[9.5px] font-semibold uppercase tracking-wide text-emerald-400">
-                    Live — traced from this figure's own numbers
-                  </div>
-                  {/* Stacked here whatever the paper's grid was, because this
-                      card is a popover beside the page — two columns inside it
-                      would be smaller than the problem it fixes. The Results
-                      section renders the same panels in the paper's own
-                      arrangement, where there is width for it. */}
-                  <div className="rounded-lg bg-white p-1">
-                    <FigurePanels panels={ready} layout={{ cols: 1 }} height={260} />
-                  </div>
+            {figPanels.length > 0 && (
+              <div className="mt-2 mb-1 flex flex-col gap-2">
+                <div className="text-[9.5px] font-semibold uppercase tracking-wide text-emerald-400">
+                  Live — traced from this figure's own numbers
+                  {figPanels.length > 1 ? ` · ${figPanels.length} subplots` : ""}
                 </div>
-              );
-            })()}
+                {/* THE PAPER'S OWN ARRANGEMENT, here too.
+                    This used to force one column on the grounds that a popover
+                    is narrow — but that made a figure printed as (a)(b)(c) come
+                    back as a single stacked thumbnail, which is a different
+                    figure. The card widens for the grid instead (see W above),
+                    so the reproduction sits under the original in the same
+                    shape and the panels can be counted off against it. */}
+                <div className="rounded-lg bg-white p-1">
+                  <FigurePanels
+                    panels={figPanels}
+                    layout={{ cols: figCols }}
+                    height={figCols === 1 ? 260 : undefined} />
+                </div>
+              </div>
+            )}
             {/* A figure is where a reader most often wants to stop reading and
                 start turning dials — so the live version is offered HERE,
                 against this figure, instead of living in a section they have to
@@ -1704,7 +1738,11 @@ export function XrefCard({
                   builder instead is how a calendar heat map became an invented
                   line chart, and it is only the right call for passages and
                   equations that have no figure behind them at all. */}
-              {onMakeFigureLive && Number.isInteger(p.figIndex) && !freePanels(p.panels).length && (
+              {/* Gated on what the card SHOWS, not on what it can draw: a
+                  figure whose subplots came back honestly degraded has already
+                  been read and paid for, and offering "make it live" again
+                  sells the same answer twice. */}
+              {onMakeFigureLive && Number.isInteger(p.figIndex) && !figPanels.length && (
                 <button
                   onClick={() => onMakeFigureLive(p.figIndex)}
                   disabled={liveJob?.status === "working"}

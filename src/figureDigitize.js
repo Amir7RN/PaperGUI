@@ -133,6 +133,45 @@ function degradeMismatches(panels, verdicts) {
   });
 }
 
+/* ---------------- the coverage check ----------------
+ *
+ * A figure printed as (a)(b)(c) that comes back as one panel is not a
+ * reproduction of that figure, and it is the fault readers actually notice:
+ * the original sits directly above the reproduction and the panels are
+ * countable at a glance. The prompt now forbids dropping a subplot; this is
+ * the enforcement, and it is the same shape as the family lock — Stage A's
+ * segmentation is a MEASUREMENT of how many plot boxes the crop holds, so a
+ * shorter answer is checkable rather than a matter of taste.
+ *
+ * Deliberately one-sided and conservative. MORE panels than Stage A found is
+ * fine: it over-segments a busy panel at an internal gridline more often than
+ * it merges two, and the prompt already tells the model the image wins. Only
+ * a SHORTER answer is challenged, only when the figure clearly has several
+ * panels, and only against the subplots Stage A found real axis spines
+ * around — the strictest count it produces, so a retry is never bought on the
+ * strength of a label strip mistaken for a panel.
+ */
+export function auditPanelCoverage(draft, panels) {
+  if (!draft?.ok) return null;
+  const subplots = draft.subplots || [];
+  const withAxes = subplots.filter((s) => s.hasAxes).length;
+  const expected = withAxes || subplots.length;
+  const got = panels?.length || 0;
+  if (expected < 2 || got >= expected) return null;
+
+  return (
+    `You returned ${got} panel${got === 1 ? "" : "s"} for a figure the local pixel read segmented into ` +
+    `${expected} plot box${expected === 1 ? "" : "es"} with their own axes — the subplots at ` +
+    subplots.filter((s) => s.hasAxes || !withAxes)
+      .map((s) => `[${s.box.fx0}, ${s.box.fy0}]–[${s.box.fx1}, ${s.box.fy1}]`).join(", ") +
+    ` (fractions of the crop). Look again and emit ONE entry per subplot you can see, in reading order. ` +
+    `A subplot you cannot read honestly is still an entry — reproduce:false with a degradeReason saying ` +
+    `why — never a missing one, because the reader sees the original beside the reproduction and counts ` +
+    `the panels. If the figure genuinely has fewer subplots than the pixel read claimed (it can split one ` +
+    `busy panel at an internal gridline), keep your count and say so in the panels you emit.`
+  );
+}
+
 /**
  * Keep the panels that will actually render; return why the rest were dropped.
  * Returns { panels, problems } — `problems` is the retry reason, or null.
@@ -301,12 +340,20 @@ export async function digitizeFigure({ figure, spec }) {
      * one output this feature must never produce. */
     const fam = auditDraftFamilies(draft, panels);
 
-    if (panels.length && !fam.problems) {
+    /* Counted against the RAW answer, not the kept panels: a subplot the model
+     * never mentioned and one it returned malformed are different faults with
+     * different fixes, and `problems` above already covers the second. */
+    const coverage = auditPanelCoverage(draft, data.panels);
+
+    /* A short answer is worth ONE more attempt, never a failure — three
+     * panels of which two are honest is a better figure than an error, and
+     * the reader has already paid for what came back. */
+    if (panels.length && !fam.problems && !(coverage && attempt === 0)) {
       return { panels, layout: layoutOf(draft), cost: spent, remainingBalance: data.remainingBalance, problems };
     }
 
     if (attempt === 0) {
-      firstProblem = [problems, fam.problems].filter(Boolean).join("\n");
+      firstProblem = [problems, fam.problems, coverage].filter(Boolean).join("\n");
       console.warn("figure digitization failed its check, retrying with the reason", firstProblem);
       continue;
     }

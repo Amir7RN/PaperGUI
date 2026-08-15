@@ -4623,7 +4623,8 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
   // the spec here — keyed "figIdx:panelIdx" — so tracing never mutates the
   // original and every downstream memo just sees a spec with `digitized` blocks
   // filled in. onSave from the editor writes into this map.
-  const [digitizedOverrides, setDigitizedOverrides] = useState({}); // figIndex -> panels[]
+  // figIndex -> { panels: [], layout?: {rows, cols, count} }
+  const [digitizedOverrides, setDigitizedOverrides] = useState({});
   const [traceTarget, setTraceTarget] = useState(null); // figIndex
   /* On-demand figure digitization lands in the SAME overrides map as the
    * owner's hand-tracing — one merge path, so a figure made live by a reader
@@ -4651,8 +4652,16 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
   const workingSpec = unlockedSpec || baseSpec;
   const spec = useMemo(() => {
     if (!Object.keys(digitizedOverrides).length) return workingSpec;
-    const figs = (workingSpec.resultFigures || []).map((f, fi) =>
-      digitizedOverrides[fi] ? { ...f, panels: digitizedOverrides[fi] } : f);
+    /* The measured LAYOUT travels with the panels, not just to the database.
+     * It was only being written on the persisted copy, so a figure made live
+     * stayed stacked in one column until the paper was reopened — the reader
+     * saw the wrong arrangement for exactly the session in which they asked
+     * for it. */
+    const figs = (workingSpec.resultFigures || []).map((f, fi) => {
+      const ov = digitizedOverrides[fi];
+      if (!ov) return f;
+      return { ...f, panels: ov.panels, panelLayout: ov.layout || f.panelLayout || null };
+    });
     return { ...workingSpec, resultFigures: figs };
   }, [workingSpec, digitizedOverrides]);
 
@@ -4852,7 +4861,7 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
     setLiveJob({ figIndex, status: "working" });
     try {
       const { panels, layout, cost } = await digitizeFigure({ figure: fig, spec });
-      setDigitizedOverrides((prev) => ({ ...prev, [figIndex]: panels }));
+      setDigitizedOverrides((prev) => ({ ...prev, [figIndex]: { panels, layout } }));
       setLiveJob(null);
       setLastReceipt({ what: `${fig.figureLabel || "Figure"} digitized`, est, actual: cost });
       if (spec.analysisId) {
@@ -5584,7 +5593,11 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
             fig={f}
             onClose={() => setTraceTarget(null)}
             onSave={(panels) => {
-              setDigitizedOverrides((prev) => ({ ...prev, [traceTarget]: panels }));
+              // Hand-tracing replaces the panels but measures no layout of its
+              // own, so whatever arrangement the figure already had is kept.
+              setDigitizedOverrides((prev) => ({
+                ...prev, [traceTarget]: { panels, layout: f.panelLayout || null },
+              }));
               setTraceTarget(null);
             }}
           />

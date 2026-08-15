@@ -34,7 +34,7 @@ export { default as React } from "react";
 export * from "${path.join(ROOT, "src/DigitizedPanels.jsx").replace(/\\/g, "/")}";
 export { resolveFigureForPanel, figureNumberIn } from "${path.join(ROOT, "src/figureResolve.js").replace(/\\/g, "/")}";
 export { auditPanel } from "${path.join(ROOT, "src/panelGen.js").replace(/\\/g, "/")}";
-export { auditFigurePanels } from "${path.join(ROOT, "src/figureDigitize.js").replace(/\\/g, "/")}";
+export { auditFigurePanels, auditPanelCoverage } from "${path.join(ROOT, "src/figureDigitize.js").replace(/\\/g, "/")}";
 export { PHASE_SCHEMAS, FIGURE_PANELS_SCHEMA } from "${path.join(ROOT, "supabase/functions/_shared/paperSpec.js").replace(/\\/g, "/")}";
 export * from "${path.join(ROOT, "scripts/panelFamilies.fixture.js").replace(/\\/g, "/")}";
 `;
@@ -183,6 +183,79 @@ for (const [kind, panel] of Object.entries(M.XY_PANELS)) {
   ]);
   ok("an empty heatmap is dropped with a reason, never drawn blank",
     panels.length === 0 && /heatmap/.test(problems || ""));
+}
+
+/* ---- 5. the whole figure, in its own colours ----
+ *
+ * Three faults reported together from one screenshot of a 3-subplot figure:
+ * only subplot (a) came back, its three differently-coloured bars were drawn
+ * in one default blue, and the card showed the lot in a single narrow column.
+ * The first two are checkable here; the third is layout (FigurePanels is given
+ * the measured `cols`, asserted below).
+ */
+console.log("\nthe whole figure — every subplot, in the original's colours");
+
+const rowOf3 = {
+  ok: true,
+  layout: { rows: 1, cols: 3, count: 3 },
+  subplots: [0, 1, 2].map((i) => ({
+    family: "bar", confidence: 0.5, hasAxes: true, notes: [], rough: {},
+    box: { fx0: i / 3, fy0: 0, fx1: (i + 1) / 3, fy1: 1 },
+  })),
+};
+ok("a 3-subplot figure answered with 1 panel is sent back",
+  /3 plot boxes/.test(M.auditPanelCoverage(rowOf3, [{ subplotLabel: "(a)" }]) || ""));
+ok("all three subplots present → nothing to complain about",
+  M.auditPanelCoverage(rowOf3, [{}, {}, {}]) === null);
+ok("MORE panels than the pixel read segmented is fine (it over-segments)",
+  M.auditPanelCoverage(rowOf3, [{}, {}, {}, {}]) === null);
+ok("a single-panel figure is never challenged",
+  M.auditPanelCoverage({ ok: true, subplots: [{ hasAxes: true, box: {} }] }, []) === null);
+ok("no local read → no coverage claim to make", M.auditPanelCoverage({ ok: false }, []) === null);
+ok("panels without axis spines don't inflate the expected count",
+  M.auditPanelCoverage(
+    { ok: true, subplots: [...rowOf3.subplots, { hasAxes: false, box: {} }] },
+    [{}, {}, {}],
+  ) === null);
+
+{
+  /* A degraded subplot KEEPS ITS SLOT: silence and an honest degrade look the
+   * same to a reader counting panels, and they assume the worse one. */
+  const degraded = { subplotLabel: "(c)", reproduce: false, degradeReason: "This is a micrograph — shown as the paper's own figure." };
+  ok("an honest degrade is shown, not dropped from the figure", M.shownPanels([degraded]).length === 1);
+  ok("a degrade with no reason still says nothing", M.shownPanels([{ reproduce: false }]).length === 0);
+  ok("a degrade is still not counted as something drawable", M.freePanels([degraded]).length === 0);
+  const out = html(M.React.createElement(M.FreePanel, { panel: degraded, height: 200 }));
+  ok("the degraded slot renders its reason", out.includes("micrograph") && out.includes("(c)"), out.slice(0, 120));
+}
+
+{
+  /* The reported fault exactly: one series, three categories, three colours. */
+  const tricolour = {
+    subplotLabel: "(a) Detection performance",
+    reproduce: true, dataSource: "reported", chartKind: "bar",
+    xLabel: "Detection metric", yLabel: "Percentage [%] / Time [msec]",
+    computeJs:
+      "return {categories:['Sensitivity','False Alarm Rate','Detection Time']," +
+      "colors:['#2b7bba','#c0392b','#2e7d32'],series:[{label:'value',data:[100,12.1,43.1]}]};",
+  };
+  const run = M.evalReportedPanel(tricolour);
+  ok("per-category colours survive evaluation", JSON.stringify(run?.colors) === '["#2b7bba","#c0392b","#2e7d32"]');
+  const out = html(M.React.createElement(M.FreePanel, { panel: tricolour, height: 220 }));
+  for (const hex of ["#2b7bba", "#c0392b", "#2e7d32"]) {
+    ok(`the bar drawn in ${hex} keeps that colour`, out.includes(hex));
+  }
+  ok("the legend names the categories, not one anonymous series", out.includes("False Alarm Rate"));
+
+  const junk = { ...tricolour, computeJs: tricolour.computeJs.replace("'#2b7bba'", "'javascript:alert(1)'") };
+  ok("a colour that isn't a hex is ignored rather than injected",
+    !html(M.React.createElement(M.FreePanel, { panel: junk, height: 220 })).includes("javascript:"));
+
+  /* And the arrangement: three panels in the measured row of three. */
+  const grid = html(M.React.createElement(M.FigurePanels, {
+    panels: [tricolour, tricolour, tricolour], layout: { cols: 3 },
+  }));
+  ok("the figure's own grid is used, not a single column", grid.includes("repeat(3, minmax(0, 1fr))"));
 }
 
 /* ---- coverage: the family list itself must not quietly shrink ---- */

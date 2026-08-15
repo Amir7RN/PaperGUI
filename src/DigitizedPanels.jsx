@@ -1088,7 +1088,15 @@ export function evalReportedPanel(panel) {
     const out = fn({}, {}, buildHelpers({ T: 10, dt: 0.05 }));
     const series = (out?.series || []).filter((s) => Array.isArray(s?.data) && s.data.length);
     if (!series.length) return null;
-    return { x: out.x, categories: out.categories, series };
+    /* `colors` — one hex per CATEGORY, read off the original. A metrics bar
+     * chart draws one series in three different colours (sensitivity blue,
+     * false-alarm red, detection-time green), which a per-series palette
+     * cannot express: it painted all three the same default blue and the
+     * reproduction stopped looking like the figure it was traced from. */
+    const colors = Array.isArray(out?.colors)
+      ? out.colors.map((c) => (typeof c === "string" && /^#[0-9a-f]{3,8}$/i.test(c.trim()) ? c.trim() : null))
+      : null;
+    return { x: out.x, categories: out.categories, series, colors };
   } catch {
     return null;
   }
@@ -1111,7 +1119,13 @@ export function ReportedPanel({ panel, height = 260 }) {
   if (!run) return null;
 
   const kind = panel.chartKind || "line";
-  const { series, categories } = run;
+  const { series, categories, colors } = run;
+  /* The colour of mark `i` of series `si`: the original's own per-category
+   * colour first (only meaningful on a single-series categorical chart, where
+   * colour encodes the category rather than the series), then the series'
+   * own read-off colour, then the shared palette. */
+  const markColor = (s, si, i) =>
+    (series.length === 1 && colors?.[i]) || s.color || HUES[si % HUES.length];
   const n = Math.max(...series.map((s) => s.data.length));
   const xs = run.x && run.x.length >= n ? run.x.slice(0, n) : Array.from({ length: n }, (_, i) => i);
 
@@ -1160,7 +1174,7 @@ export function ReportedPanel({ panel, height = 260 }) {
     ? series
         .map((s, si) => ({
           label: s.label || `series ${si + 1}`,
-          color: s.color || HUES[si % HUES.length],
+          color: markColor(s, si, traceI),
           value: s.data[traceI],
         }))
         .filter((r) => Number.isFinite(r.value))
@@ -1188,7 +1202,15 @@ export function ReportedPanel({ panel, height = 260 }) {
                 )
                 : null
           } />
-        <ChipLegend items={series.map((s, i) => ({ label: s.label || `series ${i + 1}`, color: s.color || HUES[i % HUES.length] }))} />
+        {/* When colour encodes the CATEGORY rather than the series — one
+            series of differently-coloured bars — the legend has to name the
+            categories, or it reads as a one-entry legend for a three-colour
+            chart. */}
+        <ChipLegend items={
+          series.length === 1 && colors?.some(Boolean) && categories?.length
+            ? categories.slice(0, n).map((c, i) => ({ label: c, color: markColor(series[0], 0, i) }))
+            : series.map((s, i) => ({ label: s.label || `series ${i + 1}`, color: s.color || HUES[i % HUES.length] }))
+        } />
       </>}>
       <div className="overflow-x-auto">
         <svg ref={svgRef} width="100%" viewBox={`0 0 ${W} ${H}`} style={{ minWidth: 300 }}
@@ -1209,14 +1231,14 @@ export function ReportedPanel({ panel, height = 260 }) {
                   x={padL + bandW * i + bandW * 0.15 + barW * si}
                   y={Math.min(py(v), py(Math.max(0, y0)))}
                   width={barW} height={Math.abs(py(v) - py(Math.max(0, y0)))}
-                  fill={col} opacity="0.85"
+                  fill={markColor(s, si, i)} opacity="0.85"
                   onMouseEnter={() => setHover({ label: s.label || `series ${si + 1}`, at: categories?.[i] ?? fmt(xs[i], 2), value: v })}
                   onMouseLeave={() => setHover(null)} />
               ));
             }
             if (kind === "scatter") {
               return s.data.map((v, i) => Number.isFinite(v) && (
-                <circle key={`${si}-${i}`} cx={px(xs[i])} cy={py(v)} r="2.6" fill={col} opacity="0.8"
+                <circle key={`${si}-${i}`} cx={px(xs[i])} cy={py(v)} r="2.6" fill={markColor(s, si, i)} opacity="0.8"
                   onMouseEnter={() => setHover({ label: s.label || `series ${si + 1}`, at: fmt(xs[i], 2), value: v })}
                   onMouseLeave={() => setHover(null)} />
               ));
@@ -1259,12 +1281,41 @@ export function ReportedPanel({ panel, height = 260 }) {
   );
 }
 
+/**
+ * A subplot that was READ but deliberately not redrawn, shown as the slot it
+ * occupies in the figure rather than dropped.
+ *
+ * Silence is the wrong answer here. A reader looking at a three-panel figure
+ * whose reproduction shows one card cannot tell an honest degrade from a
+ * digitizer that quit — both look like a missing panel, and the second is what
+ * they assume. Keeping the slot, labelled, with the sentence explaining it, is
+ * what makes "we don't redraw micrographs" legible as a decision.
+ */
+function DegradedPanel({ panel }) {
+  return (
+    <div className="flex h-full min-h-[120px] flex-col justify-center rounded-lg border border-dashed border-amber-300 bg-amber-50/60 p-3">
+      <div className="mb-1 flex items-center gap-1.5 text-[11.5px] font-semibold text-slate-700">
+        <span className="min-w-0 truncate" title={panel.subplotLabel}>{panel.subplotLabel || "This subplot"}</span>
+        <span className="shrink-0 rounded-full bg-amber-100 px-1.5 py-0.5 text-[8.5px] font-bold uppercase tracking-wide text-amber-700">
+          shown as original
+        </span>
+      </div>
+      <p className="text-[11px] leading-snug text-slate-600">
+        {panel.degradeReason || "Shown as the paper's own figure rather than a reproduction we can't make faithfully."}
+      </p>
+    </div>
+  );
+}
+
 /** One panel, rendered faithfully and for FREE wherever the simulation
  *  pipeline isn't running: the special families through their own renderer,
- *  plain reported x–y through ReportedPanel. Returns null when neither path
- *  can honestly draw it — the caller then falls through to the metered
- *  builder. */
+ *  plain reported x–y through ReportedPanel, and an honestly-degraded subplot
+ *  as the note that says so. Returns null only when none of those paths can
+ *  say anything true — the caller then falls through to the metered builder. */
 export function FreePanel({ panel, height }) {
+  if (panel?.reproduce === false) {
+    return String(panel.degradeReason || "").trim() ? <DegradedPanel panel={panel} /> : null;
+  }
   if (isSpecialDigitized(panel)) return <DigitizedPanel panel={panel} height={height} />;
   return <ReportedPanel panel={panel} height={height} />;
 }
@@ -1312,6 +1363,24 @@ export function FigurePanels({ panels, layout, height, className = "" }) {
 export function freePanels(panels) {
   return (panels || []).filter(
     (p) => p && p.reproduce !== false && (isSpecialDigitized(p) || !!evalReportedPanel(p)),
+  );
+}
+
+/**
+ * What to SHOW for a figure that has been read: every drawable panel, plus the
+ * subplots that were honestly degraded, in the figure's own order.
+ *
+ * Distinct from freePanels on purpose. That predicate answers "is there
+ * anything here worth not paying to rebuild?", and a degrade must not count
+ * toward it. This one answers "what does this figure look like now?", and a
+ * degrade very much does — a reproduction that silently omits panel (c) is a
+ * different figure from the one the reader is holding.
+ */
+export function shownPanels(panels) {
+  return (panels || []).filter(
+    (p) => p && (p.reproduce === false
+      ? !!String(p.degradeReason || "").trim()
+      : isSpecialDigitized(p) || !!evalReportedPanel(p)),
   );
 }
 
