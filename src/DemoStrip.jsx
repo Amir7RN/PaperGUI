@@ -43,13 +43,6 @@ export const DEMOS = [
     src: "/sciloupe-demo-teach-me.gif",
     poster: "/sciloupe-demo-teach-me.poster.jpg",
   },
-  {
-    id: "live-references",
-    title: "Live references",
-    blurb: "A citation, resolved and explained where it sits",
-    src: "/sciloupe-demo-references.gif",
-    poster: "/sciloupe-demo-references.poster.jpg",
-  },
 ];
 
 /* Geometry, per tile: x and w as PERCENTAGES of the strip's width, y in
@@ -64,10 +57,16 @@ export const DEMOS = [
  *
  * THIS IS THE BAKED-IN DEFAULT. Arrange the strip, press "Copy layout", paste
  * the result here, and every visitor gets it. */
+/* Arranged at ~800px a tile, side by side, filling the width — which is what
+ * the numbers below preserve. They are not the raw ones the arrangement
+ * produced (-5%..110.5%): that pair is 115.5% of the strip, so it ran off both
+ * edges of the window it was built in, and the choice was a page-wide
+ * horizontal scrollbar or a clipped tile whose title read "ure". The strip is
+ * full-bleed instead (see App.jsx), which buys back the width the bleed was
+ * reaching for, and the tiles sit inside it at the same rendered size. */
 const DEFAULT_RECTS = {
-  "live-figure":     { x: 0,    y: 0, w: 32.6 },
-  "teach-me":        { x: 33.7, y: 0, w: 32.6 },
-  "live-references": { x: 67.4, y: 0, w: 32.6 },
+  "live-figure": { x: 0,    y: 0, w: 49.5 },
+  "teach-me":    { x: 50.5, y: 0, w: 49.5 },
 };
 
 const STORAGE = "pp-demo-strip";
@@ -242,10 +241,17 @@ export default function DemoStrip({ owner = false }) {
         </div>
       )}
 
+      {/* The baked arrangement runs from -5% to 110.5% — it bleeds past both
+          edges of the column on purpose, which looks deliberate and would also
+          hand the whole PAGE a horizontal scrollbar on any window narrower
+          than the one it was arranged on. `clip` rather than `hidden` because
+          hidden makes this a scroll container, which breaks anchor scrolling
+          into the sections below it. Never while arranging: a tile you drag
+          out of view is a tile you cannot drag back. */}
       <div
         ref={stripRef}
-        className={free ? "relative" : "grid gap-4 sm:grid-cols-2"}
-        style={free ? { height: canvasH } : undefined}
+        className={free ? "relative" : "grid gap-5"}
+        style={free ? { height: canvasH, overflowX: arranging ? "visible" : "clip" } : undefined}
       >
         {DEMOS.map((demo) => {
           const r = rects[demo.id] || DEFAULT_RECTS[demo.id];

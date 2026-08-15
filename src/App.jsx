@@ -623,7 +623,13 @@ function Landing({
               mode. Wider than the prose it sits under: these are screen
               recordings of an app, and at a third of a 6xl column you cannot
               read the app in them, which was the whole complaint. */}
-          <Reveal delay={80} className="-mx-2 mt-10 sm:mx-0">
+          {/* FULL-BLEED, wider than the prose above it. These are screen
+              recordings of an app: at a third of a 6xl column you could not
+              read the app in them, which was the whole complaint. Breaking out
+              of the section rather than widening it keeps the heading a
+              readable measure. Capped at 120rem so an ultrawide display gets
+              big tiles, not absurd ones. */}
+          <Reveal delay={80} className="relative left-1/2 mt-10 w-[min(120rem,100vw-2.5rem)] -translate-x-1/2">
             <DemoStrip owner={owner} />
           </Reveal>
         </section>
