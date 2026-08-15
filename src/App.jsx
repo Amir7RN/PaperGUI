@@ -33,27 +33,36 @@ const BG_URL = `${import.meta.env.BASE_URL}Background.png`;
 
 const MAX_PDF_MB = 32;
 
-/* ---------------- owner gate (design tools) ----------------
- * The layout/design tools ("Edit fonts & sections", "Free layout") are for the
- * site owner only, not regular visitors. Owner is recognized two ways:
- *   1. Signed in with an email listed in VITE_OWNER_EMAIL (comma-separated).
- *   2. A one-time unlock via ?owner=1 in the URL (persisted in localStorage);
- *      ?owner=0 clears it. Handy for unlocking without a redeploy.
- * These tools only edit the viewer's own localStorage, so this is a UI gate,
- * not a security boundary. */
-const OWNER_EMAILS = (import.meta.env.VITE_OWNER_EMAIL || "")
+/* ---------------- owner gate (design tools, unlimited badge) ----------------
+ *
+ * WHO the owner is: whoever is signed in with an email on this list. That is
+ * the only test. There used to be a second one — a `?owner=1` URL flag saved
+ * to localStorage, for unlocking the design tools without a redeploy — and it
+ * was checked FIRST and never expired, so once that link had been opened in a
+ * browser, every account signed in there afterwards read as the owner and was
+ * shown "Owner · unlimited". A flag that outlives the session it was set for
+ * cannot answer "who is signed in", so it is gone rather than reordered.
+ *
+ * The default is the site owner's own address, already printed in the footer
+ * of every page, so the gate is correct without depending on a build secret
+ * being present. VITE_OWNER_EMAIL (comma-separated) overrides it.
+ *
+ * This is a UI gate, not a security boundary: it decides what is SHOWN. What
+ * is actually free is decided by the edge functions against their own
+ * OWNER_EMAIL, which no client can set. */
+const OWNER_EMAILS = (import.meta.env.VITE_OWNER_EMAIL || "amir73rn@gmail.com")
   .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
 
 function isOwnerUser(session) {
-  try {
-    const flag = new URLSearchParams(window.location.search).get("owner");
-    if (flag === "1") localStorage.setItem("pp-owner", "1");
-    else if (flag === "0") localStorage.removeItem("pp-owner");
-    if (localStorage.getItem("pp-owner") === "1") return true;
-  } catch { /* storage/URL unavailable — fall through to email check */ }
   const email = session?.user?.email?.toLowerCase() || "";
-  return OWNER_EMAILS.includes(email);
+  return !!email && OWNER_EMAILS.includes(email);
 }
+
+/* Clear the retired flag wherever it was left behind. Without this it sits in
+ * the browsers that opened an ?owner=1 link forever — harmless now that
+ * nothing reads it, but it is the reason this bug lasted, and leaving the
+ * evidence around invites someone to wire it back up. */
+try { localStorage.removeItem("pp-owner"); } catch { /* storage unavailable */ }
 
 /* ---------------- credit balance badge ---------------- */
 
