@@ -11,7 +11,7 @@ import {
   FlaskConical, Upload, Wallet,
   Loader2, TriangleAlert, FileText, Sparkles, SlidersHorizontal, LineChart, LogOut,
   ChevronDown, Wand2, Landmark, Image as ImageIcon, LogIn, BookMarked, Mail, MapPin,
-  FileCode2, X as XIcon, Play,
+  FileCode2, X as XIcon,
 } from "lucide-react";
 import Workspace from "./Workspace.jsx";
 import Auth from "./Auth.jsx";
@@ -20,6 +20,7 @@ import BuyCredits from "./BuyCredits.jsx";
 import ContactModal from "./ContactModal.jsx";
 import Tilt3D, { Reveal } from "./Tilt3D.jsx";
 import DoiBox from "./DoiBox.jsx";
+import DemoStrip from "./DemoStrip.jsx";
 import { analyzePaper, fixturesEnabled, MODEL_TIERS, getModelTier, setModelTier } from "./api.js";
 import { PHASE_VALIDATORS } from "./validators.js";
 import { fileToBase64, renderPdfRegions } from "./pdf.js";
@@ -284,70 +285,6 @@ function SiteFooter({ onContact }) {
         </p>
       </div>
     </footer>
-  );
-}
-
-/* ---------------- the three recordings ----------------
- *
- * Screen captures of the three things this page has just claimed, sitting
- * directly under the claim. A sentence saying "the figure comes back live" is
- * a promise; ten seconds of someone dragging one is the proof, and it costs
- * the reader nothing to check.
- *
- * PLAYED ON CLICK, NEVER ON ARRIVAL, and this is not a taste decision: the
- * three files are 6-12 MB each. Rendered as plain <img> they would be fetched
- * by every visitor before the page settled — 30 MB to look at a landing page,
- * most of it on a phone, all of it before anyone decided they cared. So the
- * tile is a poster until it is clicked, `src` is set only then, and clicking
- * again drops it. Three GIFs autoplaying side by side is also simply hard to
- * watch: nothing holds still long enough to read.
- */
-const DEMOS = [
-  { title: "Live figure", src: "/sciloupe-demo-live-figure-fig7.gif", blurb: "A figure of the paper, traced and made interactive" },
-  { title: "Teach me", src: "/sciloupe-demo-teach-me.gif", blurb: "A section, taught and quizzed on the spot" },
-  { title: "Live references", src: "/sciloupe-demo-references.gif", blurb: "A citation, resolved and explained where it sits" },
-];
-
-function DemoTile({ title, src, blurb }) {
-  const [playing, setPlaying] = useState(false);
-  return (
-    <Tilt3D className="h-full rounded-2xl" max={7} lift={20} glare={false}>
-      <button
-        type="button"
-        onClick={() => setPlaying((v) => !v)}
-        aria-pressed={playing}
-        aria-label={playing ? `Stop the ${title} recording` : `Play the ${title} recording`}
-        className="pp-3d-card group block h-full w-full overflow-hidden rounded-2xl border border-slate-200/80 bg-white text-left shadow-sm transition hover:shadow-[0_36px_70px_-40px_rgba(15,23,42,0.5)]"
-      >
-        <span className="relative block aspect-video w-full overflow-hidden bg-slate-900">
-          {playing ? (
-            /* `src` set only now — this is the fetch, and it is the reader's
-               decision. The key restarts the GIF from its first frame when a
-               tile is replayed, instead of resuming a cached animation. */
-            <img key={src} src={src} alt={`${title} — screen recording`}
-              className="h-full w-full object-cover" />
-          ) : (
-            <span className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-gradient-to-br from-slate-800 via-slate-900 to-blue-950">
-              <span className="pp-pop flex h-11 w-11 items-center justify-center rounded-full bg-white/95 text-slate-900 shadow-lg transition group-hover:scale-110">
-                <Play size={17} className="ml-0.5 fill-current" />
-              </span>
-              <span className="text-[10.5px] font-semibold uppercase tracking-[0.14em] text-slate-400">click to play</span>
-            </span>
-          )}
-        </span>
-        <span className="block px-4 py-3">
-          <span className="flex items-center gap-2">
-            <span className="text-[14px] font-bold text-slate-900">{title}</span>
-            {playing && (
-              <span className="rounded-full bg-emerald-50 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-emerald-600">
-                playing
-              </span>
-            )}
-          </span>
-          <span className="mt-0.5 block text-[12px] leading-relaxed text-slate-500">{blurb}</span>
-        </span>
-      </button>
-    </Tilt3D>
   );
 }
 
@@ -669,7 +606,7 @@ function Landing({
         </section>
 
         {/* ===================== DIFFERENTIATION ===================== */}
-        <section className="pp-scene mx-auto max-w-6xl px-5 py-16 sm:px-8">
+        <section className="pp-scene mx-auto max-w-[92rem] px-5 py-16 sm:px-8">
           <Reveal className="mx-auto max-w-2xl text-center">
             <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-blue-600">Why not just ask a chatbot?</div>
             <h2 className="pp-text-depth mt-2 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl" style={{ fontFamily: "'Sora', system-ui, sans-serif" }}>
@@ -681,17 +618,14 @@ function Landing({
             </p>
           </Reveal>
 
-          {/* The claim above, on film. Three real recordings, side by side,
-              each waiting on a click — see DemoTile for why they are not
-              autoplaying (they are 6-12 MB apiece, and three moving images at
-              once is unreadable anyway). */}
-          <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {DEMOS.map((d, i) => (
-              <Reveal key={d.title} delay={i * 70} className="h-full">
-                <DemoTile {...d} />
-              </Reveal>
-            ))}
-          </div>
+          {/* The claim above, on film — see DemoStrip.jsx for why the tiles
+              show a poster until they are clicked, and for the owner's arrange
+              mode. Wider than the prose it sits under: these are screen
+              recordings of an app, and at a third of a 6xl column you cannot
+              read the app in them, which was the whole complaint. */}
+          <Reveal delay={80} className="-mx-2 mt-10 sm:mx-0">
+            <DemoStrip owner={owner} />
+          </Reveal>
         </section>
 
         {/* ===================== TRY IT ===================== */}
