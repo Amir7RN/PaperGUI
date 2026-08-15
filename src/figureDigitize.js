@@ -21,7 +21,7 @@
 import { getAccessToken, functionsUrl, supabaseAnonKey } from "./supabase.js";
 import { specialDigitizedValid } from "./engine.js";
 import { evalReportedPanel, SPECIAL_DIGITIZED_KINDS } from "./DigitizedPanels.jsx";
-import { stageADraft } from "./figureClassify.js";
+import { stageADraft, cropDataUrl, draftToPrompt } from "./figureClassify.js";
 
 const SPECIAL = new Set(SPECIAL_DIGITIZED_KINDS);
 
@@ -267,59 +267,20 @@ const layoutOf = (draft) =>
     : null;
 
 /**
- * Digitize one figure of `spec`. Returns { panels, layout, cost, remainingBalance }.
+ * ONE read of one image — the whole two-attempt loop, for a crop that may be a
+ * whole figure or a single subplot cut out of one.
+ *
+ * Returns { panels, cost, remainingBalance, problems }, or throws with a
+ * `.code` the caller can act on ("audit", "credit", "auth", "timeout").
  *
  * One retry, with the audit's verdict fed back — the reader has already been
  * charged by the time the check runs, and the faults it catches (a heat map
  * with an empty grid, a series that plots flat) are exactly the kind a model
- * fixes when told which one it made. A second failure means the figure isn't
+ * fixes when told which one it made. A second failure means the crop isn't
  * honestly readable, and spending more of the reader's credit to keep
  * discovering that is not a kindness.
  */
-export async function digitizeFigure({ figure, spec }) {
-  if (!functionsUrl) throw new Error("Making figures live isn't configured for this deployment.");
-  if (!figure?.image) {
-    throw new Error("This figure has no crop to read — reopen the paper so its figures can be cropped again.");
-  }
-
-  /* STAGE A — free, offline, local.
-   *
-   * Before spending anything, the crop is measured in the browser: how many
-   * panels it holds, where they sit, what shape the marks in each one are,
-   * which colours they are drawn in. See figureClassify.js for why those
-   * particular questions are answered better by counting pixels than by
-   * looking, and for how carefully the result is hedged.
-   *
-   * It runs on the same image the paid call is about to see, so the online
-   * pass is no longer answering from scratch — it is checking specific claims
-   * against the picture, which is a far more reliable thing to ask for. A
-   * local read that fails or finds nothing is not an error: the request simply
-   * goes without a draft, exactly as it did before this existed. */
-  const { draft, prompt: draftPrompt } = await stageADraft(figure.image);
-
-  const base = {
-    image: figure.image,
-    figureLabel: figure.figureLabel || figure.label || "",
-    title: figure.title || "",
-    explanation: figure.explanation || "",
-    paperTitle: spec?.meta?.title || "",
-    field: spec?.meta?.field || "",
-    /* NO pipeline, deliberately. Digitizing a result figure now means exactly
-     * that: the paper's own plotted values, read off the image, in the image's
-     * own chart family. Hooking result panels into the live simulation was how
-     * a digitization came back as a synthetic 'simulated' curve instead of the
-     * figure — the sliders belong to the method lab, not to the record of what
-     * the paper measured. */
-    pipeline: null,
-    draft: draftPrompt || null,
-  };
-  if (draft?.ok) {
-    console.info(
-      `[stage A] ${base.figureLabel || "figure"}: ${draft.subplots.length} panel(s) — ` +
-      draft.subplots.map((s) => `${s.family}@${s.confidence}`).join(", "),
-    );
-  }
-
+async function readCrop({ base, draft }) {
   let spent = 0;
   let firstProblem = null;
 
@@ -349,7 +310,7 @@ export async function digitizeFigure({ figure, spec }) {
      * panels of which two are honest is a better figure than an error, and
      * the reader has already paid for what came back. */
     if (panels.length && !fam.problems && !(coverage && attempt === 0)) {
-      return { panels, layout: layoutOf(draft), cost: spent, remainingBalance: data.remainingBalance, problems };
+      return { panels, cost: spent, remainingBalance: data.remainingBalance, problems };
     }
 
     if (attempt === 0) {
@@ -359,10 +320,8 @@ export async function digitizeFigure({ figure, spec }) {
     }
 
     if (panels.length) {
-      const sanitized = degradeMismatches(panels, fam.verdicts);
       return {
-        panels: sanitized,
-        layout: layoutOf(draft),
+        panels: degradeMismatches(panels, fam.verdicts),
         cost: spent,
         remainingBalance: data.remainingBalance,
         problems: [problems, fam.problems].filter(Boolean).join("\n") || null,
@@ -375,4 +334,286 @@ export async function digitizeFigure({ figure, spec }) {
     e.remainingBalance = data.remainingBalance;
     throw e;
   }
+}
+
+/* ---------------- one request per subplot ----------------
+ *
+ * Reading a whole multi-panel figure in ONE request is the slowest thing this
+ * app does, and past a certain figure it simply cannot finish: Supabase kills
+ * an Edge Function at 150s of wall clock on the free plan, and a four-panel
+ * figure read at high effort with a full digitized carrier per panel routinely
+ * runs longer than that. The reader met it as "reading this figure took longer
+ * than the server allows" — having paid for the attempt.
+ *
+ * Cutting the crop into its subplots and sending one request each fixes that
+ * without changing platform, and three other things fall out of it:
+ *
+ *  - ACCURACY. Each request sees one plot at its own resolution with one job,
+ *    and its whole output budget belongs to that panel. Same reason this
+ *    module exists at all rather than digitizing inside the page analysis.
+ *  - COST. A quarter of the image and a quarter of the answer, four times,
+ *    is not more than the whole in one go — and usually less, because the
+ *    long single answer is what runs into retries.
+ *  - PARTIAL SUCCESS. A panel that can't be read degrades to the paper's own
+ *    figure with a sentence, while its neighbours stay live. The all-or-
+ *    nothing failure is gone.
+ *
+ * It is only attempted when Stage A's segmentation looks trustworthy, because
+ * a bad split reads half a plot as a whole one — see splitPlan.
+ */
+
+/** Beyond this many panels the split is more likely a mis-segmented dense
+ *  figure than a real grid, and the parallel spend gets hard to justify. */
+const MAX_SPLIT_PANELS = 8;
+/** How many subplot reads are in flight at once. Enough to hide the latency
+ *  of a 4-panel figure in one round; low enough not to open a dozen sockets
+ *  or spike the reader's spend rate. */
+const SPLIT_CONCURRENCY = 3;
+
+/**
+ * The subplots worth sending as their own request, or null to read the figure
+ * whole.
+ *
+ * Conservative on purpose. Splitting on a bad segmentation is worse than not
+ * splitting: it crops a plot in half and asks a model to read the half as if
+ * it were the panel, which produces a confident wrong answer rather than a
+ * visible failure. So a split needs Stage A to have found real axis spines
+ * around every candidate, cells big enough to be plots rather than label
+ * strips, and enough of the crop covered that the segmentation is describing
+ * the figure rather than a corner of it.
+ */
+export function splitPlan(draft) {
+  if (!draft?.ok) return null;
+  const subs = (draft.subplots || []).filter((s) => s.hasAxes && s.box);
+  if (subs.length < 2 || subs.length > MAX_SPLIT_PANELS) return null;
+
+  const area = (s) => Math.max(0, s.box.fx1 - s.box.fx0) * Math.max(0, s.box.fy1 - s.box.fy0);
+  const bigEnough = subs.every((s) =>
+    s.box.fx1 - s.box.fx0 >= 0.12 && s.box.fy1 - s.box.fy0 >= 0.12);
+  if (!bigEnough) return null;
+
+  /* Cells that between them cover almost none of the crop mean the gutter
+   * finder latched onto something else — a legend strip, a caption block. */
+  const covered = subs.reduce((t, s) => t + area(s), 0);
+  if (covered < 0.3) return null;
+
+  return subs;
+}
+
+/** The draft for ONE subplot, as if that subplot were the whole crop — which
+ *  is exactly what the request that carries it will see. */
+function subplotDraft(draft, s) {
+  return {
+    ok: true,
+    width: draft.width,
+    height: draft.height,
+    background: draft.background,
+    layout: { rows: 1, cols: 1, count: 1 },
+    subplots: [{ ...s, index: 0, box: { fx0: 0, fy0: 0, fx1: 1, fy1: 1 } }],
+  };
+}
+
+/** Run `job` over `items` with at most `limit` in flight, keeping results in
+ *  the input's order. */
+async function pooled(items, limit, job) {
+  const out = new Array(items.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    for (;;) {
+      const i = next++;
+      if (i >= items.length) return;
+      out[i] = await job(items[i], i);
+    }
+  });
+  await Promise.all(workers);
+  return out;
+}
+
+/** A subplot that could not be read, kept as the slot it occupies. The reader
+ *  sees the original for that panel and a sentence saying why — never a hole
+ *  where a panel was, which is indistinguishable from a figure that never had
+ *  one. */
+const failedSubplotPanel = (i, n, reason) => ({
+  subplotLabel: `Subplot ${i + 1} of ${n}`,
+  figureFamily: "other",
+  confidence: "low",
+  reproduce: false,
+  chartKind: "line",
+  dataSource: "reported",
+  xLabel: "",
+  yLabel: "",
+  computeJs: "",
+  degradeReason: reason,
+});
+
+/**
+ * Digitize one figure of `spec`. Returns { panels, layout, cost, remainingBalance }.
+ *
+ * Reads subplot by subplot when Stage A segmented the crop confidently, and
+ * whole otherwise. Both paths run the same audits and return the same shape.
+ *
+ * @param onProgress optional ({ done, total }) => void, for the reader's
+ *   "reading panel 2 of 3" — a multi-minute wait that says nothing is
+ *   indistinguishable from a hang, which is how the timeout was first reported.
+ */
+export async function digitizeFigure({ figure, spec, onProgress }) {
+  if (!functionsUrl) throw new Error("Making figures live isn't configured for this deployment.");
+  if (!figure?.image) {
+    throw new Error("This figure has no crop to read — reopen the paper so its figures can be cropped again.");
+  }
+
+  /* STAGE A — free, offline, local.
+   *
+   * Before spending anything, the crop is measured in the browser: how many
+   * panels it holds, where they sit, what shape the marks in each one are,
+   * which colours they are drawn in. See figureClassify.js for why those
+   * particular questions are answered better by counting pixels than by
+   * looking, and for how carefully the result is hedged.
+   *
+   * It runs on the same image the paid call is about to see, so the online
+   * pass is no longer answering from scratch — it is checking specific claims
+   * against the picture, which is a far more reliable thing to ask for. A
+   * local read that fails or finds nothing is not an error: the request simply
+   * goes without a draft, exactly as it did before this existed. It is also
+   * what decides whether the figure is read in one request or several. */
+  const { draft, prompt: draftPrompt } = await stageADraft(figure.image);
+
+  const common = {
+    figureLabel: figure.figureLabel || figure.label || "",
+    title: figure.title || "",
+    explanation: figure.explanation || "",
+    paperTitle: spec?.meta?.title || "",
+    field: spec?.meta?.field || "",
+    /* NO pipeline, deliberately. Digitizing a result figure now means exactly
+     * that: the paper's own plotted values, read off the image, in the image's
+     * own chart family. Hooking result panels into the live simulation was how
+     * a digitization came back as a synthetic 'simulated' curve instead of the
+     * figure — the sliders belong to the method lab, not to the record of what
+     * the paper measured. */
+    pipeline: null,
+  };
+  if (draft?.ok) {
+    console.info(
+      `[stage A] ${common.figureLabel || "figure"}: ${draft.subplots.length} panel(s) — ` +
+      draft.subplots.map((s) => `${s.family}@${s.confidence}`).join(", "),
+    );
+  }
+
+  const plan = splitPlan(draft);
+  if (plan) {
+    const split = await digitizeBySubplot({ figure, draft, plan, common, onProgress });
+    if (split) return split;
+    console.warn("per-subplot digitization produced nothing; reading the figure whole");
+  }
+
+  onProgress?.({ done: 0, total: 1 });
+  const { panels, cost, remainingBalance, problems } = await readCrop({
+    base: { ...common, image: figure.image, draft: draftPrompt || null },
+    draft,
+  });
+  onProgress?.({ done: 1, total: 1 });
+  return { panels, layout: layoutOf(draft), cost, remainingBalance, problems };
+}
+
+/**
+ * The split path: one request per subplot, in parallel, merged in the
+ * figure's own reading order.
+ *
+ * Returns null when the crops themselves could not be made (a tainted canvas,
+ * an image that won't decode) so the caller can fall back to reading the
+ * figure whole. A subplot whose REQUEST fails is not a null — it is a degraded
+ * panel among live ones, which is the whole point of splitting.
+ */
+async function digitizeBySubplot({ figure, draft, plan, common, onProgress }) {
+  let crops;
+  try {
+    crops = await Promise.all(plan.map((s) => cropDataUrl(figure.image, s.box)));
+  } catch (e) {
+    console.warn("could not cut the figure into subplots", e);
+    return null;
+  }
+
+  const total = plan.length;
+  let done = 0;
+  onProgress?.({ done, total });
+
+  /* A refusal that will repeat on every remaining subplot — no credit, no
+   * session — stops the run instead of buying the same error N times. */
+  let fatal = null;
+
+  const results = await pooled(plan, SPLIT_CONCURRENCY, async (s, i) => {
+    if (fatal) return { skipped: true };
+    try {
+      const one = await readCrop({
+        base: {
+          ...common,
+          image: crops[i],
+          draft: draftToPrompt(subplotDraft(draft, s)),
+          subplot: { index: i + 1, count: total },
+        },
+        draft: subplotDraft(draft, s),
+      });
+      return one;
+    } catch (e) {
+      if (e?.code === "credit" || e?.code === "auth") fatal = e;
+      console.warn(`subplot ${i + 1}/${total} could not be read`, e);
+      return { error: e, cost: e?.cost || 0, remainingBalance: e?.remainingBalance };
+    } finally {
+      done += 1;
+      onProgress?.({ done, total });
+    }
+  });
+
+  const panels = [];
+  const problems = [];
+  let cost = 0;
+  let balance = null;
+  let read = 0;
+
+  results.forEach((r, i) => {
+    if (!r || r.skipped) {
+      panels.push(failedSubplotPanel(i, total,
+        "This subplot wasn't read — the figure ran out of credit part-way through. Try again to finish it."));
+      return;
+    }
+    cost += r.cost || 0;
+    /* Each request charges atomically and reports the balance after its own
+     * charge, so the lowest number is the one that saw the most charges —
+     * never the last to arrive, which is a race. */
+    if (Number.isFinite(r.remainingBalance)) {
+      balance = balance == null ? r.remainingBalance : Math.min(balance, r.remainingBalance);
+    }
+    if (r.error) {
+      panels.push(failedSubplotPanel(i, total,
+        r.error.code === "timeout"
+          ? "This subplot took longer than the server allows to read, so the paper's own figure is shown for it."
+          : `This subplot couldn't be read reliably (${r.error.message || "unknown error"}), so the paper's own figure is shown for it.`));
+      problems.push(`subplot ${i + 1}: ${r.error.message || r.error}`);
+      return;
+    }
+    read += 1;
+    panels.push(...r.panels);
+    if (r.problems) problems.push(`subplot ${i + 1}: ${r.problems}`);
+  });
+
+  /* Nothing readable at all is a failure, not a figure of apologies — and it
+   * carries what was spent so the receipt is honest. */
+  if (!read) {
+    const e = new Error(
+      fatal?.message ||
+      `None of this figure's ${total} subplots could be read — ${problems[0] || "every request failed"}.`);
+    e.code = fatal?.code || "audit";
+    e.cost = cost;
+    e.remainingBalance = balance;
+    throw e;
+  }
+
+  console.info(`[split] read ${read}/${total} subplots of ${common.figureLabel || "figure"} for $${cost.toFixed(4)}`);
+  return {
+    panels,
+    layout: layoutOf(draft),
+    cost,
+    remainingBalance: balance,
+    problems: problems.length ? problems.join("\n") : null,
+  };
 }

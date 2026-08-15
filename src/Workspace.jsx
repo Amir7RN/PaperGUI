@@ -2780,7 +2780,14 @@ function ResultsLab({ spec, pipelineCompiled, helpers, baseOutputs, actOutputs, 
                   disabled={liveJob?.status === "working"}
                   className="flex items-center gap-1.5 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100 disabled:opacity-50">
                   {liveJob?.status === "working" && liveJob.figIndex === figIndex
-                    ? <><Loader2 size={13} className="animate-spin" /> Reading the figure…</>
+                    ? (
+                      <>
+                        <Loader2 size={13} className="animate-spin" />
+                        {liveJob.total > 1
+                          ? `Reading subplot ${Math.min(liveJob.done + 1, liveJob.total)} of ${liveJob.total}…`
+                          : "Reading the figure…"}
+                      </>
+                    )
                     : (
                       <>
                         <SlidersHorizontal size={13} /> Make this figure live
@@ -4860,7 +4867,15 @@ export default function Workspace({ spec: baseSpec, onBack, onSignOut, isOwner =
     const est = estimateFor("figure");
     setLiveJob({ figIndex, status: "working" });
     try {
-      const { panels, layout, cost } = await digitizeFigure({ figure: fig, spec });
+      const { panels, layout, cost } = await digitizeFigure({
+        figure: fig, spec,
+        /* A multi-panel figure is read one subplot at a time, which takes as
+         * long as the slowest panel and says nothing while it does. A spinner
+         * that stands still for two minutes is indistinguishable from a hang —
+         * the same reason the lesson builder reports section by section. */
+        onProgress: ({ done, total }) =>
+          setLiveJob({ figIndex, status: "working", done, total }),
+      });
       setDigitizedOverrides((prev) => ({ ...prev, [figIndex]: { panels, layout } }));
       setLiveJob(null);
       setLastReceipt({ what: `${fig.figureLabel || "Figure"} digitized`, est, actual: cost });

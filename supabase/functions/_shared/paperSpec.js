@@ -1711,15 +1711,40 @@ export function phaseInstruction(phase, contextSpec) {
  *                     for this crop (see src/figureClassify.js), already
  *                     rendered to text. Null when the local read found nothing.
  */
-export function figureDigitizePrompt({ paperTitle, figureLabel, title, explanation, field, pipeline, draft }) {
+export function figureDigitizePrompt({ paperTitle, figureLabel, title, explanation, field, pipeline, draft, subplot }) {
   return (
-    "You turn ONE figure of a scientific paper into a faithful interactive reproduction. The image is that " +
-    "figure, cropped out of the paper at its own resolution. A reader has just asked to make it live.\n\n" +
+    (subplot
+      /* ---- ONE SUBPLOT, cut out of the figure by the client ----
+       *
+       * A multi-panel figure is read one panel per request now, because one
+       * request covering every panel outlived the host's wall clock. The cost
+       * of that is context: this image is a fragment, and the caption below
+       * describes the WHOLE figure. Told nothing, the model reads the caption's
+       * account of panels (a), (b) and (c) into the one panel it can see and
+       * answers for a figure it is not looking at. So the framing is explicit
+       * and the output is pinned to exactly one entry.
+       */
+      ? "You turn ONE SUBPLOT of a scientific paper's figure into a faithful interactive reproduction. " +
+        `The image is subplot ${subplot.index} of ${subplot.count}, cut out of the figure at its own ` +
+        "resolution — NOT the whole figure. A reader has just asked to make that figure live, and its " +
+        "other subplots are being read separately, right now, by requests like this one.\n\n"
+      : "You turn ONE figure of a scientific paper into a faithful interactive reproduction. The image is " +
+        "that figure, cropped out of the paper at its own resolution. A reader has just asked to make it " +
+        "live.\n\n") +
     (paperTitle ? `PAPER: ${paperTitle}\n` : "") +
     `FIGURE: ${figureLabel || "(unlabelled)"}\n` +
     (title ? `WHAT IT DEMONSTRATES: ${title}\n` : "") +
     (explanation ? `THE ANALYSIS'S GUIDED TOUR OF IT: ${explanation}\n` : "") +
-    "\nEmit one `panels` array: one entry per SUBPLOT in this figure, in reading order.\n\n" +
+
+    (subplot
+      ? "\nThat title and tour describe the WHOLE figure — every subplot of it. Use them only for the part " +
+        "that is about the panel IN FRONT OF YOU, and ignore what they say about the others. If the tour " +
+        "describes three panels and you can see one, you are answering for the one you can see.\n\n" +
+        "Emit a `panels` array with EXACTLY ONE entry: this subplot. Not the figure, not a summary of the " +
+        "figure, not the other panels from the caption. Give it the subplot's own label as printed — '(b)', " +
+        "'(b) Compensation performance' — so it can be put back in the figure's order; if it carries no " +
+        `letter, use "Subplot ${subplot.index}". Everything below applies to that one panel.\n\n`
+      : "\nEmit one `panels` array: one entry per SUBPLOT in this figure, in reading order.\n\n" +
 
     /* ---- COMPLETENESS, stated before anything else ----
      *
@@ -1740,7 +1765,7 @@ export function figureDigitizePrompt({ paperTitle, figureLabel, title, explanati
     "that many entries, in the figure's own reading order (left→right, then top→bottom), each carrying that " +
     "subplot's own label. A subplot you cannot read honestly is still an entry — reproduce:false with a " +
     "degradeReason. Returning fewer entries than the figure has subplots is a rejected answer: the reader " +
-    "sees the original beside your reproduction and counts them.\n\n" +
+    "sees the original beside your reproduction and counts them.\n\n") +
 
     /* ---- STAGE B framing: verify a draft, don't generate blind ----
      *
@@ -1774,10 +1799,14 @@ export function figureDigitizePrompt({ paperTitle, figureLabel, title, explanati
         "image as normal.\n\n" +
         "YOUR JOB IS TO VERIFY AND CORRECT THAT DRAFT AGAINST THE IMAGE — not to start over, and not to " +
         "rubber-stamp it. Go through it claim by claim:\n" +
-        "- SUBPLOT COUNT AND LAYOUT. Count the panels in the image yourself. If the draft says 6 in a 2x3 " +
-        "grid and you see 4 in a row, the image wins — emit 4. If the draft merged two panels that share " +
-        "an axis, split them; if it split one panel at an internal gridline, merge them. Emit ONE panel per " +
-        "subplot you can actually see, however many the draft claimed.\n" +
+        (subplot
+          ? "- WHAT THE CROP CONTAINS. The read describes the ONE panel in this image. If the crop caught a " +
+            "sliver of a neighbouring panel at its edge, ignore the sliver — you are answering for the panel " +
+            "this crop is centred on, and still with exactly one entry.\n"
+          : "- SUBPLOT COUNT AND LAYOUT. Count the panels in the image yourself. If the draft says 6 in a 2x3 " +
+            "grid and you see 4 in a row, the image wins — emit 4. If the draft merged two panels that share " +
+            "an axis, split them; if it split one panel at an internal gridline, merge them. Emit ONE panel per " +
+            "subplot you can actually see, however many the draft claimed.\n") +
         "- CHART FAMILY, per panel. The draft's guess comes from shape statistics and confuses the pairs " +
         "that look alike: box vs bar (a box has whiskers and a median line inside it), violin vs box (a " +
         "violin's outline curves), histogram vs bar (histogram bars touch), scatter vs line, heatmap vs " +
@@ -1845,8 +1874,20 @@ export function figureDigitizePrompt({ paperTitle, figureLabel, title, explanati
       : "This paper has NO simulation pipeline, so every panel you emit MUST use dataSource 'reported': the " +
         "paper's own values, read off this figure or its tables, returned as literals.") +
     fieldLexiconBlock(field) +
-    "\n\nOn the 1-2 most instructive reproduced panels, add a `predict` quiz (predict-then-reveal) about a " +
-    "relationship the reader must reason about, not something readable straight off the static figure."
+    /* Predict-then-reveal is a PAUSE, and a pause on every panel is not a
+     * pause. Reading the figure whole, the model can pick the one or two
+     * panels worth it; reading one panel per request it cannot see the others
+     * and would give every one of them a quiz. So the choice is made here
+     * instead, by position — the panel the reader meets first. */
+    (subplot
+      ? subplot.index === 1
+        ? "\n\nIf — and only if — this panel teaches a relationship worth pausing on, add a `predict` quiz " +
+          "(predict-then-reveal) about something the reader must reason about, not something readable " +
+          "straight off the static figure. This is the only panel of the figure that may carry one."
+        : "\n\nDo NOT add a `predict` quiz to this panel. Another subplot of this figure carries the " +
+          "figure's one quiz, and a quiz on every panel is an obstacle course rather than a pause."
+      : "\n\nOn the 1-2 most instructive reproduced panels, add a `predict` quiz (predict-then-reveal) about a " +
+        "relationship the reader must reason about, not something readable straight off the static figure.")
   );
 }
 

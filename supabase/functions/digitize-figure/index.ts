@@ -127,6 +127,22 @@ Deno.serve(async (req) => {
    * of measurements, not a document. */
   const draft = String(body?.draft || "").trim().slice(0, MAX_DRAFT_CHARS) || null;
 
+  /* WHICH SUBPLOT THIS IS, when the client cut the figure up.
+   *
+   * A multi-panel figure is now read one panel per request (see
+   * digitizeBySubplot in src/figureDigitize.js) — a single request covering
+   * every panel of a busy figure outlived the Edge Function's wall clock and
+   * reached the reader as a timeout. The crop in THIS request is therefore one
+   * subplot of a larger figure, and the prompt has to say so: without it the
+   * model reads "(b)" as a whole figure, re-reads the caption's description of
+   * all three panels into it, and labels its answer as the figure rather than
+   * the panel. */
+  const idx = Number(body?.subplot?.index);
+  const cnt = Number(body?.subplot?.count);
+  const subplot = Number.isInteger(idx) && Number.isInteger(cnt) && cnt > 1 && idx >= 1 && idx <= cnt
+    ? { index: idx, count: cnt }
+    : null;
+
   // --- balance (owner exempt) ----------------------------------------------
   let credit = null;
   if (!isOwner) {
@@ -143,7 +159,7 @@ Deno.serve(async (req) => {
   const priced = MODEL_CATALOG[DIGITIZE_MODEL];
   const client = new Anthropic({ apiKey });
 
-  const prompt = figureDigitizePrompt({ paperTitle, figureLabel, title, explanation, field, pipeline, draft }) +
+  const prompt = figureDigitizePrompt({ paperTitle, figureLabel, title, explanation, field, pipeline, draft, subplot }) +
     /* The client executes every returned kernel and checks every carrier before
      * showing it. When that check fails, its verdict comes back here — it knows
      * things this prompt cannot, like that a series plots flat. */
@@ -199,7 +215,7 @@ Deno.serve(async (req) => {
       { effort: "high", format: { type: "json_schema", schema: forStructuredOutput(FIGURE_PANELS_SCHEMA) } },
     );
   } catch (e) {
-    if (e?.timeout) return digitizeTimeout();
+    if (e?.timeout) return digitizeTimeout(subplot);
     /* Structured outputs compile the schema into a decoding grammar and that
      * compilation can be refused (analyze-paper hit "the compiled grammar is
      * too large" on the full PaperSpec). Any 4xx falls back to schema-in-prompt;
@@ -222,7 +238,7 @@ Deno.serve(async (req) => {
         { effort: "high" },
       );
     } catch (e2) {
-      if (e2?.timeout) return digitizeTimeout();
+      if (e2?.timeout) return digitizeTimeout(subplot);
       return json(502, { error: `Reading the figure failed: ${e2?.message || e2}` });
     }
   }
@@ -260,29 +276,56 @@ Deno.serve(async (req) => {
   console.log("figure digitize cost", JSON.stringify({
     model: DIGITIZE_MODEL,
     structured,
+    subplot: subplot ? `${subplot.index}/${subplot.count}` : "whole figure",
     panels: panels.length,
     costUsd: +cost.toFixed(4),
     inputTokens: response.usage?.input_tokens || 0,
     outputTokens: response.usage?.output_tokens || 0,
   }));
 
+  /* CHARGED ATOMICALLY, because these requests now arrive in parallel.
+   *
+   * A figure is read one request per subplot, several at once. The old
+   * read-modify-write — SELECT the balance above, subtract here, UPDATE —
+   * has every concurrent request read the same starting balance and the last
+   * write win, so a four-panel figure charged for one panel. charge_credit
+   * does the arithmetic inside the UPDATE, which takes a row lock, so the
+   * charges queue instead of overwriting each other. */
   let newBalance = null;
   if (!isOwner && credit) {
-    newBalance = Number(credit.balance_usd) - cost;
-    await admin.from("credits")
-      .update({ balance_usd: newBalance, updated_at: new Date().toISOString() })
-      .eq("user_id", userId);
+    const { data: charged, error: chargeErr } = await admin
+      .rpc("charge_credit", { p_user_id: userId, p_amount: cost });
+    if (chargeErr) {
+      /* The spend has already happened at Anthropic; failing the response now
+       * would give the reader nothing for it. Fall back to the old write and
+       * make the miss loud in the logs — a missing RPC means the migration
+       * has not been applied to this project. */
+      console.error("charge_credit failed, falling back to read-modify-write", chargeErr);
+      newBalance = Number(credit.balance_usd) - cost;
+      await admin.from("credits")
+        .update({ balance_usd: newBalance, updated_at: new Date().toISOString() })
+        .eq("user_id", userId);
+    } else {
+      newBalance = Number(charged);
+    }
   }
 
   return json(200, { panels, cost: isOwner ? 0 : cost, remainingBalance: newBalance });
 });
 
-/** The deliberate stop, said in words. See WALL_MS. */
-function digitizeTimeout() {
+/** The deliberate stop, said in words. See WALL_MS.
+ *
+ *  A whole-figure read that runs long has an obvious remedy the reader can't
+ *  act on any more (the client already splits multi-panel figures), so the two
+ *  cases say different things: a SUBPLOT that runs long is a genuinely dense
+ *  panel, and its neighbours are still being read. */
+function digitizeTimeout(subplot) {
   return json(504, {
-    error:
-      "Reading this figure took longer than the server allows. Figures with many subplots are the " +
-      "usual cause — try one panel of it, or try again.",
+    error: subplot
+      ? `Subplot ${subplot.index} of ${subplot.count} took longer than the server allows to read. ` +
+        "The rest of the figure is unaffected."
+      : "Reading this figure took longer than the server allows. Dense single-panel figures are the " +
+        "usual cause — try again.",
     code: "timeout",
   });
 }

@@ -1748,7 +1748,9 @@ export function XrefCard({
                   disabled={liveJob?.status === "working"}
                   className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-emerald-300/50 bg-emerald-500/10 py-1.5 text-[11.5px] font-semibold text-emerald-200 transition hover:bg-emerald-500/20 hover:text-white disabled:opacity-50">
                   {liveJob?.status === "working" && liveJob.figIndex === p.figIndex
-                    ? <>Reading this figure…</>
+                    ? (liveJob.total > 1
+                      ? <>Reading subplot {Math.min(liveJob.done + 1, liveJob.total)} of {liveJob.total}…</>
+                      : <>Reading this figure…</>)
                     : <><SlidersHorizontal size={13} /> Make this figure live (uses credit)</>}
                 </button>
               )}

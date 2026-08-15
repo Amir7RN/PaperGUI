@@ -1306,6 +1306,60 @@ export async function imageDataFromSrc(src, maxEdge = 900) {
 }
 
 /**
+ * Cut ONE subplot out of a figure crop, as its own data URL.
+ *
+ * This is what makes per-subplot digitization possible. Reading a four-panel
+ * figure in one request is both the slowest thing this app does — past
+ * Supabase's 150s wall clock, which the reader met as a timeout — and the
+ * least accurate, because every panel competes for the same attention and the
+ * same output budget. One panel per request is faster (they run at once),
+ * cheaper (a quarter of the image, a quarter of the answer), and degrades one
+ * panel at a time instead of losing the figure.
+ *
+ * Cut from the image at its NATIVE resolution, not the ~900px working copy
+ * Stage A measures on: a third of a downscaled crop is exactly the unreadable
+ * axis this feature keeps being blamed for. `pad` widens the box because Stage
+ * A's cell bounds are drawn at the ink, and a subplot's tick labels, units and
+ * panel letter live just outside it.
+ */
+export async function cropDataUrl(src, box, { pad = 0.02, maxEdge = 1400 } = {}) {
+  if (typeof document === "undefined") throw new Error("cropDataUrl needs a browser");
+  const img = await new Promise((resolve, reject) => {
+    const el = new Image();
+    el.crossOrigin = "anonymous";
+    el.onload = () => resolve(el);
+    el.onerror = () => reject(new Error("could not decode the figure image"));
+    el.src = src;
+  });
+
+  const iw = img.naturalWidth, ih = img.naturalHeight;
+  const x0 = Math.max(0, Math.min(1, box.fx0 - pad)) * iw;
+  const y0 = Math.max(0, Math.min(1, box.fy0 - pad)) * ih;
+  const x1 = Math.max(0, Math.min(1, box.fx1 + pad)) * iw;
+  const y1 = Math.max(0, Math.min(1, box.fy1 + pad)) * ih;
+  const sw = Math.max(1, Math.round(x1 - x0));
+  const sh = Math.max(1, Math.round(y1 - y0));
+
+  /* Never upscaled — interpolating a small panel adds pixels but no detail,
+   * and the extra bytes are paid for on every request. Only shrunk, and only
+   * when a page rendered at high DPI makes one subplot larger than the whole
+   * figure was meant to be. */
+  const scale = Math.min(1, maxEdge / Math.max(sw, sh));
+  const w = Math.max(1, Math.round(sw * scale));
+  const h = Math.max(1, Math.round(sh * scale));
+
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, w, h);
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(img, Math.round(x0), Math.round(y0), sw, sh, 0, 0, w, h);
+  return canvas.toDataURL("image/png");
+}
+
+/**
  * The whole of Stage A, from a figure's image to the text Stage B verifies.
  * Returns { draft, prompt } — or nulls, because a failed local read must never
  * stop the reader from digitizing the figure. Stage B works without it; it

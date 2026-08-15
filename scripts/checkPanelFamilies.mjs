@@ -34,8 +34,8 @@ export { default as React } from "react";
 export * from "${path.join(ROOT, "src/DigitizedPanels.jsx").replace(/\\/g, "/")}";
 export { resolveFigureForPanel, figureNumberIn } from "${path.join(ROOT, "src/figureResolve.js").replace(/\\/g, "/")}";
 export { auditPanel } from "${path.join(ROOT, "src/panelGen.js").replace(/\\/g, "/")}";
-export { auditFigurePanels, auditPanelCoverage } from "${path.join(ROOT, "src/figureDigitize.js").replace(/\\/g, "/")}";
-export { PHASE_SCHEMAS, FIGURE_PANELS_SCHEMA } from "${path.join(ROOT, "supabase/functions/_shared/paperSpec.js").replace(/\\/g, "/")}";
+export { auditFigurePanels, auditPanelCoverage, splitPlan } from "${path.join(ROOT, "src/figureDigitize.js").replace(/\\/g, "/")}";
+export { PHASE_SCHEMAS, FIGURE_PANELS_SCHEMA, figureDigitizePrompt } from "${path.join(ROOT, "supabase/functions/_shared/paperSpec.js").replace(/\\/g, "/")}";
 export * from "${path.join(ROOT, "scripts/panelFamilies.fixture.js").replace(/\\/g, "/")}";
 `;
 
@@ -256,6 +256,55 @@ ok("panels without axis spines don't inflate the expected count",
     panels: [tricolour, tricolour, tricolour], layout: { cols: 3 },
   }));
   ok("the figure's own grid is used, not a single column", grid.includes("repeat(3, minmax(0, 1fr))"));
+}
+
+/* ---- 6. one request per subplot ----
+ *
+ * A single request covering every panel of a busy figure outlives Supabase's
+ * 150s wall clock, so a confidently-segmented figure is read subplot by
+ * subplot. Two things have to hold: the split only fires on a segmentation
+ * worth trusting (a bad one crops a plot in half and gets a confident wrong
+ * answer), and a request carrying one subplot has to SAY so, or the model
+ * answers from the caption for panels it cannot see.
+ */
+console.log("\nper-subplot reads — the split, and the prompt that goes with it");
+
+const cell = (fx0, fy0, fx1, fy1, hasAxes = true) => ({ hasAxes, box: { fx0, fy0, fx1, fy1 } });
+const rowOfThree = {
+  ok: true, width: 900, height: 300, layout: { rows: 1, cols: 3, count: 3 },
+  subplots: [cell(0.02, 0.05, 0.32, 0.95), cell(0.35, 0.05, 0.65, 0.95), cell(0.68, 0.05, 0.98, 0.95)],
+};
+ok("a clean row of three is read one subplot at a time", M.splitPlan(rowOfThree)?.length === 3);
+ok("a 2x2 grid splits too", M.splitPlan({
+  ok: true, subplots: [cell(0, 0, 0.48, 0.48), cell(0.52, 0, 1, 0.48), cell(0, 0.52, 0.48, 1), cell(0.52, 0.52, 1, 1)],
+})?.length === 4);
+ok("a single-panel figure is read whole", M.splitPlan({ ok: true, subplots: [cell(0, 0, 1, 1)] }) === null);
+ok("no local read → read whole", M.splitPlan({ ok: false }) === null);
+ok("cells with no axis spines are not trusted enough to cut on",
+  M.splitPlan({ ok: true, subplots: rowOfThree.subplots.map((s) => ({ ...s, hasAxes: false })) }) === null);
+ok("label-strip slivers are not subplots",
+  M.splitPlan({ ok: true, subplots: [cell(0, 0, 1, 0.06), cell(0, 0.1, 1, 0.99)] }) === null);
+ok("a segmentation covering almost none of the crop is rejected",
+  M.splitPlan({ ok: true, subplots: [cell(0, 0, 0.2, 0.2), cell(0.3, 0.3, 0.5, 0.5)] }) === null);
+ok("an implausibly fine split is read whole instead",
+  M.splitPlan({ ok: true, subplots: Array.from({ length: 12 }, (_, i) => cell(i / 12, 0, (i + 1) / 12, 1)) }) === null);
+
+{
+  const args = { paperTitle: "P", figureLabel: "Fig. 3", title: "T", explanation: "Panels (a), (b) and (c) …", field: "" };
+  const whole = M.figureDigitizePrompt(args);
+  const part = M.figureDigitizePrompt({ ...args, subplot: { index: 2, count: 3 } });
+
+  ok("the whole-figure prompt still demands every subplot", whole.includes("EVERY SUBPLOT GETS AN ENTRY"));
+  ok("a subplot request does NOT ask for every subplot", !part.includes("EVERY SUBPLOT GETS AN ENTRY"));
+  ok("a subplot request pins the answer to one entry", part.includes("EXACTLY ONE entry"));
+  ok("a subplot request says which panel it is", part.includes("subplot 2 of 3"));
+  ok("a subplot request quarantines the whole-figure caption",
+    part.includes("describe the WHOLE figure") && part.includes("ignore what they say about the others"));
+  ok("the colour rule survives in both", whole.includes("MATCH THE COLOURS") && part.includes("MATCH THE COLOURS"));
+
+  const first = M.figureDigitizePrompt({ ...args, subplot: { index: 1, count: 3 } });
+  ok("only the first subplot may carry the figure's quiz", first.includes("only panel of the figure that may carry one"));
+  ok("later subplots are told not to add one", part.includes("Do NOT add a `predict` quiz"));
 }
 
 /* ---- coverage: the family list itself must not quietly shrink ---- */
