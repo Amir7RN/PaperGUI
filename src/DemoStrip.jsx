@@ -57,16 +57,13 @@ export const DEMOS = [
  *
  * THIS IS THE BAKED-IN DEFAULT. Arrange the strip, press "Copy layout", paste
  * the result here, and every visitor gets it. */
-/* Arranged at ~800px a tile, side by side, filling the width — which is what
- * the numbers below preserve. They are not the raw ones the arrangement
- * produced (-5%..110.5%): that pair is 115.5% of the strip, so it ran off both
- * edges of the window it was built in, and the choice was a page-wide
- * horizontal scrollbar or a clipped tile whose title read "ure". The strip is
- * full-bleed instead (see App.jsx), which buys back the width the bleed was
- * reaching for, and the tiles sit inside it at the same rendered size. */
+/* Arranged in the browser, on the real page, and pasted back here — the pair
+ * spans 2.5% to 94.5%, so it sits inside the strip with a little air at each
+ * end and nothing to clip. The strip itself is full-bleed (see App.jsx), which
+ * is what makes 46% of it a ~700px tile you can read an app in. */
 const DEFAULT_RECTS = {
-  "live-figure": { x: 0,    y: 0, w: 49.5 },
-  "teach-me":    { x: 50.5, y: 0, w: 49.5 },
+  "live-figure": { x: 2.5, y: 0, w: 46 },
+  "teach-me":    { x: 49,  y: 0, w: 45.5 },
 };
 
 const STORAGE = "pp-demo-strip";
