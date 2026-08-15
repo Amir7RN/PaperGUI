@@ -11,7 +11,7 @@ import {
   FlaskConical, Upload, Wallet,
   Loader2, TriangleAlert, FileText, Sparkles, SlidersHorizontal, LineChart, LogOut,
   ChevronDown, Wand2, Landmark, Image as ImageIcon, LogIn, BookMarked, Mail, MapPin,
-  FileCode2, X as XIcon,
+  FileCode2, X as XIcon, Play,
 } from "lucide-react";
 import Workspace from "./Workspace.jsx";
 import Auth from "./Auth.jsx";
@@ -284,6 +284,70 @@ function SiteFooter({ onContact }) {
         </p>
       </div>
     </footer>
+  );
+}
+
+/* ---------------- the three recordings ----------------
+ *
+ * Screen captures of the three things this page has just claimed, sitting
+ * directly under the claim. A sentence saying "the figure comes back live" is
+ * a promise; ten seconds of someone dragging one is the proof, and it costs
+ * the reader nothing to check.
+ *
+ * PLAYED ON CLICK, NEVER ON ARRIVAL, and this is not a taste decision: the
+ * three files are 6-12 MB each. Rendered as plain <img> they would be fetched
+ * by every visitor before the page settled — 30 MB to look at a landing page,
+ * most of it on a phone, all of it before anyone decided they cared. So the
+ * tile is a poster until it is clicked, `src` is set only then, and clicking
+ * again drops it. Three GIFs autoplaying side by side is also simply hard to
+ * watch: nothing holds still long enough to read.
+ */
+const DEMOS = [
+  { title: "Live figure", src: "/sciloupe-demo-live-figure-fig7.gif", blurb: "A figure of the paper, traced and made interactive" },
+  { title: "Teach me", src: "/sciloupe-demo-teach-me.gif", blurb: "A section, taught and quizzed on the spot" },
+  { title: "Live references", src: "/sciloupe-demo-references.gif", blurb: "A citation, resolved and explained where it sits" },
+];
+
+function DemoTile({ title, src, blurb }) {
+  const [playing, setPlaying] = useState(false);
+  return (
+    <Tilt3D className="h-full rounded-2xl" max={7} lift={20} glare={false}>
+      <button
+        type="button"
+        onClick={() => setPlaying((v) => !v)}
+        aria-pressed={playing}
+        aria-label={playing ? `Stop the ${title} recording` : `Play the ${title} recording`}
+        className="pp-3d-card group block h-full w-full overflow-hidden rounded-2xl border border-slate-200/80 bg-white text-left shadow-sm transition hover:shadow-[0_36px_70px_-40px_rgba(15,23,42,0.5)]"
+      >
+        <span className="relative block aspect-video w-full overflow-hidden bg-slate-900">
+          {playing ? (
+            /* `src` set only now — this is the fetch, and it is the reader's
+               decision. The key restarts the GIF from its first frame when a
+               tile is replayed, instead of resuming a cached animation. */
+            <img key={src} src={src} alt={`${title} — screen recording`}
+              className="h-full w-full object-cover" />
+          ) : (
+            <span className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-gradient-to-br from-slate-800 via-slate-900 to-blue-950">
+              <span className="pp-pop flex h-11 w-11 items-center justify-center rounded-full bg-white/95 text-slate-900 shadow-lg transition group-hover:scale-110">
+                <Play size={17} className="ml-0.5 fill-current" />
+              </span>
+              <span className="text-[10.5px] font-semibold uppercase tracking-[0.14em] text-slate-400">click to play</span>
+            </span>
+          )}
+        </span>
+        <span className="block px-4 py-3">
+          <span className="flex items-center gap-2">
+            <span className="text-[14px] font-bold text-slate-900">{title}</span>
+            {playing && (
+              <span className="rounded-full bg-emerald-50 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-emerald-600">
+                playing
+              </span>
+            )}
+          </span>
+          <span className="mt-0.5 block text-[12px] leading-relaxed text-slate-500">{blurb}</span>
+        </span>
+      </button>
+    </Tilt3D>
   );
 }
 
@@ -617,39 +681,17 @@ function Landing({
             </p>
           </Reveal>
 
-          <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {[
-              { icon: LineChart, tone: "text-emerald-600 bg-emerald-50", title: "The real figures, recreated", body: "Digitized point-for-point off the PDF and made interactive — hover, compare, read exact values. Not a description of the figure. The figure." },
-              { icon: SlidersHorizontal, tone: "text-blue-600 bg-blue-50", title: "The method on knobs", body: "Every coefficient the paper reports becomes a slider. Turn it and the reproduced figures reshape live, so you feel what each parameter does." },
-              { icon: Wand2, tone: "text-violet-600 bg-violet-50", title: "A tutor for every section", body: "Ask, get Socratically quizzed, or talk by voice — grounded only in this paper's own content, section by section." },
-              { icon: FileText, tone: "text-amber-600 bg-amber-50", title: "Trust by construction", body: "Every number traces to a figure, table or equation, and claims are tagged shown vs asserted. Nothing invented." },
-            ].map(({ icon: Icon, tone, title, body }, i) => (
-              <Reveal key={title} delay={i * 70} className="h-full">
-                <Tilt3D className="h-full rounded-2xl" max={9} lift={28}>
-                  <div className="pp-3d-card group h-full rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm transition hover:shadow-[0_36px_70px_-40px_rgba(15,23,42,0.5)]">
-                    <span className={`pp-pop flex h-10 w-10 items-center justify-center rounded-xl ${tone} shadow-lg shadow-slate-900/10 transition group-hover:scale-110`}><Icon size={18} /></span>
-                    <h3 className="pp-pop-sm mt-4 text-[15px] font-bold text-slate-900">{title}</h3>
-                    <p className="mt-1.5 text-[12.5px] leading-relaxed text-slate-500">{body}</p>
-                  </div>
-                </Tilt3D>
+          {/* The claim above, on film. Three real recordings, side by side,
+              each waiting on a click — see DemoTile for why they are not
+              autoplaying (they are 6-12 MB apiece, and three moving images at
+              once is unreadable anyway). */}
+          <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {DEMOS.map((d, i) => (
+              <Reveal key={d.title} delay={i * 70} className="h-full">
+                <DemoTile {...d} />
               </Reveal>
             ))}
           </div>
-
-          <Reveal delay={120} className="mx-auto mt-8 max-w-3xl">
-            <Tilt3D className="rounded-2xl" max={5} lift={16} glare={false}>
-              <div className="flex flex-col gap-px overflow-hidden rounded-2xl border border-slate-200 shadow-sm sm:flex-row">
-                <div className="flex-1 bg-slate-50 px-5 py-4">
-                  <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">A chatbot</div>
-                  <div className="mt-1 text-[13px] text-slate-600">Paragraphs of text about the paper — that you still have to read, and can't verify.</div>
-                </div>
-                <div className="flex-1 bg-slate-900 px-5 py-4">
-                  <div className="text-[11px] font-semibold uppercase tracking-wider text-blue-300">This playground</div>
-                  <div className="mt-1 text-[13px] text-white">The paper's figures, live and tunable, with a tutor and the numbers in your hands.</div>
-                </div>
-              </div>
-            </Tilt3D>
-          </Reveal>
         </section>
 
         {/* ===================== TRY IT ===================== */}
@@ -793,6 +835,50 @@ function Landing({
                   and deleting the analysis deletes the PDF with it.
                 </p>
             </div>
+          </div>
+        </section>
+
+        {/* ===================== WHAT YOU GET =====================
+            Moved down here from under "why not just ask a chatbot?", which now
+            answers itself with the three recordings instead. Four claims and a
+            side-by-side read as small print BEFORE anyone has seen the thing
+            work; after the demos and the upload box, they are what a reader
+            who is nearly convinced actually wants. */}
+        <section className="pp-scene border-t border-slate-200/70 bg-slate-50/60">
+          <div className="mx-auto max-w-6xl px-5 py-16 sm:px-8">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {[
+                { icon: LineChart, tone: "text-emerald-600 bg-emerald-50", title: "The real figures, recreated", body: "Digitized point-for-point off the PDF and made interactive — hover, compare, read exact values. Not a description of the figure. The figure." },
+                { icon: SlidersHorizontal, tone: "text-blue-600 bg-blue-50", title: "The method on knobs", body: "Every coefficient the paper reports becomes a slider. Turn it and the reproduced figures reshape live, so you feel what each parameter does." },
+                { icon: Wand2, tone: "text-violet-600 bg-violet-50", title: "A tutor for every section", body: "Ask, get Socratically quizzed, or talk by voice — grounded only in this paper's own content, section by section." },
+                { icon: FileText, tone: "text-amber-600 bg-amber-50", title: "Trust by construction", body: "Every number traces to a figure, table or equation, and claims are tagged shown vs asserted. Nothing invented." },
+              ].map(({ icon: Icon, tone, title, body }, i) => (
+                <Reveal key={title} delay={i * 70} className="h-full">
+                  <Tilt3D className="h-full rounded-2xl" max={9} lift={28}>
+                    <div className="pp-3d-card group h-full rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm transition hover:shadow-[0_36px_70px_-40px_rgba(15,23,42,0.5)]">
+                      <span className={`pp-pop flex h-10 w-10 items-center justify-center rounded-xl ${tone} shadow-lg shadow-slate-900/10 transition group-hover:scale-110`}><Icon size={18} /></span>
+                      <h3 className="pp-pop-sm mt-4 text-[15px] font-bold text-slate-900">{title}</h3>
+                      <p className="mt-1.5 text-[12.5px] leading-relaxed text-slate-500">{body}</p>
+                    </div>
+                  </Tilt3D>
+                </Reveal>
+              ))}
+            </div>
+
+            <Reveal delay={120} className="mx-auto mt-8 max-w-3xl">
+              <Tilt3D className="rounded-2xl" max={5} lift={16} glare={false}>
+                <div className="flex flex-col gap-px overflow-hidden rounded-2xl border border-slate-200 shadow-sm sm:flex-row">
+                  <div className="flex-1 bg-white px-5 py-4">
+                    <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">A chatbot</div>
+                    <div className="mt-1 text-[13px] text-slate-600">Paragraphs of text about the paper — that you still have to read, and can't verify.</div>
+                  </div>
+                  <div className="flex-1 bg-slate-900 px-5 py-4">
+                    <div className="text-[11px] font-semibold uppercase tracking-wider text-blue-300">This playground</div>
+                    <div className="mt-1 text-[13px] text-white">The paper's figures, live and tunable, with a tutor and the numbers in your hands.</div>
+                  </div>
+                </div>
+              </Tilt3D>
+            </Reveal>
           </div>
         </section>
 

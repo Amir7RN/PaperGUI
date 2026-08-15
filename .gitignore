@@ -12,8 +12,9 @@ scratch/
 # user papers
 *.pdf
 
-# root copy (tracked version lives in public/)
+# root copies (tracked versions live in public/, which is what gets served)
 /Background.png
+/sciloupe-demo-*.gif
 
 # local paper source folders (PDFs + raw supplementary data; crops and extracted data are committed instead)
 papers/
