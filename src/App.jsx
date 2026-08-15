@@ -630,7 +630,7 @@ function Landing({
               readable measure. Capped at 120rem so an ultrawide display gets
               big tiles, not absurd ones. */}
           <Reveal delay={80} className="relative left-1/2 mt-10 w-[min(120rem,100vw-2.5rem)] -translate-x-1/2">
-            <DemoStrip owner={owner} />
+            <DemoStrip />
           </Reveal>
         </section>
 
