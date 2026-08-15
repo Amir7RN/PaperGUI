@@ -18,8 +18,11 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      # v5 of both, because v4 runs on Node 20 — deprecated on GitHub runners
+      # since September 2025 and already being force-run on Node 24, which is
+      # the warning every build was printing.
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
